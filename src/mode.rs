@@ -2,12 +2,12 @@
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
-    Browsing,
+    Browse,
     /// Incremental `/` filter on the focused pane.
-    Searching,
+    Search,
     /// A text input is focused; sub-mode lives on `VimInput`.
-    InputInsert,
-    InputNormal,
+    Insert,
+    Normal,
     Leader,
     /// Later phases (multi-select).
     #[allow(dead_code)]
@@ -17,10 +17,10 @@ pub enum Mode {
 impl Mode {
     pub fn chip(self) -> &'static str {
         match self {
-            Mode::Browsing => "BROWSING",
-            Mode::Searching => "SEARCHING",
-            Mode::InputInsert => "INSERT",
-            Mode::InputNormal => "NORMAL",
+            Mode::Browse => "BROWSE",
+            Mode::Search => "SEARCH",
+            Mode::Insert => "INSERT",
+            Mode::Normal => "NORMAL",
             Mode::Leader => "LEADER",
             Mode::Visual => "VISUAL",
         }

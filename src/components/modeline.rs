@@ -23,10 +23,10 @@ impl Modeline {
     pub fn render(&self, frame: &mut Frame, area: Rect, mode: Mode, theme: &Theme) {
         let sem = &theme.semantic;
         let chip_bg = match mode {
-            Mode::Browsing => sem.mode_browsing,
-            Mode::Searching => sem.mode_searching,
-            Mode::InputInsert => sem.mode_insert,
-            Mode::InputNormal => sem.mode_normal,
+            Mode::Browse => sem.mode_browse,
+            Mode::Search => sem.mode_search,
+            Mode::Insert => sem.mode_insert,
+            Mode::Normal => sem.mode_normal,
             Mode::Leader => sem.mode_leader,
             Mode::Visual => sem.mode_leader,
         };

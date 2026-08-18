@@ -31,7 +31,7 @@ pub struct App {
 impl App {
     pub fn new() -> Self {
         App {
-            mode: Mode::Browsing,
+            mode: Mode::Browse,
             browser: Browser::new(),
             popup: Some(SearchPopup::new()), // launch flow opens on search
             modeline: Modeline::new(),
@@ -59,8 +59,8 @@ impl App {
             return popup.handle_key(key);
         }
         match self.mode {
-            Mode::Browsing => keymap::browsing(key.code),
-            Mode::Searching => match self.browser.filter_input.handle_key(key) {
+            Mode::Browse => keymap::browsing(key.code),
+            Mode::Search => match self.browser.filter_input.handle_key(key) {
                 Outcome::Changed => Action::Noop, // filter applied in route
                 Outcome::Submitted => Action::CommitFilter,
                 Outcome::Cancelled => Action::ClearFilter,
@@ -76,29 +76,29 @@ impl App {
             Action::Quit | Action::LeaderQuit => self.should_quit = true,
             Action::ClosePopup => {
                 self.popup = None;
-                self.mode = Mode::Browsing;
+                self.mode = Mode::Browse;
                 self.force_redraw = true;
             }
             Action::RepoSelected { owner, name } => {
                 self.browser.set_repo(&owner, &name);
                 self.popup = None;
-                self.mode = Mode::Browsing;
+                self.mode = Mode::Browse;
                 self.force_redraw = true;
             }
             Action::Leader => self.mode = Mode::Leader,
             Action::LeaderSearch => {
                 self.popup = Some(SearchPopup::new());
-                self.mode = Mode::Browsing;
+                self.mode = Mode::Browse;
             }
             Action::EnterSearch => {
                 self.browser.filter_input.submode =
                     crate::components::vim_input::SubMode::Insert;
-                self.mode = Mode::Searching;
+                self.mode = Mode::Search;
             }
-            Action::CommitFilter => self.mode = Mode::Browsing,
+            Action::CommitFilter => self.mode = Mode::Browse,
             Action::ClearFilter => {
                 self.browser.clear_filter();
-                self.mode = Mode::Browsing;
+                self.mode = Mode::Browse;
             }
             Action::MoveUp | Action::MoveDown | Action::DrillIn | Action::DrillOut => {
                 self.browser.update(&action);
@@ -116,7 +116,7 @@ impl App {
         }
 
         // Incremental filter: re-apply on every SEARCHING keystroke.
-        if self.mode == Mode::Searching {
+        if self.mode == Mode::Search {
             self.browser.apply_filter();
         }
     }

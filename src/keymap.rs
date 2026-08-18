@@ -8,16 +8,16 @@ use ratatui::crossterm::event::KeyCode;
 /// (key label, description) shown in the modeline / popup hint row.
 pub fn hints(mode: Mode) -> &'static [(&'static str, &'static str)] {
     match mode {
-        Mode::Browsing => &[
+        Mode::Browse => &[
             ("j/k", "move"),
             ("h/l", "out/in"),
             ("/", "filter"),
             ("␣", "leader"),
             ("q", "quit"),
         ],
-        Mode::Searching => &[("type", "filter"), ("enter", "commit"), ("esc", "cancel")],
-        Mode::InputInsert => &[("enter", "submit"), ("tab", "results"), ("esc", "normal")],
-        Mode::InputNormal => &[("i", "insert"), ("tab", "switch"), ("esc", "close")],
+        Mode::Search => &[("type", "filter"), ("enter", "commit"), ("esc", "cancel")],
+        Mode::Insert => &[("enter", "submit"), ("tab", "results"), ("esc", "normal")],
+        Mode::Normal => &[("i", "insert"), ("tab", "switch"), ("esc", "close")],
         Mode::Leader => &[("s", "search"), ("r", "reload"), ("q", "quit"), ("esc", "back")],
         Mode::Visual => &[],
     }

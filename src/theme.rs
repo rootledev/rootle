@@ -30,8 +30,8 @@ pub struct Semantic {
     pub error: Color,
     pub warning: Color,
 
-    pub mode_browsing: Color,
-    pub mode_searching: Color,
+    pub mode_browse: Color,
+    pub mode_search: Color,
     pub mode_insert: Color,
     pub mode_normal: Color,
     pub mode_leader: Color,
@@ -50,20 +50,20 @@ impl Theme {
                 subtext0: Color::from_u32(0xa6adc8),
                 text: Color::from_u32(0xcdd6f4),
 
-                border_focused: Color::from_u32(0xcba6f7), // mauve
+                border_focused: Color::from_u32(0x89b4fa), // blue — dominant accent
                 border_unfocused: Color::from_u32(0x585b70), // surface2
                 directory: Color::from_u32(0x89b4fa),      // blue
                 file: Color::from_u32(0xcdd6f4),           // text
                 selection_bg: Color::from_u32(0x313244),   // surface0
-                selection_fg: Color::from_u32(0xcdd6f4),   // text
+                selection_fg: Color::from_u32(0x89b4fa),   // blue
                 hint: Color::from_u32(0xa6adc8),           // subtext0
                 error: Color::from_u32(0xf38ba8),          // red
                 warning: Color::from_u32(0xf9e2af),        // yellow
 
-                mode_browsing: Color::from_u32(0xa6e3a1),  // green
-                mode_searching: Color::from_u32(0xf9e2af), // yellow
-                mode_insert: Color::from_u32(0x89b4fa),    // blue
-                mode_normal: Color::from_u32(0xcba6f7),    // mauve
+                mode_browse: Color::from_u32(0xa6e3a1),    // green
+                mode_search: Color::from_u32(0xf9e2af),    // yellow
+                mode_insert: Color::from_u32(0x94e2d5),    // teal
+                mode_normal: Color::from_u32(0x89b4fa),    // blue
                 mode_leader: Color::from_u32(0xfab387),    // peach
             },
         }

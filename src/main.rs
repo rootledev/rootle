@@ -34,15 +34,17 @@ fn main() -> io::Result<()> {
 fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> {
     let mut app = App::new();
     loop {
-        terminal.draw(|frame| {
-            let area = frame.area();
-            app.render(frame, area);
-        })?;
-
+        // Full clear must precede the draw: Terminal::clear resets the
+        // diff buffers, so the next draw re-renders every cell. Clearing
+        // after a draw would leave the screen blank until the next event.
         if app.force_redraw {
             app.force_redraw = false;
             terminal.clear()?;
         }
+        terminal.draw(|frame| {
+            let area = frame.area();
+            app.render(frame, area);
+        })?;
 
         if event::poll(Duration::from_millis(250))? {
             match event::read()? {

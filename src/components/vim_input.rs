@@ -27,6 +27,9 @@ pub struct VimInput {
     /// (0..=len), in Normal it sits on a char (0..len-1).
     cursor: usize,
     pub submode: SubMode,
+    /// Modal inputs (popup query) get Esc→NORMAL. Transient inputs
+    /// (`/` filter lines) cancel directly on Esc, like vim's `/`.
+    modal: bool,
 }
 
 impl VimInput {
@@ -35,6 +38,15 @@ impl VimInput {
             chars: Vec::new(),
             cursor: 0,
             submode: SubMode::Insert,
+            modal: true,
+        }
+    }
+
+    /// Single-stroke input: Esc cancels instead of entering NORMAL.
+    pub fn transient() -> Self {
+        Self {
+            modal: false,
+            ..Self::new()
         }
     }
 
@@ -102,6 +114,9 @@ impl VimInput {
             }
             KeyCode::Enter => Outcome::Submitted,
             KeyCode::Esc => {
+                if !self.modal {
+                    return Outcome::Cancelled;
+                }
                 self.submode = SubMode::Normal;
                 if self.cursor > 0 && self.cursor == self.chars.len() {
                     self.cursor -= 1;
@@ -219,6 +234,14 @@ mod tests {
     fn enter_submits_from_insert() {
         let mut input = VimInput::new();
         assert_eq!(input.handle_key(key(KeyCode::Enter)), Outcome::Submitted);
+    }
+
+    #[test]
+    fn transient_input_esc_cancels_without_normal_mode() {
+        let mut input = VimInput::transient();
+        input.handle_key(key(KeyCode::Char('x')));
+        assert_eq!(input.handle_key(key(KeyCode::Esc)), Outcome::Cancelled);
+        assert_eq!(input.submode, SubMode::Insert);
     }
 
     #[test]

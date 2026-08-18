@@ -18,6 +18,9 @@ launch
         │             (focusing input always lands in INSERT mode,
         │              so a typo fix is: <Tab> → type → <Enter>)
         │  ↑↓/j/k   → navigate results
+        │  /        → local incremental filter over the result set
+        │             (SEARCH chip; type filters live, <Enter> commits,
+        │              <Esc> cancels to pre-filter; pure local, no API)
         │  <Esc>    → input: INSERT→NORMAL; NORMAL: dismiss popup
         │  <Enter> on result → select repo
         ▼
@@ -31,12 +34,13 @@ launch
         │          │  dir)    │  dir: tree)  │
         └──────────┴──────────┴──────────────┘
   ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄ modeline + key hints ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
-        l/→  drill in (repo → root dir → subdir → …); each drill shifts
-             the column window right, leftmost pane scrolls off
-        h/←  back out one level
+        l/→  drill in (repo → root dir → subdir → …) or move focus right
+        h/←  move focus LEFT into the parent column — the parent stays
+             live: j/k browse it and the child column rebuilds
+             (cascades) from the new selection, yazi-style
         j/↓  next entry       k/↑  prev entry
         /    enter SEARCH mode on the focused pane: incremental filter
-             while typing; <Enter> commits filter (back to BROWSING,
+             while typing; <Enter> commits filter (back to BROWSE,
              filter stays); <Esc> while typing cancels to pre-filter
              state; <Esc> on a committed filter clears it
         <Enter> on file → open in editor (read-only), exit → back to ghx
@@ -49,13 +53,18 @@ launch
 ghx is strictly modal. Global mode stack; the modeline always shows the
 current mode as a chip, plus context key hints on the right.
 
-| Mode        | Modeline chip | Entered by | Exits to |
-|-------------|---------------|------------|----------|
-| BROWSING    | `[BROWSING]`  | default after repo select | — |
-| SEARCHING   | `[SEARCHING]` | `/` on any pane, or typing in the search popup input | BROWSING on `<Enter>`/`<Esc>` |
-| INPUT       | `[INSERT]` / `[NORMAL]` | any focused text field (popup input, `/` filter line) | popup close / pane |
-| LEADER      | `[LEADER]`    | `<Space>` | previous mode after command |
-| VISUAL      | `[VISUAL]`    | later phases (multi-select) | — |
+| Mode     | Modeline chip | Entered by | Exits to |
+|----------|---------------|------------|----------|
+| BROWSE   | `[BROWSE]`    | default after repo select | — |
+| SEARCH   | `[SEARCH]`    | `/` on any pane or popup results | BROWSE on `<Enter>`/`<Esc>` |
+| INSERT   | `[INSERT]`    | any focused text field (popup query, `/` filter line) | NORMAL on `<Esc>` (modal inputs) |
+| NORMAL   | `[NORMAL]`    | `<Esc>` in a modal text input | INSERT on `i`/`a`; popup closes on `<Esc>` |
+| LEADER   | `[LEADER]`    | `<Space>` | previous mode after command |
+| VISUAL   | `[VISUAL]`    | later phases (multi-select) | — |
+
+- `/` filter lines are *transient* inputs: no NORMAL sub-mode — a single
+  `<Esc>` cancels, like vim's own `/`. Only standalone fields (the popup
+  query) get the full INSERT/NORMAL treatment.
 
 - Modeline: one row at the very bottom, full width. Left: mode chip
   (accent-colored, bold). Middle: context path or status (current repo,
@@ -120,7 +129,7 @@ Principles: quiet by default, one accent, state lives in the modeline.
   left gutter holding the selection indicator. Three panes at fixed
   ratios 1 : 2 : 2 (parent : current : preview).
 - **Borders**: rounded (`border_type::Rounded`). Focused pane border in
-  `border_focused` (mauve); unfocused in `border_unfocused` (surface2).
+  `border_focused` (blue — the dominant accent); unfocused in `border_unfocused` (surface2).
   Pane title sits in the top border, left-aligned: the pane's path
   (`src/`, `ratatui/src/widgets/`).
 - **Popups**: centered, ~60% width, dim backdrop (render main UI, overlay
@@ -134,8 +143,8 @@ Principles: quiet by default, one accent, state lives in the modeline.
   `selection_fg` text; the gutter indicator is a `▌` in accent. No
   bold-flipping of the row text — background carries the state.
 - **Modeline**: inverse surface bar; mode chip is a solid accent block
-  with crust text, one per mode (browsing=green, searching=yellow,
-  insert=blue, normal=mauve, leader=peach, visual=pink). Hints are
+  with crust text, one per mode (browse=green, search=yellow,
+  insert=teal, normal=blue, leader=peach, visual=pink). Hints are
   `subtext0` with the key itself in `text` bold.
 - **Feedback**: network in-flight → spinner in the modeline right of the
   mode chip; errors → a transient toast line above the modeline

@@ -1,4 +1,7 @@
 //! Three-pane miller browser over org → repo → dir → file (PLAN.md §1).
+//! Yazi semantics: `h` moves focus left into the parent column, where
+//! j/k then browse the parent — the child column rebuilds (cascades)
+//! from the new selection. `l` drills back in / deeper.
 //! Milestone 1: mock data only; GitHub backend lands in milestones 3–4.
 
 use super::pane::{EntryKind, Pane};
@@ -10,38 +13,41 @@ use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::Frame;
 
 pub struct Browser {
-    /// Level stack; last = current (center column).
+    /// Level stack: levels[i] lists the children of the selection in
+    /// levels[i-1]. levels[0] = orgs, levels[1] = repos, then dirs.
     levels: Vec<Pane>,
+    /// Which level owns the keyboard. Default = deepest level.
+    focus: usize,
     pub preview: Preview,
-    /// `/` filter input, owned here, active in SEARCHING mode.
+    /// `/` filter input, owned here, active in SEARCH mode.
     pub filter_input: VimInput,
 }
 
 impl Browser {
     pub fn new() -> Self {
-        let orgs = mock::orgs();
         let mut browser = Browser {
             levels: vec![
-                Pane::new("orgs", orgs),
+                Pane::new("orgs", mock::orgs()),
                 Pane::new("ratatui", mock::repos("ratatui")),
             ],
+            focus: 1,
             preview: Preview::new(),
-            filter_input: VimInput::new(),
+            filter_input: VimInput::transient(),
         };
-        browser.focus_current();
-        browser.refresh_preview();
+        browser.sync();
         browser
     }
 
     fn current(&mut self) -> &mut Pane {
-        self.levels.last_mut().expect("level stack never empty")
+        &mut self.levels[self.focus]
     }
 
-    fn focus_current(&mut self) {
-        let last = self.levels.len() - 1;
+    /// Recompute focused flags + preview after any state change.
+    fn sync(&mut self) {
         for (i, pane) in self.levels.iter_mut().enumerate() {
-            pane.focused = i == last;
+            pane.focused = i == self.focus;
         }
+        self.refresh_preview();
     }
 
     pub fn context(&self) -> String {
@@ -54,85 +60,109 @@ impl Browser {
     }
 
     pub fn selected_kind(&self) -> Option<EntryKind> {
-        self.levels
-            .last()
-            .and_then(|p| p.selected_entry())
-            .map(|e| e.kind)
+        self.levels[self.focus].selected_entry().map(|e| e.kind)
     }
 
     pub fn set_repo(&mut self, owner: &str, name: &str) {
         self.levels.truncate(1);
         self.levels.push(Pane::new(owner, mock::repos(owner)));
         self.levels.push(Pane::new(name, mock::dir(name, "")));
-        self.focus_current();
-        self.refresh_preview();
+        self.focus = self.levels.len() - 1;
+        self.sync();
     }
 
-    pub fn update(&mut self, action: &Action) -> Action {
+    pub fn update(&mut self, action: &Action) {
         match action {
             Action::MoveUp | Action::MoveDown => {
                 self.current().update(action);
-                self.refresh_preview();
+                // Selection changed in the focused column: every column
+                // to its right is stale — rebuild from the new selection.
+                self.cascade();
             }
             Action::DrillIn => self.drill_in(),
             Action::DrillOut => {
-                if self.levels.len() > 2 {
-                    self.levels.pop();
-                    self.focus_current();
-                    self.refresh_preview();
+                if self.focus > 0 {
+                    self.focus -= 1;
                 }
             }
-            _ => {}
+            _ => return,
         }
-        Action::Noop
+        self.sync();
+    }
+
+    /// Drop levels right of focus and re-derive the immediate child
+    /// level from the focused selection (drillable entries only).
+    fn cascade(&mut self) {
+        self.levels.truncate(self.focus + 1);
+        let Some(entry) = self.levels[self.focus].selected_entry().cloned() else {
+            return;
+        };
+        if let Some(children) = mock::children(&entry, &self.dir_path()) {
+            self.levels.push(Pane::new(entry.name.clone(), children));
+        }
     }
 
     fn drill_in(&mut self) {
-        let Some(entry) = self.current().selected_entry().cloned() else {
+        let Some(entry) = self.levels[self.focus].selected_entry().cloned() else {
             return;
         };
-        let title = entry.name.clone();
-        let children = match entry.kind {
-            EntryKind::Org => mock::repos(&title),
-            EntryKind::Repo => mock::dir(&title, ""),
-            EntryKind::Dir => {
-                let path = self
-                    .levels
-                    .iter()
-                    .skip(2)
-                    .map(|p| p.title.as_str())
-                    .collect::<Vec<_>>()
-                    .join("/");
-                mock::dir(&title, &path)
+        if entry.kind == EntryKind::File {
+            return; // OpenSelected handled by app (editor, milestone 6)
+        }
+        if self.focus == self.levels.len() - 1 {
+            // No child level yet (shouldn't happen post-cascade, but be safe).
+            if let Some(children) = mock::children(&entry, &self.dir_path()) {
+                self.levels.push(Pane::new(entry.name.clone(), children));
             }
-            EntryKind::File => return, // OpenSelected handled by app
-        };
-        self.levels.push(Pane::new(title, children));
-        self.focus_current();
-        self.refresh_preview();
+        }
+        if self.focus + 1 < self.levels.len() {
+            self.focus += 1;
+        }
+    }
+
+    /// Path of dir-level titles, for the mock/backend child lookup.
+    fn dir_path(&self) -> String {
+        self.levels
+            .iter()
+            .take(self.focus + 1)
+            .skip(2)
+            .map(|p| p.title.as_str())
+            .collect::<Vec<_>>()
+            .join("/")
     }
 
     pub fn apply_filter(&mut self) {
         let filter = self.filter_input.value();
         self.current().set_filter(filter);
-        self.refresh_preview();
+        self.cascade();
+        self.sync();
     }
 
     pub fn clear_filter(&mut self) {
         self.filter_input.clear();
         self.current().set_filter(String::new());
-        self.refresh_preview();
+        self.cascade();
+        self.sync();
     }
 
     fn refresh_preview(&mut self) {
-        let Some(entry) = self.current().selected_entry().cloned() else {
+        let Some(entry) = self.levels[self.focus].selected_entry().cloned() else {
             self.preview.content = Default::default();
             return;
         };
         match entry.kind {
             EntryKind::File => self.preview.set_bytes(&entry.name, &mock::file_bytes(&entry.name)),
             EntryKind::Dir | EntryKind::Repo | EntryKind::Org => {
-                let children = mock::children_names(&entry);
+                let children = mock::children(&entry, &self.dir_path())
+                    .map(|es| {
+                        es.iter()
+                            .map(|e| match e.kind {
+                                EntryKind::File => e.name.clone(),
+                                _ => format!("{}/", e.name),
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
                 self.preview.set_dir(&entry.name, children);
             }
         }
@@ -148,16 +178,15 @@ impl Browser {
             ])
             .split(area);
 
-        // Parent column: previous level, or empty placeholder at top.
-        let len = self.levels.len();
-        if len >= 2 {
-            let idx = len - 2;
-            self.levels[idx].render(frame, cols[0], theme);
+        // Window over the level stack: parent | focused | preview.
+        if self.focus >= 1 {
+            let parent = self.focus - 1;
+            self.levels[parent].render(frame, cols[0], theme);
         } else {
             Pane::new("", vec![]).render(frame, cols[0], theme);
         }
-        let current = self.levels.len() - 1;
-        self.levels[current].render(frame, cols[1], theme);
+        let focus = self.focus;
+        self.levels[focus].render(frame, cols[1], theme);
         self.preview.render(frame, cols[2], theme);
     }
 }
@@ -210,19 +239,15 @@ pub mod mock {
         entries.iter().map(|(n, k)| Entry::new(n, *k)).collect()
     }
 
-    pub fn children_names(entry: &Entry) -> Vec<String> {
-        let entries = match entry.kind {
-            EntryKind::Org => repos(&entry.name),
-            EntryKind::Repo => dir(&entry.name, ""),
-            _ => dir("", "other"),
-        };
-        entries
-            .iter()
-            .map(|e| match e.kind {
-                EntryKind::File => e.name.clone(),
-                _ => format!("{}/", e.name),
-            })
-            .collect()
+    /// Children of an entry given the dir path of the level above it.
+    /// None for files (not drillable).
+    pub fn children(entry: &Entry, parent_path: &str) -> Option<Vec<Entry>> {
+        match entry.kind {
+            EntryKind::Org => Some(repos(&entry.name)),
+            EntryKind::Repo => Some(dir(&entry.name, "")),
+            EntryKind::Dir => Some(dir(&entry.name, parent_path)),
+            EntryKind::File => None,
+        }
     }
 
     /// Mock file bytes. `malformed.bin` deliberately contains ESC/control

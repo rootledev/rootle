@@ -1,6 +1,8 @@
 //! Search popup: VimInput on top, results list below (PLAN.md §1).
 //! Enter submits the query and focuses results; Tab toggles focus back
 //! (landing in INSERT); Esc: INSERT→NORMAL, NORMAL/results→close.
+//! With results focused, `/` enters a local incremental filter over the
+//! result set (SEARCH mode) — no network calls, same feel as pane filter.
 
 use super::pane::{Entry, EntryKind, Pane};
 use super::vim_input::{Outcome, SubMode, VimInput};
@@ -24,32 +26,62 @@ pub struct SearchPopup {
     pub input: VimInput,
     results: Pane,
     focus: Focus,
+    /// `/` local filter over the results list.
+    filter: VimInput,
+    filtering: bool,
+    /// Filter value before the current `/` session (Esc-cancel restore).
+    pre_filter: String,
 }
 
 impl SearchPopup {
     pub fn new() -> Self {
-        let mut results = Pane::new("results", mock_search(""));
-        results.focused = false;
+        let results = Pane::new("results", mock_search(""));
         SearchPopup {
             input: VimInput::new(),
             results,
             focus: Focus::Input,
+            filter: VimInput::transient(),
+            filtering: false,
+            pre_filter: String::new(),
         }
     }
 
     /// Modeline chip while the popup is open.
     pub fn effective_mode(&self) -> Mode {
+        if self.filtering {
+            return Mode::Search;
+        }
         match self.focus {
             Focus::Input => match self.input.submode {
-                SubMode::Insert => Mode::InputInsert,
-                SubMode::Normal => Mode::InputNormal,
+                SubMode::Insert => Mode::Insert,
+                SubMode::Normal => Mode::Normal,
             },
-            Focus::Results => Mode::Browsing,
+            Focus::Results => Mode::Browse,
         }
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) -> Action {
-        // Tab always toggles focus, from anywhere in the popup.
+        // Active `/` filter session captures everything until commit/cancel.
+        if self.filtering {
+            return match self.filter.handle_key(key) {
+                Outcome::Changed => {
+                    self.results.set_filter(self.filter.value());
+                    Action::Noop
+                }
+                Outcome::Submitted => {
+                    self.filtering = false; // commit: filter stays applied
+                    Action::Noop
+                }
+                Outcome::Cancelled => {
+                    self.results.set_filter(self.pre_filter.clone());
+                    self.filtering = false;
+                    Action::Noop
+                }
+                Outcome::Noop => Action::Noop,
+            };
+        }
+
+        // Tab toggles focus; focusing the input always lands in INSERT.
         if key.code == KeyCode::Tab {
             self.toggle_focus();
             return Action::Noop;
@@ -59,6 +91,7 @@ impl SearchPopup {
             Focus::Input => match self.input.handle_key(key) {
                 Outcome::Submitted => {
                     self.results = Pane::new("results", mock_search(&self.input.value()));
+                    self.filter.clear();
                     self.focus = Focus::Results;
                     Action::Noop
                 }
@@ -74,11 +107,22 @@ impl SearchPopup {
                     self.results.update(&Action::MoveUp);
                     Action::Noop
                 }
+                KeyCode::Char('/') => {
+                    self.pre_filter = self.results.filter.clone();
+                    self.filter.set(&self.pre_filter);
+                    self.filtering = true;
+                    Action::Noop
+                }
                 KeyCode::Enter => {
                     if let Some(entry) = self.results.selected_entry() {
                         let (owner, name) = split_repo(&entry.name);
                         return Action::RepoSelected { owner, name };
                     }
+                    Action::Noop
+                }
+                // Committed filter? First Esc clears it, second closes.
+                KeyCode::Esc if !self.results.filter.is_empty() => {
+                    self.results.set_filter(String::new());
                     Action::Noop
                 }
                 KeyCode::Esc => Action::ClosePopup,
@@ -90,7 +134,6 @@ impl SearchPopup {
     fn toggle_focus(&mut self) {
         self.focus = match self.focus {
             Focus::Input => Focus::Results,
-            // Focusing the input always lands in INSERT (typo-fix loop).
             Focus::Results => {
                 self.input.submode = SubMode::Insert;
                 Focus::Input
@@ -105,6 +148,12 @@ impl SearchPopup {
         // Clear first: reset cells beneath so nothing lingers (PLAN.md §9).
         frame.render_widget(Clear, popup);
 
+        let hint = if self.filtering {
+            " type to filter · enter commit · esc cancel "
+        } else {
+            " tab focus · enter submit/select · / filter · esc close "
+        };
+
         let block = Block::default()
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
@@ -116,10 +165,7 @@ impl SearchPopup {
                     .fg(sem.text)
                     .add_modifier(Modifier::BOLD),
             ))
-            .title_bottom(Span::styled(
-                " tab focus · enter submit/select · esc close ",
-                Style::default().fg(sem.hint),
-            ));
+            .title_bottom(Span::styled(hint, Style::default().fg(sem.hint)));
         let inner = block.inner(popup);
         frame.render_widget(block, popup);
 

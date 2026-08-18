@@ -67,7 +67,7 @@ fn popup_close_leaves_no_lingering_cells() {
     let screen = after.join("\n");
 
     assert!(!screen.contains("search github"), "popup residue after close");
-    assert!(screen.contains("BROWSING"), "should return to BROWSING");
+    assert!(screen.contains("BROWSE"), "should return to BROWSE");
 
     // The area where the popup was must show panes again, not blanks.
     let middle = &after[15];
@@ -84,7 +84,7 @@ fn resize_keeps_modeline_on_last_row() {
         let rows = render(&mut app, w, h);
         let last = rows.last().unwrap();
         assert!(
-            last.contains("BROWSING"),
+            last.contains("BROWSE"),
             "modeline missing on last row at {w}x{h}"
         );
     }
@@ -99,11 +99,68 @@ fn searching_mode_filters_incrementally() {
     app.handle_key(key(KeyCode::Char('w'))); // "website"
     let rows = render(&mut app, 100, 30);
     let screen = rows.join("\n");
-    assert!(screen.contains("SEARCHING"));
+    assert!(screen.contains("SEARCH"));
     assert!(screen.contains("/w"), "filter not shown in pane title");
     assert!(screen.contains("ratatui-website"));
     assert!(
         !screen.contains("comfy-table"),
         "non-matching entry should be filtered out"
     );
+}
+
+#[test]
+fn h_moves_focus_to_parent_and_browsing_it_cascades() {
+    let mut app = App::new();
+    app.handle_key(key(KeyCode::Esc));
+    app.handle_key(key(KeyCode::Esc)); // close popup
+
+    // Drill into a repo: focus is now on the repo's root dir column.
+    app.handle_key(key(KeyCode::Char('l')));
+    let rows = render(&mut app, 100, 30);
+    assert!(rows.join("\n").contains("Cargo.toml"), "should see repo root");
+
+    // h: focus moves left into the repos column; j selects tokio-rs? —
+    // first h reaches repos pane, then j moves to ratatui-website, and
+    // the child column must cascade to the new repo's root.
+    app.handle_key(key(KeyCode::Char('h')));
+    app.handle_key(key(KeyCode::Char('j')));
+    let rows = render(&mut app, 100, 30);
+    let screen = rows.join("\n");
+    assert!(
+        screen.contains("ratatui-website"),
+        "child column should cascade to the newly selected repo"
+    );
+    // h again: focus reaches the orgs column; j picks tokio-rs; repos
+    // column cascades to tokio-rs repos.
+    app.handle_key(key(KeyCode::Char('h')));
+    app.handle_key(key(KeyCode::Char('j')));
+    let rows = render(&mut app, 100, 30);
+    let screen = rows.join("\n");
+    assert!(screen.contains("axum/"), "org switch should cascade repos");
+    assert!(!screen.contains("comfy-table"), "stale child column leaked");
+}
+
+#[test]
+fn popup_results_support_local_slash_filter() {
+    let mut app = App::new();
+    // Popup opens on launch; submit empty query → all mock results.
+    app.handle_key(key(KeyCode::Enter));
+
+    // `/` in results → SEARCH chip, incremental local filter.
+    app.handle_key(key(KeyCode::Char('/')));
+    app.handle_key(key(KeyCode::Char('t')));
+    app.handle_key(key(KeyCode::Char('o')));
+    let rows = render(&mut app, 100, 30);
+    let screen = rows.join("\n");
+    assert!(screen.contains("SEARCH"), "filtering should show SEARCH chip");
+    assert!(screen.contains("tokio-rs/tokio"));
+    assert!(
+        !screen.contains("sharkdp/bat"),
+        "non-matching result should be filtered out"
+    );
+
+    // Esc cancels the in-progress filter (restores full list).
+    app.handle_key(key(KeyCode::Esc));
+    let rows = render(&mut app, 100, 30);
+    assert!(rows.join("\n").contains("sharkdp/bat"));
 }
