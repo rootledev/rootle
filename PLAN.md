@@ -1,5 +1,41 @@
 # ghx — Plan
 
+## 0. Status & handoff (read this first)
+
+**Implemented and tested** (see `git log`, all commits by tknawara):
+
+- Milestone 1 static UI shell: component trait + library (`VimInput`,
+  `Pane`, `Preview`, `Modeline`, `SearchPopup`, `Browser`), mode stack,
+  keymap-table dispatch + derived hints, Catppuccin Mocha theme
+  (blue-dominant), mock data only — **no network code exists yet**.
+- Cross-pane yazi navigation: focus moves across columns with `h`/`l`;
+  browsing a parent column cascades child columns (`Browser::cascade`).
+- Popup local `/` filter over results; transient vs modal `VimInput`.
+- Top-level fold: orgs level renders as one full-width pane.
+- Sanitization boundary (`src/sanitize.rs`) with tests.
+- 18 tests green: `cargo test`. Frame tests in `tests/render.rs` print
+  the UI with `cargo test renders_three_panes -- --nocapture`.
+
+**Not started**: everything network/cache/editor/docker (milestones 2–8).
+
+**Conventions that matter** (violations break the design):
+
+- Keys dispatch ONLY via `src/keymap.rs` tables; modeline hints derive
+  from the same table. Components return `Action`, never call each other.
+- Colors only from `Theme` semantic roles; blue is the dominant accent.
+- Network/file bytes pass through `sanitize.rs` before touching UI state.
+- Full `terminal.clear()` ONLY after returning from an external editor.
+- Mock data lives in `components/browser.rs::mock` — the GitHub backend
+  replaces it; keep the mock's function shapes (`orgs()`, `repos(org)`,
+  `dir(repo, path)`, `children(entry, parent_path)`, `file_bytes(name)`)
+  as the interface the `github/` module should satisfy.
+
+**Workflow**: small commits; verify with `cargo test` + live PTY run
+per `.agents/skills/ghx-tui-debug` (hub PTY, send keys ONE at a time —
+back-to-back ESC bytes can merge into `Alt+<key>` in crossterm's parser);
+scaffold new components per `.agents/skills/ghx-component`.
+
+
 A modal ratatui TUI for browsing remote GitHub repos with a yazi-like flow.
 No local clone required: the backend is the GitHub REST API, with a
 content-addressable disk cache under `~/.cache/ghx`.
@@ -127,7 +163,10 @@ Principles: quiet by default, one accent, state lives in the modeline.
 
 - **Layout**: full-bleed panes, no padding inside list rows, single-char
   left gutter holding the selection indicator. Three panes at fixed
-  ratios 1 : 2 : 2 (parent : current : preview).
+  ratios 1 : 2 : 2 (parent : current : preview). **At the top level
+  (orgs, no parent exists) the browser folds to a single full-width
+  pane** — never show an empty column. Moving focus right (`l`) unfolds
+  back to three panes.
 - **Borders**: rounded (`border_type::Rounded`). Focused pane border in
   `border_focused` (blue — the dominant accent); unfocused in `border_unfocused` (surface2).
   Pane title sits in the top border, left-aligned: the pane's path
@@ -306,13 +345,19 @@ Remote file bytes are hostile input for a terminal. Rules:
     `List` item.
 - **Width correctness**: all truncation/padding via `unicode-width`
   (CJK is 2 cells, combining marks 0) — never `str::len()` for layout.
-- **Redraw integrity**:
-  - ratatui's double buffer diffs cells, so normal updates don't leave
-    residue — *except* when content shrinks behind an overlay. Every
-    popup therefore renders `Clear` first (resets cells), and closing a
-    popup forces a full redraw.
-  - Full redraw (`terminal.clear()`) on: resize, editor resume, popup
-    close. These are the only three paths where stale cells can linger.
+- **Redraw integrity (no blinks)**:
+  - **Full-screen `terminal.clear()` is reserved for exactly one case:
+    returning from an external program (editor) that scribbled on the
+    screen.** Everything else uses ratatui's cell diff.
+  - Popup open: render `Clear` over the popup rect each frame (erases
+    what's beneath *while open*). Popup **close needs no clear** — the
+    underlying UI draws full-screen every frame, so the next diff
+    overwrites the popup's cells. Clearing on close causes a visible
+    blink; don't do it.
+  - Resize: ratatui resizes its buffers automatically on
+    `Event::Resize`; the next draw rewrites all cells. No manual clear.
+  - If a full clear ever is needed, it must run *before* the draw that
+    follows it (`Terminal::clear` resets the diff buffers), never after.
   - No partial `stdout` writes outside the draw path; the panic hook
     restores the terminal before printing anything.
 

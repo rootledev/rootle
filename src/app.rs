@@ -77,13 +77,14 @@ impl App {
             Action::ClosePopup => {
                 self.popup = None;
                 self.mode = Mode::Browse;
-                self.force_redraw = true;
+                // No full clear: the browser renders full-screen every
+                // frame, so the next diff overwrites the popup's cells.
+                // A terminal.clear() here would flash (PLAN.md §9).
             }
             Action::RepoSelected { owner, name } => {
                 self.browser.set_repo(&owner, &name);
                 self.popup = None;
                 self.mode = Mode::Browse;
-                self.force_redraw = true;
             }
             Action::Leader => self.mode = Mode::Leader,
             Action::LeaderSearch => {

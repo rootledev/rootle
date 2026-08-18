@@ -51,9 +51,11 @@ impl Browser {
     }
 
     pub fn context(&self) -> String {
+        // Path up to the focused level (level 0 = orgs, not shown).
         self.levels
             .iter()
             .skip(1)
+            .take(self.focus)
             .map(|p| p.title.clone())
             .collect::<Vec<_>>()
             .join(" · ")
@@ -169,6 +171,14 @@ impl Browser {
     }
 
     pub fn render(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
+        // Top level (orgs): fold to a single full-width pane. There is
+        // no parent above orgs, so a three-pane split would leave the
+        // left column empty (PLAN.md §5).
+        if self.focus == 0 {
+            self.levels[0].render(frame, area, theme);
+            return;
+        }
+
         let cols = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
@@ -179,12 +189,8 @@ impl Browser {
             .split(area);
 
         // Window over the level stack: parent | focused | preview.
-        if self.focus >= 1 {
-            let parent = self.focus - 1;
-            self.levels[parent].render(frame, cols[0], theme);
-        } else {
-            Pane::new("", vec![]).render(frame, cols[0], theme);
-        }
+        let parent = self.focus - 1;
+        self.levels[parent].render(frame, cols[0], theme);
         let focus = self.focus;
         self.levels[focus].render(frame, cols[1], theme);
         self.preview.render(frame, cols[2], theme);

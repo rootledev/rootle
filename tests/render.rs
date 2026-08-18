@@ -130,14 +130,44 @@ fn h_moves_focus_to_parent_and_browsing_it_cascades() {
         screen.contains("ratatui-website"),
         "child column should cascade to the newly selected repo"
     );
-    // h again: focus reaches the orgs column; j picks tokio-rs; repos
-    // column cascades to tokio-rs repos.
+    // h again: focus reaches the orgs column → folds to a single pane.
+    // j picks tokio-rs; the repos level cascades internally but stays
+    // hidden while folded.
     app.handle_key(key(KeyCode::Char('h')));
     app.handle_key(key(KeyCode::Char('j')));
     let rows = render(&mut app, 100, 30);
     let screen = rows.join("\n");
+    assert!(rows[0].ends_with('╮'), "orgs should fold to full width");
+    assert!(!screen.contains("axum/"), "folded view hides the repos column");
+
+    // l unfolds: repos column shows tokio-rs repos, cascaded from the
+    // new org selection — no stale ratatui entries.
+    app.handle_key(key(KeyCode::Char('l')));
+    let rows = render(&mut app, 100, 30);
+    let screen = rows.join("\n");
     assert!(screen.contains("axum/"), "org switch should cascade repos");
     assert!(!screen.contains("comfy-table"), "stale child column leaked");
+}
+
+#[test]
+fn org_level_folds_to_single_pane() {
+    let mut app = App::new();
+    app.handle_key(key(KeyCode::Esc));
+    app.handle_key(key(KeyCode::Esc)); // close popup
+
+    // h until focus reaches the orgs column (top level).
+    app.handle_key(key(KeyCode::Char('h')));
+    let rows = render(&mut app, 100, 30);
+    let screen = rows.join("\n");
+
+    // Single folded pane: orgs visible, no repo column border beside it.
+    assert!(screen.contains("orgs"));
+    assert!(screen.contains("tokio-rs/"));
+    // A folded single pane spans nearly full width: orgs title starts at
+    // the left edge and its right border sits at the far right.
+    let top = &rows[0];
+    assert!(top.starts_with('╭'), "folded pane should start at x=0");
+    assert!(top.ends_with('╮'), "folded pane should reach the right edge");
 }
 
 #[test]

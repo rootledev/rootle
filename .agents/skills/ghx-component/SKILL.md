@@ -57,7 +57,10 @@ pub trait Component {
   rounded border, title, hint row).
 - `<Esc>` dismisses. If the popup owns a `VimInput` in INSERT mode, the
   first `<Esc>` goes to the input (→ NORMAL), the second dismisses.
-- Closing a popup must set the flag that forces a full redraw.
+- Closing a popup needs NO `terminal.clear()` — the underlying UI draws
+  full-screen every frame and the diff erases the popup. A clear on
+  close causes a visible blink. (Full clear is reserved for returning
+  from external programs like the editor.)
 
 ## Anti-patterns (rejected in review)
 
