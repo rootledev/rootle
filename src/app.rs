@@ -92,8 +92,7 @@ impl App {
                 self.mode = Mode::Browse;
             }
             Action::EnterSearch => {
-                self.browser.filter_input.submode =
-                    crate::components::vim_input::SubMode::Insert;
+                self.browser.filter_input.submode = crate::components::vim_input::SubMode::Insert;
                 self.mode = Mode::Search;
             }
             Action::CommitFilter => self.mode = Mode::Browse,

@@ -18,7 +18,12 @@ pub fn hints(mode: Mode) -> &'static [(&'static str, &'static str)] {
         Mode::Search => &[("type", "filter"), ("enter", "commit"), ("esc", "cancel")],
         Mode::Insert => &[("enter", "submit"), ("tab", "results"), ("esc", "normal")],
         Mode::Normal => &[("i", "insert"), ("tab", "switch"), ("esc", "close")],
-        Mode::Leader => &[("s", "search"), ("r", "reload"), ("q", "quit"), ("esc", "back")],
+        Mode::Leader => &[
+            ("s", "search"),
+            ("r", "reload"),
+            ("q", "quit"),
+            ("esc", "back"),
+        ],
         Mode::Visual => &[],
     }
 }

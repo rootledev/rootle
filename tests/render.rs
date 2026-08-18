@@ -66,13 +66,18 @@ fn popup_close_leaves_no_lingering_cells() {
     let after = render(&mut app, 100, 30);
     let screen = after.join("\n");
 
-    assert!(!screen.contains("search github"), "popup residue after close");
+    assert!(
+        !screen.contains("search github"),
+        "popup residue after close"
+    );
     assert!(screen.contains("BROWSE"), "should return to BROWSE");
 
     // The area where the popup was must show panes again, not blanks.
     let middle = &after[15];
-    assert!(middle.contains('│') || middle.contains('╮') || middle.contains('╯'),
-        "middle row lost pane borders after popup close");
+    assert!(
+        middle.contains('│') || middle.contains('╮') || middle.contains('╯'),
+        "middle row lost pane borders after popup close"
+    );
 }
 
 #[test]
@@ -117,7 +122,10 @@ fn h_moves_focus_to_parent_and_browsing_it_cascades() {
     // Drill into a repo: focus is now on the repo's root dir column.
     app.handle_key(key(KeyCode::Char('l')));
     let rows = render(&mut app, 100, 30);
-    assert!(rows.join("\n").contains("Cargo.toml"), "should see repo root");
+    assert!(
+        rows.join("\n").contains("Cargo.toml"),
+        "should see repo root"
+    );
 
     // h: focus moves left into the repos column; j selects tokio-rs? —
     // first h reaches repos pane, then j moves to ratatui-website, and
@@ -138,7 +146,10 @@ fn h_moves_focus_to_parent_and_browsing_it_cascades() {
     let rows = render(&mut app, 100, 30);
     let screen = rows.join("\n");
     assert!(rows[0].ends_with('╮'), "orgs should fold to full width");
-    assert!(!screen.contains("axum/"), "folded view hides the repos column");
+    assert!(
+        !screen.contains("axum/"),
+        "folded view hides the repos column"
+    );
 
     // l unfolds: repos column shows tokio-rs repos, cascaded from the
     // new org selection — no stale ratatui entries.
@@ -147,6 +158,57 @@ fn h_moves_focus_to_parent_and_browsing_it_cascades() {
     let screen = rows.join("\n");
     assert!(screen.contains("axum/"), "org switch should cascade repos");
     assert!(!screen.contains("comfy-table"), "stale child column leaked");
+}
+
+#[test]
+fn preview_colors_dirs_and_files_differently() {
+    use ratatui::style::{Color, Modifier};
+
+    let mut app = App::new();
+    app.handle_key(key(KeyCode::Esc));
+    app.handle_key(key(KeyCode::Esc)); // close popup → repos pane, preview
+                                       // shows ratatui's root listing
+    let backend = TestBackend::new(100, 30);
+    let mut terminal = Terminal::new(backend).unwrap();
+    terminal
+        .draw(|f| {
+            let area = f.area();
+            app.render(f, area);
+        })
+        .unwrap();
+    let buf = terminal.backend().buffer();
+
+    let blue = Color::from_u32(0x89b4fa);
+    let text = Color::from_u32(0xcdd6f4);
+
+    // Scan the right column (x ≥ 60) for a dir child and a file child,
+    // matching exact cell sequences (the border glyph sits at x=60).
+    let find = |pat: &str| -> Option<(u16, u16)> {
+        let chars: Vec<char> = pat.chars().collect();
+        for y in 0..buf.area.height {
+            for x in 61..buf.area.width - chars.len() as u16 {
+                if chars
+                    .iter()
+                    .enumerate()
+                    .all(|(i, c)| buf[(x + i as u16, y)].symbol() == c.to_string())
+                {
+                    return Some((x, y));
+                }
+            }
+        }
+        None
+    };
+
+    let (x, y) = find("src/").expect("dir child src/ not found in preview");
+    let cell = &buf[(x, y)];
+    assert_eq!(cell.fg, blue, "directories in preview must be blue");
+    assert!(
+        cell.modifier.contains(Modifier::BOLD),
+        "directories must be bold"
+    );
+
+    let (x, y) = find("Cargo.toml").expect("file child not found in preview");
+    assert_eq!(buf[(x, y)].fg, text, "files in preview must use text color");
 }
 
 #[test]
@@ -167,7 +229,10 @@ fn org_level_folds_to_single_pane() {
     // the left edge and its right border sits at the far right.
     let top = &rows[0];
     assert!(top.starts_with('╭'), "folded pane should start at x=0");
-    assert!(top.ends_with('╮'), "folded pane should reach the right edge");
+    assert!(
+        top.ends_with('╮'),
+        "folded pane should reach the right edge"
+    );
 }
 
 #[test]
@@ -182,7 +247,10 @@ fn popup_results_support_local_slash_filter() {
     app.handle_key(key(KeyCode::Char('o')));
     let rows = render(&mut app, 100, 30);
     let screen = rows.join("\n");
-    assert!(screen.contains("SEARCH"), "filtering should show SEARCH chip");
+    assert!(
+        screen.contains("SEARCH"),
+        "filtering should show SEARCH chip"
+    );
     assert!(screen.contains("tokio-rs/tokio"));
     assert!(
         !screen.contains("sharkdp/bat"),

@@ -47,11 +47,10 @@ fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> 
         })?;
 
         if event::poll(Duration::from_millis(250))? {
-            match event::read()? {
-                Event::Key(key) => app.handle_key(key),
-                // Resize: ratatui resizes its buffers automatically; the
-                // next draw rewrites every cell. No manual clear (blink).
-                _ => {}
+            // Resize: ratatui resizes its buffers automatically; the
+            // next draw rewrites every cell. No manual clear (blink).
+            if let Event::Key(key) = event::read()? {
+                app.handle_key(key);
             }
         }
 

@@ -32,6 +32,12 @@ pub struct VimInput {
     modal: bool,
 }
 
+impl Default for VimInput {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl VimInput {
     pub fn new() -> Self {
         Self {

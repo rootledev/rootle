@@ -23,6 +23,12 @@ pub struct Browser {
     pub filter_input: VimInput,
 }
 
+impl Default for Browser {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Browser {
     pub fn new() -> Self {
         let mut browser = Browser {
@@ -153,18 +159,11 @@ impl Browser {
             return;
         };
         match entry.kind {
-            EntryKind::File => self.preview.set_bytes(&entry.name, &mock::file_bytes(&entry.name)),
+            EntryKind::File => self
+                .preview
+                .set_bytes(&entry.name, &mock::file_bytes(&entry.name)),
             EntryKind::Dir | EntryKind::Repo | EntryKind::Org => {
-                let children = mock::children(&entry, &self.dir_path())
-                    .map(|es| {
-                        es.iter()
-                            .map(|e| match e.kind {
-                                EntryKind::File => e.name.clone(),
-                                _ => format!("{}/", e.name),
-                            })
-                            .collect()
-                    })
-                    .unwrap_or_default();
+                let children = mock::children(&entry, &self.dir_path()).unwrap_or_default();
                 self.preview.set_dir(&entry.name, children);
             }
         }
@@ -216,7 +215,10 @@ pub mod mock {
             "helix-editor" => &["helix", "helix-term"],
             _ => &["ratatui"],
         };
-        names.iter().map(|n| Entry::new(n, EntryKind::Repo)).collect()
+        names
+            .iter()
+            .map(|n| Entry::new(n, EntryKind::Repo))
+            .collect()
     }
 
     pub fn dir(_repo: &str, path: &str) -> Vec<Entry> {

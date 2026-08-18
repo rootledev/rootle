@@ -60,11 +60,11 @@ impl Theme {
                 error: Color::from_u32(0xf38ba8),          // red
                 warning: Color::from_u32(0xf9e2af),        // yellow
 
-                mode_browse: Color::from_u32(0xa6e3a1),    // green
-                mode_search: Color::from_u32(0xf9e2af),    // yellow
-                mode_insert: Color::from_u32(0x94e2d5),    // teal
-                mode_normal: Color::from_u32(0x89b4fa),    // blue
-                mode_leader: Color::from_u32(0xfab387),    // peach
+                mode_browse: Color::from_u32(0xa6e3a1), // green
+                mode_search: Color::from_u32(0xf9e2af), // yellow
+                mode_insert: Color::from_u32(0x94e2d5), // teal
+                mode_normal: Color::from_u32(0x89b4fa), // blue
+                mode_leader: Color::from_u32(0xfab387), // peach
             },
         }
     }

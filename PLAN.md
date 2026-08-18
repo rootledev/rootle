@@ -16,7 +16,9 @@
 - 18 tests green: `cargo test`. Frame tests in `tests/render.rs` print
   the UI with `cargo test renders_three_panes -- --nocapture`.
 
-**Not started**: everything network/cache/editor/docker (milestones 2–8).
+**Not started**: network/cache/editor (milestones 2–7). Milestone 8's
+Docker/compose scaffold landed early (`Dockerfile`, `docker-compose.yml`);
+what remains there is CI wiring + `gh release`.
 
 **Conventions that matter** (violations break the design):
 
@@ -409,23 +411,27 @@ On `<Enter>` over a file:
 
 ## 13. Build & release
 
-- Target: `x86_64-unknown-linux-musl` (plus `aarch64` later), fully static.
-- `Dockerfile`: multi-stage — `rust:alpine` builder stage compiles with
-  `cargo build --release --target x86_64-unknown-linux-musl`
-  (strip, `lto = "fat"`, `codegen-units = 1`, `panic = "abort"`);
-  final stage is `scratch` holding only the binary.
+- Target: `x86_64-unknown-linux-musl`, fully static (aarch64 later).
+  The builder image is `rust:alpine`, whose host triple already *is*
+  musl — no explicit `--target` or cross toolchain needed.
+- `Dockerfile` (scaffolded ahead of milestone 8, exists in repo):
+  multi-stage — `builder` (toolchain + clippy/rustfmt), `test`
+  (fmt + clippy -D warnings + cargo test, fails the image build on
+  red), `release` (stripped binary + `ldd` static-link assertion),
+  `ship` (scratch image with just `/ghx`).
 - `docker-compose.yml` services:
-  - `test`    → `cargo test` + `cargo clippy -- -D warnings` + `cargo fmt --check`
-  - `build`   → debug musl build for local iteration
-  - `release` → stripped static release binary exported to `./dist/`
-  - Usage: `docker compose run test`, `docker compose run release`.
+  - `test`    → builds the `test` stage (gate runs at image build time)
+  - `build`   → debug build in the builder stage
+  - `release` → builds, strips, exports `ghx-linux-x86_64-musl` +
+    sha256 to `./dist/`
+  - Usage: `docker compose run --rm test` / `... release`.
 - Release flow: `git tag vX.Y.Z` → CI (GitHub Actions) runs
-  `docker compose run release` → `gh release create vX.Y.Z dist/ghx-*`
+  `docker compose run --rm release` → `gh release create vX.Y.Z dist/ghx-*`
   with generated notes + sha256 checksums. `cargo-release` for version
   bumping. `cargo-dist` later if we want installers/Homebrew — not v1.
-- Verification gate before publishing: run the scratch image binary with
-  `--version` in CI to prove static linking (`ldd` says "not a dynamic
-  executable").
+- Static-link verification is in the Dockerfile `release` stage itself
+  (`ldd` must report not-a-dynamic-executable); CI additionally runs
+  the scratch image with `--version`.
 
 ## 14. Testing
 

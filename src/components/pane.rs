@@ -147,20 +147,13 @@ impl Pane {
                     ),
                     EntryKind::File => (e.name.clone(), Style::default().fg(sem.file)),
                 };
-                ListItem::new(Line::from(Span::styled(
-                    fit(&label, width),
-                    style,
-                )))
+                ListItem::new(Line::from(Span::styled(fit(&label, width), style)))
             })
             .collect();
 
         let list = List::new(items)
             .block(block)
-            .highlight_style(
-                Style::default()
-                    .bg(sem.selection_bg)
-                    .fg(sem.selection_fg),
-            )
+            .highlight_style(Style::default().bg(sem.selection_bg).fg(sem.selection_fg))
             .highlight_symbol("▌");
         frame.render_stateful_widget(list, area, &mut self.state);
     }

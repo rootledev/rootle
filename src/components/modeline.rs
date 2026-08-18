@@ -13,6 +13,12 @@ pub struct Modeline {
     pub context: String,
 }
 
+impl Default for Modeline {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Modeline {
     pub fn new() -> Self {
         Modeline {
@@ -57,7 +63,10 @@ impl Modeline {
                             .bg(sem.mantle)
                             .add_modifier(Modifier::BOLD),
                     ),
-                    Span::styled(format!(" {desc} ·"), Style::default().fg(sem.hint).bg(sem.mantle)),
+                    Span::styled(
+                        format!(" {desc} ·"),
+                        Style::default().fg(sem.hint).bg(sem.mantle),
+                    ),
                 ]
                 .into_iter()
             })

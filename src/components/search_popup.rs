@@ -33,6 +33,12 @@ pub struct SearchPopup {
     pre_filter: String,
 }
 
+impl Default for SearchPopup {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SearchPopup {
     pub fn new() -> Self {
         let results = Pane::new("results", mock_search(""));
@@ -161,9 +167,7 @@ impl SearchPopup {
             .style(Style::default().bg(sem.mantle))
             .title(Span::styled(
                 " search github ",
-                Style::default()
-                    .fg(sem.text)
-                    .add_modifier(Modifier::BOLD),
+                Style::default().fg(sem.text).add_modifier(Modifier::BOLD),
             ))
             .title_bottom(Span::styled(hint, Style::default().fg(sem.hint)));
         let inner = block.inner(popup);

@@ -1,10 +1,11 @@
 //! Preview column: sanitized text for files, child listing for dirs.
 //! Syntax highlighting lands in milestone 5; text is already sanitized.
 
+use super::pane::{Entry, EntryKind};
 use crate::sanitize;
 use crate::theme::Theme;
 use ratatui::layout::Rect;
-use ratatui::style::Style;
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Paragraph, Wrap};
 use ratatui::Frame;
@@ -14,13 +15,21 @@ pub enum PreviewContent {
     #[default]
     Empty,
     Text(String),
-    DirSummary(Vec<String>),
-    Binary { size: usize },
+    DirSummary(Vec<Entry>),
+    Binary {
+        size: usize,
+    },
 }
 
 pub struct Preview {
     pub content: PreviewContent,
     pub title: String,
+}
+
+impl Default for Preview {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Preview {
@@ -41,7 +50,7 @@ impl Preview {
         };
     }
 
-    pub fn set_dir(&mut self, name: &str, children: Vec<String>) {
+    pub fn set_dir(&mut self, name: &str, children: Vec<Entry>) {
         self.title = format!("{}/", sanitize::sanitize_inline(name));
         self.content = PreviewContent::DirSummary(children);
     }
@@ -76,7 +85,17 @@ impl Preview {
                 .collect(),
             PreviewContent::DirSummary(children) => children
                 .iter()
-                .map(|c| Line::from(Span::styled(c.clone(), Style::default().fg(sem.text))))
+                .map(|e| match e.kind {
+                    EntryKind::File => {
+                        Line::from(Span::styled(e.name.clone(), Style::default().fg(sem.file)))
+                    }
+                    _ => Line::from(Span::styled(
+                        format!("{}/", e.name),
+                        Style::default()
+                            .fg(sem.directory)
+                            .add_modifier(Modifier::BOLD),
+                    )),
+                })
                 .collect(),
             PreviewContent::Binary { size } => vec![Line::from(Span::styled(
                 format!("binary file · {} bytes", size),
@@ -85,7 +104,9 @@ impl Preview {
         };
 
         frame.render_widget(
-            Paragraph::new(lines).block(block).wrap(Wrap { trim: false }),
+            Paragraph::new(lines)
+                .block(block)
+                .wrap(Wrap { trim: false }),
             area,
         );
     }

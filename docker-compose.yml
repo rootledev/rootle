@@ -1,0 +1,36 @@
+# ghx build/test/release services (PLAN.md §13).
+#   docker compose run --rm test      # fmt + clippy + tests
+#   docker compose run --rm build     # debug build (warm cache check)
+#   docker compose run --rm release   # exports static binary to ./dist/
+
+services:
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: test
+
+  build:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: builder
+    command: cargo build --locked
+
+  release:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: builder
+    command:
+      - sh
+      - -c
+      - |
+        cargo build --release --locked \
+        && strip target/release/ghx \
+        && install -m755 target/release/ghx /dist/ghx-linux-x86_64-musl \
+        && cd /dist \
+        && sha256sum ghx-linux-x86_64-musl > ghx-linux-x86_64-musl.sha256 \
+        && echo "released: /dist/ghx-linux-x86_64-musl"
+    volumes:
+      - ./dist:/dist
