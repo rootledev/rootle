@@ -12,7 +12,8 @@ contract from `src/components/mod.rs`:
 pub trait Component {
     fn handle_key(&mut self, key: KeyEvent) -> Action;
     fn update(&mut self, action: &Action);
-    fn render(&self, frame: &mut Frame, area: Rect, theme: &Theme);
+    // &mut self: ratatui's stateful widgets (ListState) require it
+    fn render(&mut self, frame: &mut Frame, area: Rect, theme: &Theme);
 }
 ```
 
