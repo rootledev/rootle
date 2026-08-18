@@ -70,6 +70,10 @@ impl State {
         push_recent(&mut self.recent_repos, full);
         push_recent(&mut self.recent_orgs, owner.to_string());
     }
+
+    pub fn record_org(&mut self, org: &str) {
+        push_recent(&mut self.recent_orgs, org.to_string());
+    }
 }
 
 /// LRU push: dedupe, most-recent-first, capped.

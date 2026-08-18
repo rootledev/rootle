@@ -7,6 +7,7 @@
 use super::pane::{Entry, EntryKind, Pane};
 use super::vim_input::{Outcome, SubMode, VimInput};
 use crate::action::Action;
+use crate::github::SearchItem;
 use crate::mode::Mode;
 use crate::theme::Theme;
 use ratatui::crossterm::cursor::SetCursorStyle;
@@ -32,6 +33,12 @@ pub struct SearchPopup {
     filtering: bool,
     /// Filter value before the current `/` session (Esc-cancel restore).
     pre_filter: String,
+    /// A search request is in flight.
+    pending: bool,
+    /// Last search error, shown until the next submit.
+    error: Option<String>,
+    /// A query was submitted at least once (drives "no matches").
+    submitted_once: bool,
 }
 
 impl Default for SearchPopup {
@@ -47,10 +54,12 @@ impl SearchPopup {
 
     /// `prefill` seeds the query (resume flow: last repo from state).
     pub fn with_prefill(prefill: Option<&str>) -> Self {
-        let results = Pane::new("results", mock_search(""));
+        let mut results = Pane::new("results", vec![]);
+        results.show_badges = true;
         let mut input = VimInput::new();
         if let Some(p) = prefill {
-            input.set(p);
+            // Replaceable: typing starts a fresh query; Enter resumes.
+            input.prefill(p);
         }
         SearchPopup {
             input,
@@ -59,6 +68,40 @@ impl SearchPopup {
             filter: VimInput::transient(),
             filtering: false,
             pre_filter: String::new(),
+            pending: false,
+            error: None,
+            submitted_once: false,
+        }
+    }
+
+    /// Backend outcomes routed back into the popup.
+    pub fn update(&mut self, action: &Action) {
+        match action {
+            Action::SearchSubmitted(_) => {
+                self.submitted_once = true;
+                self.pending = true;
+                self.error = None;
+                self.focus = Focus::Results;
+            }
+            Action::SearchResults { items } => {
+                self.pending = false;
+                let entries = items
+                    .iter()
+                    .map(|item| match item {
+                        SearchItem::Repo(full) => Entry::new(full, EntryKind::Repo),
+                        SearchItem::Org(login) => Entry::new(login, EntryKind::Org),
+                    })
+                    .collect();
+                self.results = Pane::new("results", entries);
+                self.results.show_badges = true;
+            }
+            Action::SearchFailed { message } => {
+                self.pending = false;
+                self.error = Some(message.clone());
+                self.results = Pane::new("results", vec![]);
+                self.results.show_badges = true;
+            }
+            _ => {}
         }
     }
 
@@ -106,10 +149,8 @@ impl SearchPopup {
         match self.focus {
             Focus::Input => match self.input.handle_key(key) {
                 Outcome::Submitted => {
-                    self.results = Pane::new("results", mock_search(&self.input.value()));
                     self.filter.clear();
-                    self.focus = Focus::Results;
-                    Action::Noop
+                    Action::SearchSubmitted(self.input.value())
                 }
                 Outcome::Cancelled => Action::ClosePopup,
                 _ => Action::Noop,
@@ -131,8 +172,13 @@ impl SearchPopup {
                 }
                 KeyCode::Enter => {
                     if let Some(entry) = self.results.selected_entry() {
-                        let (owner, name) = split_repo(&entry.name);
-                        return Action::RepoSelected { owner, name };
+                        return match entry.kind {
+                            EntryKind::Org => Action::OrgSelected(entry.name.clone()),
+                            _ => {
+                                let (owner, name) = split_repo(&entry.name);
+                                Action::RepoSelected { owner, name }
+                            }
+                        };
                     }
                     Action::Noop
                 }
@@ -229,6 +275,15 @@ impl SearchPopup {
             }
         }
 
+        self.results.title = if self.pending {
+            "results — searching…".into()
+        } else if let Some(error) = &self.error {
+            format!("results — error: {error}")
+        } else if self.results.entries.is_empty() && self.submitted_once {
+            "results — no matches".into()
+        } else {
+            "results".into()
+        };
         self.results.focused = self.focus == Focus::Results;
         self.results.render(frame, rows[1], theme);
     }
@@ -251,24 +306,6 @@ fn centered(area: Rect, pct_x: u16, pct_y: u16) -> Rect {
             Constraint::Percentage((100 - pct_x) / 2),
         ])
         .split(vertical[1])[1]
-}
-
-/// Mock search — replaced by the GitHub search endpoint (milestone 3).
-fn mock_search(query: &str) -> Vec<Entry> {
-    let all = [
-        "ratatui/ratatui",
-        "ratatui/templates",
-        "tokio-rs/tokio",
-        "tokio-rs/axum",
-        "helix-editor/helix",
-        "sharkdp/bat",
-        "BurntSushi/ripgrep",
-    ];
-    let q = query.to_lowercase();
-    all.iter()
-        .filter(|r| q.is_empty() || r.to_lowercase().contains(&q))
-        .map(|r| Entry::new(r, EntryKind::Repo))
-        .collect()
 }
 
 fn split_repo(full: &str) -> (String, String) {
@@ -302,9 +339,26 @@ mod tests {
     }
 
     #[test]
-    fn prefill_seeds_query_in_insert_mode() {
-        let popup = SearchPopup::with_prefill(Some("ratatui/ratatui"));
+    fn prefill_seeds_query_and_replaces_on_typing() {
+        use ratatui::crossterm::event::{
+            KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers,
+        };
+        fn key(code: KeyCode) -> KeyEvent {
+            KeyEvent {
+                code,
+                modifiers: KeyModifiers::NONE,
+                kind: KeyEventKind::Press,
+                state: KeyEventState::NONE,
+            }
+        }
+
+        let mut popup = SearchPopup::with_prefill(Some("ratatui/ratatui"));
         assert_eq!(popup.input.value(), "ratatui/ratatui");
-        assert_eq!(popup.input.submode, SubMode::Insert);
+
+        // Typing replaces the prefill (cmdline semantics) — the resume
+        // query must not concatenate behind a fresh query.
+        popup.input.handle_key(key(KeyCode::Char('h')));
+        popup.input.handle_key(key(KeyCode::Char('i')));
+        assert_eq!(popup.input.value(), "hi");
     }
 }

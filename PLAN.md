@@ -23,7 +23,16 @@
 - Cursor shape follows input mode: bar=INSERT, block=NORMAL, restored on
   exit (also in the panic hook).
 
-**Not started**: network/cache/editor (milestones 3–7), CLI args (8).
+- Milestone 3 GitHub search: `src/github/` blocking client (search
+  repos+orgs, org repos; auth env→gh→anonymous; reqwest timeouts),
+  worker threads + mpsc events, generation counter drops stale results,
+  `[repo]`/`[org]` badges in results, `App::with` builds an offline app
+  for tests (workers never spawn; inject `Action::SearchResults` etc).
+  Repo/dir trees are still mock until milestone 4.
+- VimInput prefill is replaceable (resume: typing starts a fresh query,
+  Enter resumes as-is).
+
+**Not started**: repo trees/cache/editor (milestones 4–7), CLI args (8).
 Milestone 9's Docker/compose scaffold landed early (`Dockerfile`,
 `docker-compose.yml`); what remains there is CI wiring + `gh release`.
 
@@ -211,9 +220,15 @@ Principles: quiet by default, one accent, state lives in the modeline.
 Pattern: **Component architecture** (per ratatui's documented patterns),
 with a unidirectional `Action` flow borrowed from Flux:
 
-- One event loop. Crossterm events + async app events (API responses,
-  cache writes) are unified into a single `Event` stream via
-  `tokio::sync::mpsc` + `crossterm::event::EventStream` + `tokio::select!`.
+- One event loop. Network fetches run on **worker threads** (blocking
+  reqwest, one per request) that send `AppEvent`s over a
+  `std::sync::mpsc` channel; the main loop drains the channel with
+  `try_recv` before each draw. The UI thread never touches the network
+  (worst-case latency = one 250ms poll tick). **Decision: no tokio.**
+  Stale responses are dropped via a generation counter instead of task
+  cancellation, and every request has a hard timeout (15s total, 5s
+  connect). Revisit tokio only if we add concurrent blob prefetching or
+  streaming (milestone 5+).
 - Every UI unit implements a `Component` trait:
   `handle_events -> Action`, `update(Action) -> Action`, `render(Frame, Rect)`.
 - `Action` is a central enum (`SearchSubmitted`, `RepoSelected`,
@@ -231,12 +246,11 @@ with a unidirectional `Action` flow borrowed from Flux:
 
 ```
 src/
-  main.rs            // terminal setup/teardown, panic hook
-  app.rs             // root: mode stack, action dispatch, component tree
-  event.rs           // Event enum, crossterm + tokio mpsc merge
+  main.rs            // terminal setup/teardown, panic hook, event loop
+  app.rs             // root: mode stack, action dispatch, worker spawn
+  event.rs           // AppEvent enum + mpsc channel from workers
   action.rs          // Action enum
   mode.rs            // Mode enum
-  keymap.rs          // mode → key → Action table; drives dispatch AND hints
   components/
     search_popup.rs  // VimInput + results, Tab focus switching
     browser.rs       // owns the three panes
@@ -252,7 +266,7 @@ src/
     mod.rs           // Cache handle, layout, atomic writes
     index.rs         // repo ref → sha resolution cache
   theme.rs           // palette loading, semantic roles, syntect mapping
-  highlight.rs       // syntect wrapper driven by theme.rs
+  state.rs          // persisted app state (~/.local/state/ghx)
   editor.rs          // suspend/resume terminal, spawn editor
   config.rs          // ~/.config/ghx/config.toml (serde + defaults)
 ```

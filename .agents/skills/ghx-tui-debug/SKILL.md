@@ -15,13 +15,12 @@ Start the app in a project-scoped PTY process:
 
 ```
 hub(op="start", name="ghx", application="cargo", args=["run", "--quiet"],
-    cwd="<repo>", pty=true)
-```
-
 Then:
 
 - Inject keys: `hub(op="send", name="ghx", text="jj")` for printable
   input; `keys=["ENTER"]` / `["ESCAPE"]` / `["TAB"]` for special keys.
+  Send ESC **one call at a time** — back-to-back `\x1b` bytes can merge
+  into `Alt+<key>` in crossterm's parser and look like a bug.
 - Read output: `hub(op="logs", name="ghx")`. Output contains raw ANSI —
   to reconstruct the visible screen, pipe through a terminal emulator
   parser instead of eyeballing escapes (see §3).
@@ -31,7 +30,6 @@ The binary must never leave the terminal in raw mode or the alternate
 screen on exit — after `q`, the shell prompt must reappear normally.
 If the app panics, check the panic hook restored the terminal before
 the message printed.
-
 ## 2. Frame snapshots (deterministic, no TTY)
 
 Use ratatui's `TestBackend` to render the app into a `Buffer`, then
@@ -60,19 +58,23 @@ Rules:
 
 ## 3. Reconstructing a live screen
 
-When PTY logs matter (color, cursor position), replay the captured
-escape stream through `pyte` (Python VT emulator):
+`hub logs` render ANSI-stripped text, which mangles frame diffs. For a
+ground-truth view, drive ghx on a raw PTY yourself and replay the
+capture through a VT emulator:
 
-```python
-import pyte
-screen = pyte.Screen(120, 36)
-stream = pyte.Stream(screen)
-stream.feed(captured_ansi_text)
-print("\n".join(screen.display))
-```
-
-`pip install pyte` if missing. This gives the exact visible grid the
-user sees, including what was erased.
+- Preferred: `pyte` (`pip install pyte`). Feed the raw capture to
+  `pyte.Screen(120, 36)` and print `screen.display`.
+- No pyte/pip available? A ~60-line Python VT emulator handling CUP,
+  CUU/CUD/CUF/CUB, ED(2J), EL(K), CR/LF and printable chars is enough
+  for ratatui output (ghx's `/tmp/vt.py` pattern).
+- Deterministic driver (preferred over `script`, which breaks on piped
+  stdin): Python `pty.fork()`, **set the window size with
+  `fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack('HHHH', 36, 120, 0, 0))`**
+  — a 0×0 PTY makes ratatui draw nothing at all (looks like a hang).
+  Write keys with sleeps, read output with `select`, reconstruct with
+  the VT emulator.
+- Worker/backend events: set `GHX_TRACE=/tmp/ghx_trace.log` in the
+  child env — spawn/results/selection lines with timestamps.
 
 ## 4. Rendering-integrity checklist
 

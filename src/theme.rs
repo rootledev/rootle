@@ -35,6 +35,9 @@ pub struct Semantic {
     pub mode_insert: Color,
     pub mode_normal: Color,
     pub mode_leader: Color,
+
+    pub badge_repo: Color,
+    pub badge_org: Color,
 }
 
 impl Theme {
@@ -65,6 +68,9 @@ impl Theme {
                 mode_insert: Color::from_u32(0x94e2d5), // teal
                 mode_normal: Color::from_u32(0x89b4fa), // blue
                 mode_leader: Color::from_u32(0xfab387), // peach
+
+                badge_repo: Color::from_u32(0x89b4fa), // blue
+                badge_org: Color::from_u32(0xfab387),  // peach
             },
         }
     }

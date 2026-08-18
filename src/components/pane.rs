@@ -40,6 +40,8 @@ pub struct Pane {
     pub title: String,
     pub entries: Vec<Entry>,
     pub filter: String,
+    /// Render `[repo]`/`[org]` badges before entries (search results).
+    pub show_badges: bool,
     selected: usize,
     state: ListState,
     pub focused: bool,
@@ -53,6 +55,7 @@ impl Pane {
             title: title.into(),
             entries,
             filter: String::new(),
+            show_badges: false,
             selected: 0,
             state,
             focused: false,
@@ -138,16 +141,35 @@ impl Pane {
             .visible()
             .iter()
             .map(|e| {
-                let (label, style) = match e.kind {
-                    EntryKind::Dir | EntryKind::Repo | EntryKind::Org => (
-                        format!("{}/", e.name),
+                let line = match e.kind {
+                    EntryKind::Repo | EntryKind::Org if self.show_badges => {
+                        let (badge, color) = match e.kind {
+                            EntryKind::Repo => ("[repo]", sem.badge_repo),
+                            _ => ("[org]", sem.badge_org),
+                        };
+                        Line::from(vec![
+                            Span::styled(
+                                badge,
+                                Style::default().fg(color).add_modifier(Modifier::BOLD),
+                            ),
+                            Span::styled(
+                                format!(" {}", fit(&e.name, width.saturating_sub(8))),
+                                Style::default().fg(sem.text),
+                            ),
+                        ])
+                    }
+                    EntryKind::Dir | EntryKind::Repo | EntryKind::Org => Line::from(Span::styled(
+                        fit(&format!("{}/", e.name), width),
                         Style::default()
                             .fg(sem.directory)
                             .add_modifier(Modifier::BOLD),
-                    ),
-                    EntryKind::File => (e.name.clone(), Style::default().fg(sem.file)),
+                    )),
+                    EntryKind::File => Line::from(Span::styled(
+                        fit(&e.name, width),
+                        Style::default().fg(sem.file),
+                    )),
                 };
-                ListItem::new(Line::from(Span::styled(fit(&label, width), style)))
+                ListItem::new(line)
             })
             .collect();
 

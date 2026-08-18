@@ -30,6 +30,9 @@ pub struct VimInput {
     /// Modal inputs (popup query) get Esc→NORMAL. Transient inputs
     /// (`/` filter lines) cancel directly on Esc, like vim's `/`.
     modal: bool,
+    /// Prefilled value (resume flow): the first edit replaces it, like
+    /// a vim cmdline prefill. Enter submits it as-is.
+    replace_on_edit: bool,
 }
 
 impl Default for VimInput {
@@ -45,6 +48,7 @@ impl VimInput {
             cursor: 0,
             submode: SubMode::Insert,
             modal: true,
+            replace_on_edit: false,
         }
     }
 
@@ -63,7 +67,13 @@ impl VimInput {
     pub fn set(&mut self, value: &str) {
         self.chars = value.chars().collect();
         self.cursor = self.chars.len();
-        self.submode = SubMode::Insert;
+        self.replace_on_edit = false;
+    }
+    /// Seed with a replaceable value (resume prefill): typing clears it
+    /// first; Enter submits it unchanged.
+    pub fn prefill(&mut self, value: &str) {
+        self.set(value);
+        self.replace_on_edit = true;
     }
 
     pub fn clear(&mut self) {
@@ -83,6 +93,17 @@ impl VimInput {
     }
 
     fn insert_key(&mut self, key: KeyEvent) -> Outcome {
+        // Prefilled input: the first edit replaces the seed value.
+        if self.replace_on_edit
+            && matches!(
+                key.code,
+                KeyCode::Char(_) | KeyCode::Backspace | KeyCode::Delete
+            )
+        {
+            self.chars.clear();
+            self.cursor = 0;
+            self.replace_on_edit = false;
+        }
         match key.code {
             KeyCode::Char(c) => {
                 self.chars.insert(self.cursor, c);

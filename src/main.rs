@@ -43,8 +43,15 @@ fn main() -> io::Result<()> {
 }
 
 fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> {
-    let mut app = App::new();
+    let (tx, rx) = ghx::event::channel();
+    let mut app = App::new(tx);
+    let mut last_cursor_style: Option<SetCursorStyle> = None;
     loop {
+        // Drain worker outcomes before drawing so a completed fetch
+        // renders on this frame, not the next.
+        while let Ok(event) = rx.try_recv() {
+            app.handle_app_event(event);
+        }
         // Full clear must precede the draw: Terminal::clear resets the
         // diff buffers, so the next draw re-renders every cell. Clearing
         // after a draw would leave the screen blank until the next event.
@@ -56,10 +63,31 @@ fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> 
             let area = frame.area();
             app.render(frame, area);
         })?;
-        // Cursor shape follows input mode (bar=INSERT, block=NORMAL);
-        // hidden automatically when no input is focused.
-        if let Some(style) = app.cursor_style() {
-            stdout().execute(style)?;
+        // Cursor shape follows input mode (bar=INSERT, block=NORMAL).
+        // Emit only on CHANGE — repeating it every frame spams the
+        // stream and races ratatui's own hide/show bookkeeping.
+        let style = app.cursor_style();
+        let changed = !matches!(
+            (style, last_cursor_style),
+            (None, None)
+                | (
+                    Some(SetCursorStyle::SteadyBar),
+                    Some(SetCursorStyle::SteadyBar)
+                )
+                | (
+                    Some(SetCursorStyle::SteadyBlock),
+                    Some(SetCursorStyle::SteadyBlock)
+                )
+                | (
+                    Some(SetCursorStyle::DefaultUserShape),
+                    Some(SetCursorStyle::DefaultUserShape)
+                )
+        );
+        if changed {
+            if let Some(style) = style {
+                stdout().execute(style)?;
+            }
+            last_cursor_style = style;
         }
 
         if event::poll(Duration::from_millis(250))? {

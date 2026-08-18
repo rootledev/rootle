@@ -24,7 +24,31 @@ pub enum Action {
     // Popup
     ClosePopup,
 
+    // Search popup ↔ GitHub backend
+    SearchSubmitted(String),
+    SearchResults {
+        items: Vec<crate::github::SearchItem>,
+    },
+    SearchFailed {
+        message: String,
+    },
+
+    // Org loading
+    OrgSelected(String),
+    LoadOrgRepos(String),
+    OrgReposLoaded {
+        org: String,
+        repos: Vec<String>,
+    },
+    OrgReposFailed {
+        org: String,
+        message: String,
+    },
+
     // Selection outcomes
-    RepoSelected { owner: String, name: String },
+    RepoSelected {
+        owner: String,
+        name: String,
+    },
     OpenSelected,
 }

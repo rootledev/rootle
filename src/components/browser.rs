@@ -2,9 +2,10 @@
 //! Yazi semantics: `h` moves focus left into the parent column, where
 //! j/k then browse the parent — the child column rebuilds (cascades)
 //! from the new selection. `l` drills back in / deeper.
-//! Milestone 1: mock data only; GitHub backend lands in milestones 3–4.
+//! Org repos arrive asynchronously from the GitHub API; repo/dir trees
+//! are still mock data until milestone 4.
 
-use super::pane::{EntryKind, Pane};
+use super::pane::{Entry, EntryKind, Pane};
 use super::preview::Preview;
 use super::vim_input::VimInput;
 use crate::action::Action;
@@ -25,23 +26,71 @@ pub struct Browser {
 
 impl Default for Browser {
     fn default() -> Self {
-        Self::new()
+        Self::new(&[])
     }
 }
 
 impl Browser {
-    pub fn new() -> Self {
+    pub fn new(recent_orgs: &[String]) -> Self {
+        let mut names: Vec<String> = recent_orgs.to_vec();
+        for d in ["ratatui", "tokio-rs", "helix-editor"] {
+            if !names.iter().any(|n| n == d) {
+                names.push(d.to_string());
+            }
+        }
+        let orgs = names
+            .iter()
+            .map(|n| Entry::new(n, EntryKind::Org))
+            .collect();
+        // Starts folded at the orgs level; the repos level arrives
+        // asynchronously via `org_repos_loaded`.
         let mut browser = Browser {
-            levels: vec![
-                Pane::new("orgs", mock::orgs()),
-                Pane::new("ratatui", mock::repos("ratatui")),
-            ],
-            focus: 1,
+            levels: vec![Pane::new("orgs", orgs)],
+            focus: 0,
             preview: Preview::new(),
             filter_input: VimInput::transient(),
         };
         browser.sync();
         browser
+    }
+
+    /// Selected org at the top level, if any.
+    pub fn selected_org(&self) -> Option<String> {
+        self.levels[0].selected_entry().map(|e| e.name.clone())
+    }
+
+    /// Ensure `org` exists in the orgs level and select it.
+    pub fn select_org(&mut self, org: &str) {
+        let pos = self.levels[0]
+            .entries
+            .iter()
+            .position(|e| e.name == org)
+            .unwrap_or_else(|| {
+                self.levels[0]
+                    .entries
+                    .insert(0, Entry::new(org, EntryKind::Org));
+                0
+            });
+        self.levels[0].select(pos);
+        self.focus = 0;
+        self.sync();
+    }
+
+    /// Org repos arrived from the API: install/replace the repos level.
+    /// Ignored if the user has since selected a different org.
+    pub fn org_repos_loaded(&mut self, org: &str, repos: Vec<String>) {
+        if self.selected_org().as_deref() != Some(org) {
+            return;
+        }
+        let entries = repos
+            .iter()
+            .map(|r| Entry::new(r, EntryKind::Repo))
+            .collect();
+        self.levels.truncate(1);
+        self.levels.push(Pane::new(org, entries));
+        self.focus = 1;
+        self.cascade();
+        self.sync();
     }
 
     fn current(&mut self) -> &mut Pane {
@@ -72,59 +121,82 @@ impl Browser {
     }
 
     pub fn set_repo(&mut self, owner: &str, name: &str) {
-        self.levels.truncate(1);
-        self.levels.push(Pane::new(owner, mock::repos(owner)));
-        self.levels.push(Pane::new(name, mock::dir(name, "")));
-        self.focus = self.levels.len() - 1;
+        self.select_org(owner);
+        // Reuse the API-loaded repos level if present; mock is the
+        // fallback until the org load lands (milestone 4 replaces trees).
+        if self.levels.len() < 2 || self.levels[1].title != owner {
+            self.levels.truncate(1);
+            self.levels.push(Pane::new(owner, mock::repos(owner)));
+        }
+        if let Some(pos) = self.levels[1].entries.iter().position(|e| e.name == name) {
+            self.levels[1].select(pos);
+        }
+        self.focus = 1;
+        self.cascade();
         self.sync();
     }
 
-    pub fn update(&mut self, action: &Action) {
+    pub fn update(&mut self, action: &Action) -> Action {
         match action {
             Action::MoveUp | Action::MoveDown => {
                 self.current().update(action);
                 // Selection changed in the focused column: every column
                 // to its right is stale — rebuild from the new selection.
                 self.cascade();
+                self.sync();
             }
-            Action::DrillIn => self.drill_in(),
+            Action::DrillIn => {
+                let action = self.drill_in();
+                self.sync();
+                return action;
+            }
             Action::DrillOut => {
                 if self.focus > 0 {
                     self.focus -= 1;
                 }
+                self.sync();
             }
-            _ => return,
+            _ => {}
         }
-        self.sync();
+        Action::Noop
+    }
+
+    /// Drill into the focused entry. Org entries don't have their repos
+    /// locally — the caller must fetch them (`LoadOrgRepos`).
+    fn drill_in(&mut self) -> Action {
+        let Some(entry) = self.levels[self.focus].selected_entry().cloned() else {
+            return Action::Noop;
+        };
+        match entry.kind {
+            EntryKind::File => Action::Noop, // OpenSelected handled by app
+            EntryKind::Org => Action::LoadOrgRepos(entry.name.clone()),
+            EntryKind::Repo | EntryKind::Dir => {
+                if self.focus == self.levels.len() - 1 {
+                    if let Some(children) = mock::children(&entry, &self.dir_path()) {
+                        self.levels.push(Pane::new(entry.name.clone(), children));
+                    }
+                }
+                if self.focus + 1 < self.levels.len() {
+                    self.focus += 1;
+                }
+                Action::Noop
+            }
+        }
     }
 
     /// Drop levels right of focus and re-derive the immediate child
-    /// level from the focused selection (drillable entries only).
+    /// level from the focused selection. Org entries never cascade —
+    /// their repos come from the API (`LoadOrgRepos`).
     fn cascade(&mut self) {
         self.levels.truncate(self.focus + 1);
         let Some(entry) = self.levels[self.focus].selected_entry().cloned() else {
             return;
         };
+        if entry.kind == EntryKind::Org {
+            return;
+        }
         if let Some(children) = mock::children(&entry, &self.dir_path()) {
             self.levels.push(Pane::new(entry.name.clone(), children));
-        }
-    }
-
-    fn drill_in(&mut self) {
-        let Some(entry) = self.levels[self.focus].selected_entry().cloned() else {
-            return;
-        };
-        if entry.kind == EntryKind::File {
-            return; // OpenSelected handled by app (editor, milestone 6)
-        }
-        if self.focus == self.levels.len() - 1 {
-            // No child level yet (shouldn't happen post-cascade, but be safe).
-            if let Some(children) = mock::children(&entry, &self.dir_path()) {
-                self.levels.push(Pane::new(entry.name.clone(), children));
-            }
-        }
-        if self.focus + 1 < self.levels.len() {
-            self.focus += 1;
         }
     }
 
@@ -164,9 +236,14 @@ impl Browser {
             EntryKind::File => self
                 .preview
                 .set_bytes(&entry.name, &mock::file_bytes(&entry.name)),
-            EntryKind::Dir | EntryKind::Repo | EntryKind::Org => {
+            EntryKind::Dir | EntryKind::Repo => {
                 let children = mock::children(&entry, &self.dir_path()).unwrap_or_default();
                 self.preview.set_dir(&entry.name, children);
+            }
+            EntryKind::Org => {
+                // Repos load over the API; don't mock them in preview.
+                self.preview.title = entry.name.clone();
+                self.preview.content = Default::default();
             }
         }
     }

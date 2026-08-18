@@ -17,6 +17,27 @@ fn key(code: KeyCode) -> KeyEvent {
     }
 }
 
+fn test_app() -> App {
+    let (tx, _rx) = ghx::event::channel();
+    App::with(ghx::state::State::default(), tx)
+}
+
+/// Popup closed, ratatui org repos loaded (offline — injected, no workers).
+fn browsing_app() -> App {
+    let mut app = test_app();
+    app.handle_key(key(KeyCode::Esc));
+    app.handle_key(key(KeyCode::Esc));
+    app.handle_action(ghx::action::Action::OrgReposLoaded {
+        org: "ratatui".into(),
+        repos: vec![
+            "ratatui".into(),
+            "ratatui-website".into(),
+            "templates".into(),
+            "comfy-table".into(),
+        ],
+    });
+    app
+}
 fn render(app: &mut App, width: u16, height: u16) -> Vec<String> {
     let backend = TestBackend::new(width, height);
     let mut terminal = Terminal::new(backend).unwrap();
@@ -38,7 +59,7 @@ fn render(app: &mut App, width: u16, height: u16) -> Vec<String> {
 
 #[test]
 fn renders_three_panes_modeline_and_popup() {
-    let mut app = App::with(ghx::state::State::default());
+    let mut app = test_app();
     let rows = render(&mut app, 100, 30);
     let screen = rows.join("\n");
 
@@ -57,7 +78,7 @@ fn renders_three_panes_modeline_and_popup() {
 
 #[test]
 fn popup_close_leaves_no_lingering_cells() {
-    let mut app = App::with(ghx::state::State::default());
+    let mut app = test_app();
     let _ = render(&mut app, 100, 30); // popup open
 
     // Esc twice: INSERT → NORMAL → close popup.
@@ -82,9 +103,7 @@ fn popup_close_leaves_no_lingering_cells() {
 
 #[test]
 fn resize_keeps_modeline_on_last_row() {
-    let mut app = App::with(ghx::state::State::default());
-    app.handle_key(key(KeyCode::Esc));
-    app.handle_key(key(KeyCode::Esc)); // close popup
+    let mut app = browsing_app(); // popup closed + org repos loaded
     for (w, h) in [(80, 24), (120, 40), (40, 10)] {
         let rows = render(&mut app, w, h);
         let last = rows.last().unwrap();
@@ -97,9 +116,7 @@ fn resize_keeps_modeline_on_last_row() {
 
 #[test]
 fn searching_mode_filters_incrementally() {
-    let mut app = App::with(ghx::state::State::default());
-    app.handle_key(key(KeyCode::Esc));
-    app.handle_key(key(KeyCode::Esc)); // close popup → repos pane
+    let mut app = browsing_app(); // popup closed + org repos loaded → repos pane
     app.handle_key(key(KeyCode::Char('/')));
     app.handle_key(key(KeyCode::Char('w'))); // "website"
     let rows = render(&mut app, 100, 30);
@@ -115,9 +132,7 @@ fn searching_mode_filters_incrementally() {
 
 #[test]
 fn h_moves_focus_to_parent_and_browsing_it_cascades() {
-    let mut app = App::with(ghx::state::State::default());
-    app.handle_key(key(KeyCode::Esc));
-    app.handle_key(key(KeyCode::Esc)); // close popup
+    let mut app = browsing_app(); // popup closed + org repos loaded
 
     // Drill into a repo: focus is now on the repo's root dir column.
     app.handle_key(key(KeyCode::Char('l')));
@@ -139,8 +154,8 @@ fn h_moves_focus_to_parent_and_browsing_it_cascades() {
         "child column should cascade to the newly selected repo"
     );
     // h again: focus reaches the orgs column → folds to a single pane.
-    // j picks tokio-rs; the repos level cascades internally but stays
-    // hidden while folded.
+    // j picks tokio-rs. Org repos now arrive from the API — inject the
+    // response (offline app never spawns workers).
     app.handle_key(key(KeyCode::Char('h')));
     app.handle_key(key(KeyCode::Char('j')));
     let rows = render(&mut app, 100, 30);
@@ -151,20 +166,27 @@ fn h_moves_focus_to_parent_and_browsing_it_cascades() {
         "folded view hides the repos column"
     );
 
-    // l unfolds: repos column shows tokio-rs repos, cascaded from the
-    // new org selection — no stale ratatui entries.
-    app.handle_key(key(KeyCode::Char('l')));
+    // l on an org triggers LoadOrgRepos; the response installs the
+    // repos level — no stale ratatui entries.
+    app.handle_action(ghx::action::Action::OrgReposLoaded {
+        org: "tokio-rs".into(),
+        repos: vec![
+            "tokio".into(),
+            "axum".into(),
+            "hyper".into(),
+            "tracing".into(),
+            "bytes".into(),
+        ],
+    });
     let rows = render(&mut app, 100, 30);
     let screen = rows.join("\n");
-    assert!(screen.contains("axum/"), "org switch should cascade repos");
+    assert!(screen.contains("axum/"), "org switch should load repos");
     assert!(!screen.contains("comfy-table"), "stale child column leaked");
 }
 
 #[test]
 fn drilling_into_dir_uses_correct_relative_path() {
-    let mut app = App::with(ghx::state::State::default());
-    app.handle_key(key(KeyCode::Esc));
-    app.handle_key(key(KeyCode::Esc)); // close popup → repos pane
+    let mut app = browsing_app(); // popup closed + org repos loaded → repos pane
     app.handle_key(key(KeyCode::Char('l'))); // into ratatui root
     app.handle_key(key(KeyCode::Char('l'))); // into src/
     let rows = render(&mut app, 100, 30);
@@ -187,10 +209,8 @@ fn drilling_into_dir_uses_correct_relative_path() {
 fn preview_colors_dirs_and_files_differently() {
     use ratatui::style::{Color, Modifier};
 
-    let mut app = App::with(ghx::state::State::default());
-    app.handle_key(key(KeyCode::Esc));
-    app.handle_key(key(KeyCode::Esc)); // close popup → repos pane, preview
-                                       // shows ratatui's root listing
+    let mut app = browsing_app(); // popup closed + org repos loaded → repos pane, preview
+                                  // shows ratatui's root listing
     let backend = TestBackend::new(100, 30);
     let mut terminal = Terminal::new(backend).unwrap();
     terminal
@@ -236,9 +256,7 @@ fn preview_colors_dirs_and_files_differently() {
 
 #[test]
 fn org_level_folds_to_single_pane() {
-    let mut app = App::with(ghx::state::State::default());
-    app.handle_key(key(KeyCode::Esc));
-    app.handle_key(key(KeyCode::Esc)); // close popup
+    let mut app = browsing_app(); // popup closed + org repos loaded
 
     // h until focus reaches the orgs column (top level).
     app.handle_key(key(KeyCode::Char('h')));
@@ -260,9 +278,22 @@ fn org_level_folds_to_single_pane() {
 
 #[test]
 fn popup_results_support_local_slash_filter() {
-    let mut app = App::with(ghx::state::State::default());
-    // Popup opens on launch; submit empty query → all mock results.
+    let mut app = test_app();
+    // Submit a query (offline: no worker spawned) and inject the
+    // response — what the worker thread would send over the channel.
     app.handle_key(key(KeyCode::Enter));
+    app.handle_action(ghx::action::Action::SearchResults {
+        items: vec![
+            ghx::github::SearchItem::Org("tokio-rs".into()),
+            ghx::github::SearchItem::Repo("tokio-rs/tokio".into()),
+            ghx::github::SearchItem::Repo("ratatui/ratatui".into()),
+            ghx::github::SearchItem::Repo("sharkdp/bat".into()),
+        ],
+    });
+    assert!(
+        app.cursor_style().is_none(),
+        "results focus: no text cursor"
+    );
 
     // `/` in results → SEARCH chip, incremental local filter.
     app.handle_key(key(KeyCode::Char('/')));

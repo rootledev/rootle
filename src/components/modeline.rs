@@ -11,6 +11,9 @@ use ratatui::Frame;
 
 pub struct Modeline {
     pub context: String,
+    /// Transient one-line status ("searching GitHub…", errors) shown
+    /// right after the mode chip, in warning color.
+    pub status: Option<String>,
 }
 
 impl Default for Modeline {
@@ -20,9 +23,10 @@ impl Default for Modeline {
 }
 
 impl Modeline {
-    pub fn new() -> Self {
+    pub fn new() -> Modeline {
         Modeline {
             context: String::new(),
+            status: None,
         }
     }
 
@@ -46,11 +50,17 @@ impl Modeline {
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(" ", Style::default().bg(sem.mantle)),
-            Span::styled(
-                format!(" {} ", self.context),
-                Style::default().fg(sem.subtext0).bg(sem.mantle),
-            ),
         ];
+        if let Some(status) = &self.status {
+            spans.push(Span::styled(
+                format!(" {status} "),
+                Style::default().fg(sem.warning).bg(sem.mantle),
+            ));
+        }
+        spans.push(Span::styled(
+            format!(" {} ", self.context),
+            Style::default().fg(sem.subtext0).bg(sem.mantle),
+        ));
 
         let hint_text: Vec<Span> = keymap::hints(mode)
             .iter()
