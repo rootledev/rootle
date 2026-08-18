@@ -9,6 +9,9 @@ services:
       context: .
       dockerfile: Dockerfile
       target: test
+    # The gate runs at image-build time (RUN steps); if the image
+    # exists, the gate passed. The command is just a confirmation.
+    command: 'echo "gate passed: fmt + clippy -D warnings + cargo test"'
 
   build:
     build:

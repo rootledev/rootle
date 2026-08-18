@@ -12,6 +12,13 @@ use std::io::{self, stdout};
 use std::time::Duration;
 
 fn main() -> io::Result<()> {
+    // Headless version print: the release pipeline's smoke check
+    // (PLAN.md §13) runs `ghx --version` on the static binary.
+    if std::env::args().any(|a| a == "--version" || a == "-V") {
+        println!("ghx {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+
     enable_raw_mode()?;
     stdout().execute(EnterAlternateScreen)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;

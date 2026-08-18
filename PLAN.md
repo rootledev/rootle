@@ -424,7 +424,9 @@ On `<Enter>` over a file:
   - `build`   → debug build in the builder stage
   - `release` → builds, strips, exports `ghx-linux-x86_64-musl` +
     sha256 to `./dist/`
-  - Usage: `docker compose run --rm test` / `... release`.
+  - Usage: `docker compose run --build --rm test` / `... release`.
+    **`--build` is required after source changes** — compose `run`
+    reuses the cached image otherwise and would build stale sources.
 - Release flow: `git tag vX.Y.Z` → CI (GitHub Actions) runs
   `docker compose run --rm release` → `gh release create vX.Y.Z dist/ghx-*`
   with generated notes + sha256 checksums. `cargo-release` for version
