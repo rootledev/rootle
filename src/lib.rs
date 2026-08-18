@@ -5,4 +5,5 @@ pub mod config;
 pub mod keymap;
 pub mod mode;
 pub mod sanitize;
+pub mod state;
 pub mod theme;

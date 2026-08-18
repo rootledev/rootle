@@ -16,9 +16,16 @@
 - 18 tests green: `cargo test`. Frame tests in `tests/render.rs` print
   the UI with `cargo test renders_three_panes -- --nocapture`.
 
-**Not started**: network/cache/editor (milestones 2–7). Milestone 8's
-Docker/compose scaffold landed early (`Dockerfile`, `docker-compose.yml`);
-what remains there is CI wiring + `gh release`.
+- Milestone 2 state store: `src/state.rs` (XDG state dir, atomic writes,
+  LRU recents, version field), resume prefill in the search popup,
+  save on repo-select and quit. Tests inject `State` via `App::with` —
+  frame tests must NEVER touch the real `~/.local/state` file.
+- Cursor shape follows input mode: bar=INSERT, block=NORMAL, restored on
+  exit (also in the panic hook).
+
+**Not started**: network/cache/editor (milestones 3–7), CLI args (8).
+Milestone 9's Docker/compose scaffold landed early (`Dockerfile`,
+`docker-compose.yml`); what remains there is CI wiring + `gh release`.
 
 **Conventions that matter** (violations break the design):
 
@@ -191,6 +198,11 @@ Principles: quiet by default, one accent, state lives in the modeline.
   mode chip; errors → a transient toast line above the modeline
   (auto-clears on next successful action), never a blocking dialog for
   recoverable failures.
+- **Cursor shape follows vim mode**: a visible text cursor is a steady
+  bar (`|`) in INSERT and a steady block in NORMAL (crossterm
+  `SetCursorStyle::SteadyBar`/`SteadyBlock`). No cursor is shown outside
+  text inputs. The app restores `DefaultUserShape` on exit — never leave
+  the user's shell cursor mutated.
 - **Typography**: no emoji, no nerd-font dependency for core UI; icons
   opt-in via config later.
 
@@ -368,7 +380,8 @@ Remote file bytes are hostile input for a terminal. Rules:
 Distinct from the cache: cache is evictable, state is not.
 
 `~/.local/state/ghx/state.json` (XDG state dir; small, human-readable,
-written atomically tmp+rename, debounced ~500ms after change):
+written atomically tmp+rename on state transitions — repo select and
+quit — not on a timer):
 
 ```json
 {
@@ -470,5 +483,8 @@ before moving on.
 5. **Preview** — blob fetch, sanitization, syntect highlighting.
 6. **Editor** — suspend/resume + read-only spawn.
 7. **Cache hardening** — ETag revalidation, eviction, orphan sweep.
-8. **Release pipeline** — docker, compose services, gh release, CI.
-9. **Later** — VISUAL mode (multi-select), settings view, icons.
+8. **CLI arguments** — replace the ad-hoc `--version` with clap:
+   `--version`, `--config <path>`, `--theme <name>`, optional positional
+   `[org/repo]` to skip the search popup straight into browsing.
+9. **Release pipeline** — CI wiring, tag → gh release (scaffold done).
+10. **Later** — VISUAL mode (multi-select), settings view, icons.

@@ -9,6 +9,7 @@ use crate::components::vim_input::Outcome;
 use crate::config::Config;
 use crate::keymap;
 use crate::mode::Mode;
+use crate::state::State;
 use crate::theme::Theme;
 use ratatui::crossterm::event::KeyEvent;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
@@ -22,6 +23,7 @@ pub struct App {
     theme: Theme,
     #[allow(dead_code)]
     config: Config,
+    state: State,
     pub should_quit: bool,
     /// Set when stale cells are possible (popup close, resize, editor
     /// resume); the main loop performs a full `terminal.clear()`.
@@ -30,13 +32,22 @@ pub struct App {
 
 impl App {
     pub fn new() -> Self {
+        Self::with(State::load())
+    }
+
+    /// `state` is injectable so tests never touch the real state file.
+    pub fn with(state: State) -> Self {
+        // Resume flow: prefill the search with the last repo — one
+        // Enter re-runs the query and returns to where the user was.
+        let popup = SearchPopup::with_prefill(state.last_repo.as_deref());
         App {
             mode: Mode::Browse,
             browser: Browser::new(),
-            popup: Some(SearchPopup::new()), // launch flow opens on search
+            popup: Some(popup), // launch flow opens on search
             modeline: Modeline::new(),
             theme: Theme::catppuccin_mocha(),
             config: Config::load(),
+            state,
             should_quit: false,
             force_redraw: false,
         }
@@ -73,7 +84,11 @@ impl App {
 
     fn route(&mut self, action: Action) {
         match action {
-            Action::Quit | Action::LeaderQuit => self.should_quit = true,
+            Action::Quit | Action::LeaderQuit => {
+                self.state.last_path = Some(self.browser.dir_path());
+                self.state.save();
+                self.should_quit = true;
+            }
             Action::ClosePopup => {
                 self.popup = None;
                 self.mode = Mode::Browse;
@@ -82,6 +97,8 @@ impl App {
                 // A terminal.clear() here would flash (PLAN.md §9).
             }
             Action::RepoSelected { owner, name } => {
+                self.state.record_repo(&owner, &name);
+                self.state.save();
                 self.browser.set_repo(&owner, &name);
                 self.popup = None;
                 self.mode = Mode::Browse;
@@ -119,6 +136,11 @@ impl App {
         if self.mode == Mode::Search {
             self.browser.apply_filter();
         }
+    }
+
+    /// Desired terminal cursor shape, if any text input is focused.
+    pub fn cursor_style(&self) -> Option<ratatui::crossterm::cursor::SetCursorStyle> {
+        self.popup.as_ref().and_then(|p| p.cursor_style())
     }
 
     pub fn render(&mut self, frame: &mut Frame, area: Rect) {

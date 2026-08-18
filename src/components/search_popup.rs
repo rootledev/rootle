@@ -9,6 +9,7 @@ use super::vim_input::{Outcome, SubMode, VimInput};
 use crate::action::Action;
 use crate::mode::Mode;
 use crate::theme::Theme;
+use ratatui::crossterm::cursor::SetCursorStyle;
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
@@ -41,9 +42,18 @@ impl Default for SearchPopup {
 
 impl SearchPopup {
     pub fn new() -> Self {
+        Self::with_prefill(None)
+    }
+
+    /// `prefill` seeds the query (resume flow: last repo from state).
+    pub fn with_prefill(prefill: Option<&str>) -> Self {
         let results = Pane::new("results", mock_search(""));
+        let mut input = VimInput::new();
+        if let Some(p) = prefill {
+            input.set(p);
+        }
         SearchPopup {
-            input: VimInput::new(),
+            input,
             results,
             focus: Focus::Input,
             filter: VimInput::transient(),
@@ -145,6 +155,18 @@ impl SearchPopup {
                 Focus::Input
             }
         };
+    }
+
+    /// Cursor shape for the popup's text input (PLAN.md §5): bar in
+    /// INSERT, block in NORMAL, hidden when results are focused.
+    pub fn cursor_style(&self) -> Option<SetCursorStyle> {
+        if self.focus != Focus::Input {
+            return None;
+        }
+        Some(match self.input.submode {
+            SubMode::Insert => SetCursorStyle::SteadyBar,
+            SubMode::Normal => SetCursorStyle::SteadyBlock,
+        })
     }
 
     pub fn render(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
@@ -255,4 +277,34 @@ fn split_repo(full: &str) -> (String, String) {
         parts.next().unwrap_or_default().to_string(),
         parts.next().unwrap_or_default().to_string(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cursor_shape_follows_input_submode() {
+        let mut popup = SearchPopup::new();
+        assert!(matches!(
+            popup.cursor_style(),
+            Some(SetCursorStyle::SteadyBar)
+        ));
+
+        popup.input.submode = SubMode::Normal;
+        assert!(matches!(
+            popup.cursor_style(),
+            Some(SetCursorStyle::SteadyBlock)
+        ));
+
+        popup.toggle_focus(); // results focused → no text cursor
+        assert!(popup.cursor_style().is_none());
+    }
+
+    #[test]
+    fn prefill_seeds_query_in_insert_mode() {
+        let popup = SearchPopup::with_prefill(Some("ratatui/ratatui"));
+        assert_eq!(popup.input.value(), "ratatui/ratatui");
+        assert_eq!(popup.input.submode, SubMode::Insert);
+    }
 }

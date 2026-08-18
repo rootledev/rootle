@@ -128,12 +128,14 @@ impl Browser {
         }
     }
 
-    /// Path of dir-level titles, for the mock/backend child lookup.
-    fn dir_path(&self) -> String {
+    /// Dir path relative to the repo root, from the level titles
+    /// (levels: 0=orgs, 1=repos, 2=repo root, 3+=dirs). Also persisted
+    /// as `last_path` in the state store.
+    pub fn dir_path(&self) -> String {
         self.levels
             .iter()
             .take(self.focus + 1)
-            .skip(2)
+            .skip(3)
             .map(|p| p.title.as_str())
             .collect::<Vec<_>>()
             .join("/")
@@ -247,13 +249,20 @@ pub mod mock {
         entries.iter().map(|(n, k)| Entry::new(n, *k)).collect()
     }
 
-    /// Children of an entry given the dir path of the level above it.
+    /// Children of an entry given the dir path of the level it sits in.
     /// None for files (not drillable).
     pub fn children(entry: &Entry, parent_path: &str) -> Option<Vec<Entry>> {
         match entry.kind {
             EntryKind::Org => Some(repos(&entry.name)),
             EntryKind::Repo => Some(dir(&entry.name, "")),
-            EntryKind::Dir => Some(dir(&entry.name, parent_path)),
+            EntryKind::Dir => {
+                let child_path = if parent_path.is_empty() {
+                    entry.name.clone()
+                } else {
+                    format!("{parent_path}/{}", entry.name)
+                };
+                Some(dir(&entry.name, &child_path))
+            }
             EntryKind::File => None,
         }
     }

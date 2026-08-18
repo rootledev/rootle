@@ -3,6 +3,7 @@
 
 use ghx::app::App;
 use ratatui::crossterm::{
+    cursor::SetCursorStyle,
     event::{self, Event},
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
     ExecutableCommand,
@@ -27,6 +28,7 @@ fn main() -> io::Result<()> {
     let default_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         let _ = disable_raw_mode();
+        let _ = stdout().execute(SetCursorStyle::DefaultUserShape);
         let _ = stdout().execute(LeaveAlternateScreen);
         default_hook(info);
     }));
@@ -34,6 +36,8 @@ fn main() -> io::Result<()> {
     let result = run(&mut terminal);
 
     disable_raw_mode()?;
+    // Restore the user's cursor shape — never leave it mutated (PLAN.md §5).
+    stdout().execute(SetCursorStyle::DefaultUserShape)?;
     stdout().execute(LeaveAlternateScreen)?;
     result
 }
@@ -52,6 +56,11 @@ fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> 
             let area = frame.area();
             app.render(frame, area);
         })?;
+        // Cursor shape follows input mode (bar=INSERT, block=NORMAL);
+        // hidden automatically when no input is focused.
+        if let Some(style) = app.cursor_style() {
+            stdout().execute(style)?;
+        }
 
         if event::poll(Duration::from_millis(250))? {
             // Resize: ratatui resizes its buffers automatically; the

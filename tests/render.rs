@@ -38,7 +38,7 @@ fn render(app: &mut App, width: u16, height: u16) -> Vec<String> {
 
 #[test]
 fn renders_three_panes_modeline_and_popup() {
-    let mut app = App::new();
+    let mut app = App::with(ghx::state::State::default());
     let rows = render(&mut app, 100, 30);
     let screen = rows.join("\n");
 
@@ -57,7 +57,7 @@ fn renders_three_panes_modeline_and_popup() {
 
 #[test]
 fn popup_close_leaves_no_lingering_cells() {
-    let mut app = App::new();
+    let mut app = App::with(ghx::state::State::default());
     let _ = render(&mut app, 100, 30); // popup open
 
     // Esc twice: INSERT → NORMAL → close popup.
@@ -82,7 +82,7 @@ fn popup_close_leaves_no_lingering_cells() {
 
 #[test]
 fn resize_keeps_modeline_on_last_row() {
-    let mut app = App::new();
+    let mut app = App::with(ghx::state::State::default());
     app.handle_key(key(KeyCode::Esc));
     app.handle_key(key(KeyCode::Esc)); // close popup
     for (w, h) in [(80, 24), (120, 40), (40, 10)] {
@@ -97,7 +97,7 @@ fn resize_keeps_modeline_on_last_row() {
 
 #[test]
 fn searching_mode_filters_incrementally() {
-    let mut app = App::new();
+    let mut app = App::with(ghx::state::State::default());
     app.handle_key(key(KeyCode::Esc));
     app.handle_key(key(KeyCode::Esc)); // close popup → repos pane
     app.handle_key(key(KeyCode::Char('/')));
@@ -115,7 +115,7 @@ fn searching_mode_filters_incrementally() {
 
 #[test]
 fn h_moves_focus_to_parent_and_browsing_it_cascades() {
-    let mut app = App::new();
+    let mut app = App::with(ghx::state::State::default());
     app.handle_key(key(KeyCode::Esc));
     app.handle_key(key(KeyCode::Esc)); // close popup
 
@@ -161,10 +161,33 @@ fn h_moves_focus_to_parent_and_browsing_it_cascades() {
 }
 
 #[test]
+fn drilling_into_dir_uses_correct_relative_path() {
+    let mut app = App::with(ghx::state::State::default());
+    app.handle_key(key(KeyCode::Esc));
+    app.handle_key(key(KeyCode::Esc)); // close popup → repos pane
+    app.handle_key(key(KeyCode::Char('l'))); // into ratatui root
+    app.handle_key(key(KeyCode::Char('l'))); // into src/
+    let rows = render(&mut app, 100, 30);
+    let screen = rows.join("\n");
+    // The src/ bucket: widgets/, layout/, lib.rs in the center pane.
+    assert!(screen.contains("widgets/"), "src/ children missing");
+    assert!(screen.contains("lib.rs"), "src/ children missing");
+    // Hovering a file proves we drilled correctly: preview renders
+    // lib.rs content (sanitized — the mock embeds ESC sequences).
+    app.handle_key(key(KeyCode::Char('j')));
+    app.handle_key(key(KeyCode::Char('j'))); // hover lib.rs
+    let rows = render(&mut app, 100, 30);
+    assert!(
+        rows.join("\n").contains("A Rust TUI library"),
+        "lib.rs preview missing after drilling into src/"
+    );
+}
+
+#[test]
 fn preview_colors_dirs_and_files_differently() {
     use ratatui::style::{Color, Modifier};
 
-    let mut app = App::new();
+    let mut app = App::with(ghx::state::State::default());
     app.handle_key(key(KeyCode::Esc));
     app.handle_key(key(KeyCode::Esc)); // close popup → repos pane, preview
                                        // shows ratatui's root listing
@@ -213,7 +236,7 @@ fn preview_colors_dirs_and_files_differently() {
 
 #[test]
 fn org_level_folds_to_single_pane() {
-    let mut app = App::new();
+    let mut app = App::with(ghx::state::State::default());
     app.handle_key(key(KeyCode::Esc));
     app.handle_key(key(KeyCode::Esc)); // close popup
 
@@ -237,7 +260,7 @@ fn org_level_folds_to_single_pane() {
 
 #[test]
 fn popup_results_support_local_slash_filter() {
-    let mut app = App::new();
+    let mut app = App::with(ghx::state::State::default());
     // Popup opens on launch; submit empty query → all mock results.
     app.handle_key(key(KeyCode::Enter));
 
