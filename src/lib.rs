@@ -3,6 +3,7 @@ pub mod app;
 pub mod cache;
 pub mod components;
 pub mod config;
+pub mod editor;
 pub mod event;
 pub mod github;
 pub mod highlight;

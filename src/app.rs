@@ -30,7 +30,6 @@ pub struct App {
     popup: Option<SearchPopup>,
     modeline: Modeline,
     theme: Theme,
-    #[allow(dead_code)]
     config: Config,
     state: State,
     tx: AppTx,
@@ -46,6 +45,9 @@ pub struct App {
     /// Reserved for the editor-resume path (milestone 6): the only
     /// legitimate full `terminal.clear()` trigger (PLAN.md §9).
     pub force_redraw: bool,
+    /// A prepared editor invocation; the main loop runs it while the
+    /// terminal is suspended, then forces a full redraw.
+    pending_editor: Option<crate::editor::EditorJob>,
 }
 
 impl App {
@@ -83,6 +85,7 @@ impl App {
             offline,
             should_quit: false,
             force_redraw: false,
+            pending_editor: None,
         }
     }
 
@@ -301,14 +304,33 @@ impl App {
                 self.handle_action(follow);
             }
             Action::OpenSelected => {
-                if matches!(
-                    self.browser.selected_kind(),
-                    Some(EntryKind::Dir | EntryKind::Repo | EntryKind::Org)
-                ) {
-                    let follow = self.browser.update(&Action::DrillIn);
-                    self.handle_action(follow);
+                match self.browser.selected_kind() {
+                    Some(EntryKind::File) => {
+                        // Enter on a file → open in the editor (read-only,
+                        // PLAN.md §12). The blocking blob fetch is fine:
+                        // the UI is about to suspend anyway.
+                        if let (Some((path, sha)), Some((owner, repo))) =
+                            (self.browser.selected_file(), self.browser.repo_coords())
+                        {
+                            match crate::editor::prepare(
+                                &self.config,
+                                &self.client,
+                                &owner,
+                                &repo,
+                                &path,
+                                &sha,
+                            ) {
+                                Ok(job) => self.pending_editor = Some(job),
+                                Err(message) => self.status = Some(format!("editor: {message}")),
+                            }
+                        }
+                    }
+                    Some(EntryKind::Dir | EntryKind::Repo | EntryKind::Org) => {
+                        let follow = self.browser.update(&Action::DrillIn);
+                        self.handle_action(follow);
+                    }
+                    None => {}
                 }
-                // Files: editor integration is milestone 6.
             }
             Action::Noop => {}
         }
@@ -418,6 +440,12 @@ impl App {
         });
     }
 
+    /// Hand the prepared editor job to the main loop (which owns the
+    /// terminal and performs the suspend/resume dance).
+    pub fn take_editor_job(&mut self) -> Option<crate::editor::EditorJob> {
+        self.pending_editor.take()
+    }
+
     /// Desired terminal cursor shape, if any text input is focused.
     pub fn cursor_style(&self) -> Option<ratatui::crossterm::cursor::SetCursorStyle> {
         self.popup.as_ref().and_then(|p| p.cursor_style())
@@ -442,7 +470,7 @@ impl App {
 }
 /// Worker debug tracing: enabled via GHX_TRACE=/path/log (kept minimal,
 /// no logging dependency; remove when the backend stabilizes).
-fn trace(msg: &str) {
+pub fn trace(msg: &str) {
     if let Ok(path) = std::env::var("GHX_TRACE") {
         use std::io::Write;
         if let Ok(mut f) = std::fs::OpenOptions::new()

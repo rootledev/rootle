@@ -102,8 +102,48 @@ fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> 
             }
         }
 
+        // Editor: suspend the terminal, run the editor to completion,
+        // resume with a full redraw (the one legitimate clear).
+        if let Some(job) = app.take_editor_job() {
+            run_editor(terminal, job)?;
+            last_cursor_style = None; // editor reset the shape
+        }
+
         if app.should_quit {
             return Ok(());
         }
     }
+}
+
+fn run_editor(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    job: ghx::editor::EditorJob,
+) -> io::Result<()> {
+    // Suspend: leave the alternate screen, raw mode off, cursor normal.
+    disable_raw_mode()?;
+    stdout().execute(LeaveAlternateScreen)?;
+    stdout().execute(SetCursorStyle::DefaultUserShape)?;
+
+    let status = std::process::Command::new(&job.program)
+        .args(&job.args)
+        .status();
+    ghx::app::trace(&format!(
+        "editor {} exited: {}",
+        job.program,
+        status
+            .map(|s| s.to_string())
+            .unwrap_or_else(|e| e.to_string())
+    ));
+
+    // Resume: raw mode + alternate screen again, then a full clear —
+    // the editor scribbled on the screen, so the diff is unusable.
+    enable_raw_mode()?;
+    stdout().execute(EnterAlternateScreen)?;
+    terminal.clear()?;
+
+    // Drain input queued while suspended (editor residue, resizes).
+    while event::poll(Duration::from_millis(0))? {
+        let _ = event::read()?;
+    }
+    Ok(())
 }

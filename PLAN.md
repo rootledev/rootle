@@ -48,7 +48,15 @@ requests (a take marks in-flight; failure stays pending — no retry spam).
 vim/helix (this sandbox sets NO_COLOR=1; without the override every
 capture looked colorless).
 
-**Not started**: editor (6), cache eviction (7), CLI (8).
+Milestone 6 done: editor integration — Enter on a file materializes the
+blob to `~/.cache/ghx/edit/<owner>__<repo>/<path>` (traversal-safe),
+suspends the terminal, runs the editor, resumes with the one legitimate
+`terminal.clear()` + input drain. Editor resolution: `[editor].program`
+→ `$VISUAL` → `$EDITOR` → probe hx/nvim/vim/vi (NOTE: this sandbox sets
+`VISUAL=true` — override it in tests). Read-only: `-R` for the vim
+family; helix edits the cache copy (never written back).
+
+**Not started**: cache eviction (7), CLI (8).
 
 **Conventions that matter** (violations break the design):
 

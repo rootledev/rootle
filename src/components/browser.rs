@@ -411,6 +411,22 @@ impl Browser {
         Some((owner, name))
     }
 
+    /// The file under the cursor, as (full repo-relative path, blob sha).
+    pub fn selected_file(&self) -> Option<(String, String)> {
+        let entry = self.levels[self.focus].selected_entry()?;
+        if entry.kind != EntryKind::File {
+            return None;
+        }
+        let base = self.dir_path();
+        let full = if base.is_empty() {
+            entry.name.clone()
+        } else {
+            format!("{base}/{}", entry.name)
+        };
+        let sha = self.tree.as_ref()?.find(&full)?.sha.clone();
+        Some((full, sha))
+    }
+
     fn refresh_preview(&mut self) {
         let Some(entry) = self.levels[self.focus].selected_entry().cloned() else {
             self.preview.content = Default::default();
