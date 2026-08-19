@@ -71,7 +71,38 @@ fn browsing_app() -> App {
         entries: ratatui_tree(),
         truncated: false,
     });
+    // Tree arrival auto-enters the root pane; step back to the repos
+    // pane — this helper models "browsing at repos level".
+    app.handle_key(key(KeyCode::Char('h')));
     app
+}
+#[test]
+fn filter_commit_triggers_blob_load_of_selected_file() {
+    let mut app = browsing_app();
+    app.handle_key(key(KeyCode::Char('l'))); // drill into repo root
+                                             // Live-filter to Cargo.toml, commit with Enter.
+    app.handle_key(key(KeyCode::Char('/')));
+    for c in "cargo.toml".chars() {
+        app.handle_key(key(KeyCode::Char(c)));
+    }
+    let rows = render(&mut app, 100, 30);
+    let screen = rows.join("\n");
+    assert!(
+        screen.contains("loading"),
+        "file meta/loading preview should show while blob is pending"
+    );
+    app.handle_key(key(KeyCode::Enter)); // commit filter
+                                         // Blob fetch was requested; inject the response.
+    app.handle_action(ghx::action::Action::BlobLoaded {
+        sha: "abc1234def5678".into(),
+        name: "Cargo.toml".into(),
+        bytes: b"[package]\nname = \"ratatui\"\n".to_vec(),
+    });
+    let rows = render(&mut app, 100, 30);
+    assert!(
+        rows.join("\n").contains("[package]"),
+        "highlighted blob should render after filter commit"
+    );
 }
 fn render(app: &mut App, width: u16, height: u16) -> Vec<String> {
     let backend = TestBackend::new(width, height);
@@ -200,9 +231,10 @@ fn h_moves_focus_to_parent_and_browsing_it_cascades() {
         screen.contains("Cargo.toml"),
         "child column should appear with the tree"
     );
-    // h again: focus reaches the orgs column → folds to a single pane.
+    // h twice: root pane (auto-entered on tree load) → repos → orgs.
     // j picks tokio-rs. Org repos now arrive from the API — inject the
     // response (offline app never spawns workers).
+    app.handle_key(key(KeyCode::Char('h')));
     app.handle_key(key(KeyCode::Char('h')));
     app.handle_key(key(KeyCode::Char('j')));
     let rows = render(&mut app, 100, 30);
@@ -251,6 +283,38 @@ fn drilling_into_dir_uses_correct_relative_path() {
     assert!(
         rows.join("\n").contains("blob abc1234"),
         "lib.rs blob meta missing after drilling into src/"
+    );
+}
+
+#[test]
+fn file_preview_shows_highlighted_blob_and_scrolls() {
+    let mut app = browsing_app();
+    app.handle_key(key(KeyCode::Char('l'))); // into ratatui root
+                                             // jj j to reach Cargo.toml (dirs docs/, examples/, src/ first)
+    for _ in 0..3 {
+        app.handle_key(key(KeyCode::Char('j')));
+    }
+    // Selection is on Cargo.toml → meta preview; inject the blob.
+    let sha = "abc1234def5678";
+    app.handle_action(ghx::action::Action::BlobLoaded {
+        sha: sha.into(),
+        name: "Cargo.toml".into(),
+        bytes: b"[package]\nname = \"ratatui\"\nversion = \"0.29.0\"\n\n\n\n\n\n\n\n".to_vec(),
+    });
+    let rows = render(&mut app, 100, 30);
+    let screen = rows.join("\n");
+    assert!(
+        screen.contains("[package]"),
+        "highlighted blob content missing from preview"
+    );
+
+    // J scrolls the preview down; K back up.
+    app.handle_key(key(KeyCode::Char('J')));
+    let rows_after = render(&mut app, 100, 30);
+    assert_ne!(
+        rows.join("\n"),
+        rows_after.join("\n"),
+        "J should scroll the preview"
     );
 }
 

@@ -12,7 +12,9 @@ use crate::action::Action;
 use crate::github::TreeNode;
 use crate::theme::Theme;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::text::Line;
 use ratatui::Frame;
+use std::collections::{HashMap, HashSet};
 
 /// A repo's full recursive tree, paths relative to the repo root.
 pub struct RepoTree {
@@ -74,6 +76,13 @@ pub struct Browser {
     /// Which level owns the keyboard. Default = deepest level.
     focus: usize,
     tree: Option<RepoTree>,
+    /// Highlighted blob content by sha (in-memory, session-scoped).
+    blobs: HashMap<String, Vec<Line<'static>>>,
+    /// Shas with an in-flight fetch (dedupe worker spawns).
+    pending_blobs: HashSet<String>,
+    /// Set by refresh when the selected file needs a fetch; the app
+    /// drains it via `take_blob_request` and routes `LoadBlob`.
+    blob_request: Option<(String, String)>,
     pub preview: Preview,
     /// `/` filter input, owned here, active in SEARCH mode.
     pub filter_input: VimInput,
@@ -103,6 +112,9 @@ impl Browser {
             levels: vec![Pane::new("orgs", orgs)],
             focus: 0,
             tree: None,
+            blobs: HashMap::new(),
+            pending_blobs: HashSet::new(),
+            blob_request: None,
             preview: Preview::new(),
             filter_input: VimInput::transient(),
         };
@@ -175,6 +187,12 @@ impl Browser {
         self.levels.truncate(2);
         self.focus = 1;
         self.cascade();
+        // Complete the interrupted drill: the tree load was requested by
+        // acting on this repo, so land the user in its root pane rather
+        // than leaving them on the repos pane to press `l` again.
+        if self.levels.len() > 2 {
+            self.focus = 2;
+        }
         self.sync();
     }
 
@@ -273,6 +291,8 @@ impl Browser {
                 }
                 self.sync();
             }
+            Action::PreviewScrollDown => self.preview.scroll_by(3),
+            Action::PreviewScrollUp => self.preview.scroll_by(-3),
             _ => {}
         }
         Action::Noop
@@ -360,6 +380,37 @@ impl Browser {
         self.sync();
     }
 
+    /// The file under the cursor needs its blob fetched, if any.
+    /// Taking a request marks the sha in-flight — without this, the
+    /// end-of-route drain would re-request on every keystroke and
+    /// recurse (stack overflow, caught by the filter-commit test).
+    pub fn take_blob_request(&mut self) -> Option<(String, String)> {
+        let (sha, name) = self.blob_request.take()?;
+        self.pending_blobs
+            .insert(sha.clone())
+            .then_some((sha, name))
+    }
+
+    /// Highlighted blob arrived: store and refresh if still selected.
+    pub fn blob_loaded(&mut self, sha: &str, lines: Vec<Line<'static>>) {
+        self.blobs.insert(sha.to_string(), lines);
+        self.pending_blobs.remove(sha);
+        self.refresh_preview();
+    }
+
+    pub fn blob_failed(&mut self, _sha: &str, message: &str) {
+        // Stay marked pending: no auto-retry while the user keeps
+        // moving (avoids hammering a failing endpoint per keystroke).
+        self.preview.content = super::preview::PreviewContent::Text(format!("error: {message}"));
+    }
+
+    /// The repo coordinates for a blob fetch.
+    pub fn repo_coords(&self) -> Option<(String, String)> {
+        let owner = self.current_owner()?.to_string();
+        let name = self.tree.as_ref()?.name.clone();
+        Some((owner, name))
+    }
+
     fn refresh_preview(&mut self) {
         let Some(entry) = self.levels[self.focus].selected_entry().cloned() else {
             self.preview.content = Default::default();
@@ -375,9 +426,18 @@ impl Browser {
                 };
                 let node = self.tree.as_ref().and_then(|t| t.find(&full)).cloned();
                 match node {
-                    Some(node) => self
-                        .preview
-                        .set_file_meta(&entry.name, node.size, &node.sha),
+                    Some(node) => {
+                        if let Some(lines) = self.blobs.get(&node.sha) {
+                            let lines = lines.clone();
+                            self.preview.set_highlighted(&entry.name, lines);
+                        } else {
+                            if !self.pending_blobs.contains(&node.sha) {
+                                self.blob_request = Some((node.sha.clone(), entry.name.clone()));
+                            }
+                            self.preview
+                                .set_file_meta(&entry.name, node.size, &node.sha);
+                        }
+                    }
                     None => self.preview.content = Default::default(),
                 }
             }

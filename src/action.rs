@@ -10,6 +10,8 @@ pub enum Action {
     MoveDown,
     DrillIn,
     DrillOut,
+    PreviewScrollUp,
+    PreviewScrollDown,
 
     // Pane filter (SEARCHING mode)
     EnterSearch,
@@ -59,6 +61,21 @@ pub enum Action {
     TreeFailed {
         owner: String,
         name: String,
+        message: String,
+    },
+
+    // Blob preview
+    LoadBlob {
+        sha: String,
+        name: String,
+    },
+    BlobLoaded {
+        sha: String,
+        name: String,
+        bytes: Vec<u8>,
+    },
+    BlobFailed {
+        sha: String,
         message: String,
     },
 

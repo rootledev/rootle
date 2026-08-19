@@ -32,6 +32,15 @@ pub enum AppEvent {
         name: String,
         message: String,
     },
+    BlobLoaded {
+        sha: String,
+        name: String,
+        bytes: Vec<u8>,
+    },
+    BlobFailed {
+        sha: String,
+        message: String,
+    },
 }
 
 pub type AppTx = std::sync::mpsc::Sender<AppEvent>;

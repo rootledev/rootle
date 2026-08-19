@@ -11,6 +11,7 @@ pub fn hints(mode: Mode) -> &'static [(&'static str, &'static str)] {
         Mode::Browse => &[
             ("j/k", "move"),
             ("h/l", "out/in"),
+            ("J/K", "scroll"),
             ("/", "filter"),
             ("␣", "leader"),
             ("q", "quit"),
@@ -36,6 +37,8 @@ pub fn browsing(code: KeyCode) -> Action {
         KeyCode::Char(' ') => Action::Leader,
         KeyCode::Char('j') | KeyCode::Down => Action::MoveDown,
         KeyCode::Char('k') | KeyCode::Up => Action::MoveUp,
+        KeyCode::Char('J') => Action::PreviewScrollDown,
+        KeyCode::Char('K') => Action::PreviewScrollUp,
         KeyCode::Char('l') | KeyCode::Right => Action::DrillIn,
         KeyCode::Char('h') | KeyCode::Left => Action::DrillOut,
         KeyCode::Char('/') => Action::EnterSearch,

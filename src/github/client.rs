@@ -130,6 +130,35 @@ impl Client {
         }
     }
 
+    /// Fetch a blob by git sha, cache-first (blobs are immutable).
+    /// Files over 1 MiB are rejected — too heavy for a preview pane.
+    pub fn fetch_blob(&self, owner: &str, repo: &str, sha: &str) -> Result<Vec<u8>, String> {
+        if let Some(bytes) = crate::cache::read_blob(sha) {
+            return Ok(bytes);
+        }
+        #[derive(serde::Deserialize)]
+        struct BlobResponse {
+            content: String,
+            size: u64,
+        }
+        let url = format!("{API}/repos/{owner}/{repo}/git/blobs/{sha}");
+        let blob: BlobResponse = self.get(&url)?;
+        if blob.size > 1024 * 1024 {
+            return Err(format!("file too large to preview ({} bytes)", blob.size));
+        }
+        use base64::Engine;
+        let clean: String = blob
+            .content
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .collect();
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(clean)
+            .map_err(|e| e.to_string())?;
+        let _ = crate::cache::write_blob(sha, &bytes);
+        Ok(bytes)
+    }
+
     fn get_conditional<T: serde::de::DeserializeOwned>(
         &self,
         url: &str,

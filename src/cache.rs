@@ -26,6 +26,23 @@ fn tree_path(root: &std::path::Path, sha: &str) -> PathBuf {
     root.join("trees").join(format!("{sha}.json"))
 }
 
+/// Blobs fan out by the sha's first 2 chars: blobs/<ab>/<rest>.
+fn blob_path(root: &std::path::Path, sha: &str) -> PathBuf {
+    root.join("blobs")
+        .join(&sha[..2.min(sha.len())])
+        .join(&sha[2.min(sha.len())..])
+}
+
+pub fn read_blob(sha: &str) -> Option<Vec<u8>> {
+    let path = blob_path(&root()?, sha);
+    std::fs::read(path).ok()
+}
+
+pub fn write_blob(sha: &str, bytes: &[u8]) -> io::Result<()> {
+    let Some(root) = root() else { return Ok(()) };
+    atomic_write(&blob_path(&root, sha), bytes)
+}
+
 pub fn read_ref(owner: &str, repo: &str, branch: &str) -> Option<RefCache> {
     let path = ref_path(&root()?, owner, repo, branch);
     let text = std::fs::read_to_string(path).ok()?;

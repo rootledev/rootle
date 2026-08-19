@@ -32,15 +32,23 @@
 - VimInput prefill is replaceable (resume: typing starts a fresh query,
   Enter resumes as-is).
 
-**Not started**: blob preview (5), editor (6), cache eviction (7), CLI (8).
-Milestone 9's Docker/compose scaffold landed early (`Dockerfile`,
-`docker-compose.yml`); what remains there is CI wiring + `gh release`.
-
 Milestone 4 done: real repo trees — `git/trees/{branch}?recursive=1`
 with sha-keyed disk cache (`~/.cache/ghx/trees/<sha>.json`), ref→sha
 mappings revalidated via ETag/304, dirs-first sorting, truncation flag
-surfaced, blob preview shows size+sha meta until milestone 5. Mock
-trees deleted; the UI never shows fake tree content.
+surfaced, tree arrival auto-enters the repo root pane. Mock trees
+deleted; the UI never shows fake tree content.
+
+Milestone 5 done: blob preview — fetch by sha (cache-first,
+`blobs/<ab>/<rest>`, 1 MiB cap), sanitize → syntect highlight (pure-Rust
+fancy-regex, Mocha-mapped syntect theme in `src/highlight.rs`), in-memory
+line cache keyed by sha, J/K preview scroll, pending-dedupe on blob
+requests (a take marks in-flight; failure stays pending — no retry spam).
+**Note: ghx forces colors on** (`Colored::set_ansi_color_disabled(false)`)
+— a full-screen TUI's colors are semantic, so NO_COLOR is ignored like
+vim/helix (this sandbox sets NO_COLOR=1; without the override every
+capture looked colorless).
+
+**Not started**: editor (6), cache eviction (7), CLI (8).
 
 **Conventions that matter** (violations break the design):
 

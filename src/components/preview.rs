@@ -15,6 +15,8 @@ pub enum PreviewContent {
     #[default]
     Empty,
     Text(String),
+    /// Syntax-highlighted lines (syntect → palette colors).
+    Highlighted(Vec<Line<'static>>),
     DirSummary(Vec<Entry>),
     Binary {
         size: usize,
@@ -24,6 +26,8 @@ pub enum PreviewContent {
 pub struct Preview {
     pub content: PreviewContent,
     pub title: String,
+    /// Vertical scroll offset (lines), driven by J/K in BROWSE mode.
+    scroll: u16,
 }
 
 impl Default for Preview {
@@ -37,6 +41,7 @@ impl Preview {
         Preview {
             content: PreviewContent::Empty,
             title: "preview".into(),
+            scroll: 0,
         }
     }
 
@@ -48,11 +53,13 @@ impl Preview {
         } else {
             PreviewContent::Text(sanitize::sanitize(bytes))
         };
+        self.reset_scroll();
     }
 
     pub fn set_dir(&mut self, name: &str, children: Vec<Entry>) {
         self.title = format!("{}/", sanitize::sanitize_inline(name));
         self.content = PreviewContent::DirSummary(children);
+        self.reset_scroll();
     }
 
     /// File meta until blob content lands (milestone 5): size + blob sha.
@@ -60,9 +67,22 @@ impl Preview {
         self.title = sanitize::sanitize_inline(name);
         let size = size.map(|s| s.to_string()).unwrap_or_else(|| "?".into());
         let short = &sha[..sha.len().min(7)];
-        self.content = PreviewContent::Text(format!(
-            "{size} bytes · blob {short}\n\n(content preview with syntax highlighting\nlands in milestone 5)"
-        ));
+        self.content = PreviewContent::Text(format!("{size} bytes · blob {short}\n\nloading…"));
+        self.reset_scroll();
+    }
+
+    pub fn set_highlighted(&mut self, name: &str, lines: Vec<Line<'static>>) {
+        self.title = sanitize::sanitize_inline(name);
+        self.content = PreviewContent::Highlighted(lines);
+        self.reset_scroll();
+    }
+
+    pub fn scroll_by(&mut self, delta: i32) {
+        self.scroll = self.scroll.saturating_add_signed(delta as i16);
+    }
+
+    fn reset_scroll(&mut self) {
+        self.scroll = 0;
     }
 
     pub fn render(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
@@ -84,6 +104,7 @@ impl Preview {
                     Style::default().fg(sem.overlay0),
                 ))]
             }
+            PreviewContent::Highlighted(lines) => lines.clone(),
             PreviewContent::Text(text) => text
                 .lines()
                 .map(|l| {
@@ -116,6 +137,7 @@ impl Preview {
         frame.render_widget(
             Paragraph::new(lines)
                 .block(block)
+                .scroll((self.scroll, 0))
                 .wrap(Wrap { trim: false }),
             area,
         );

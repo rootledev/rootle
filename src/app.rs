@@ -14,6 +14,7 @@ use crate::components::vim_input::Outcome;
 use crate::config::Config;
 use crate::event::{AppEvent, AppTx};
 use crate::github::Client;
+use crate::highlight::Highlighter;
 use crate::keymap;
 use crate::mode::Mode;
 use crate::state::State;
@@ -34,6 +35,7 @@ pub struct App {
     state: State,
     tx: AppTx,
     client: Arc<Client>,
+    highlighter: Highlighter,
     /// Generation counter on search submissions; stale results dropped.
     search_gen: u64,
     /// One-line status shown in the modeline (searching/loading/error).
@@ -75,6 +77,7 @@ impl App {
             state,
             tx,
             client: Arc::new(client),
+            highlighter: Highlighter::new(),
             search_gen: 0,
             status: None,
             offline,
@@ -135,6 +138,12 @@ impl App {
                     entries,
                     truncated,
                 });
+            }
+            AppEvent::BlobLoaded { sha, name, bytes } => {
+                self.handle_action(Action::BlobLoaded { sha, name, bytes });
+            }
+            AppEvent::BlobFailed { sha, message } => {
+                self.handle_action(Action::BlobFailed { sha, message });
             }
             AppEvent::TreeFailed {
                 owner,
@@ -249,6 +258,25 @@ impl App {
             } => {
                 self.status = Some(format!("{owner}/{name}: {message}"));
             }
+            Action::LoadBlob { sha, name } => {
+                if !self.offline {
+                    self.spawn_blob(sha, name);
+                }
+            }
+            Action::BlobLoaded { sha, name, bytes } => {
+                // Sanitize at the boundary, highlight once, cache in
+                // the browser (PLAN.md §9).
+                if crate::sanitize::is_binary(&bytes) {
+                    self.browser.blob_failed(&sha, "binary file");
+                    return;
+                }
+                let text = crate::sanitize::sanitize(&bytes);
+                let lines = self.highlighter.highlight(&name, &text);
+                self.browser.blob_loaded(&sha, lines);
+            }
+            Action::BlobFailed { sha, message } => {
+                self.browser.blob_failed(&sha, &message);
+            }
             Action::Leader => self.mode = Mode::Leader,
             Action::LeaderSearch => {
                 self.popup = Some(SearchPopup::new());
@@ -263,7 +291,12 @@ impl App {
                 self.browser.clear_filter();
                 self.mode = Mode::Browse;
             }
-            Action::MoveUp | Action::MoveDown | Action::DrillIn | Action::DrillOut => {
+            Action::MoveUp
+            | Action::MoveDown
+            | Action::DrillIn
+            | Action::DrillOut
+            | Action::PreviewScrollUp
+            | Action::PreviewScrollDown => {
                 let follow = self.browser.update(&action);
                 self.handle_action(follow);
             }
@@ -284,6 +317,40 @@ impl App {
         if self.mode == Mode::Search {
             self.browser.apply_filter();
         }
+
+        // Any state change can leave a file under the cursor without its
+        // blob (navigation, filter commit/clear, tree loads) — drain it
+        // uniformly at the end of every route.
+        self.maybe_load_blob();
+    }
+
+    /// If the selected file's blob isn't loaded, fetch it.
+    fn maybe_load_blob(&mut self) {
+        if let Some((sha, name)) = self.browser.take_blob_request() {
+            self.handle_action(Action::LoadBlob { sha, name });
+        }
+    }
+
+    fn spawn_blob(&self, sha: String, name: String) {
+        let Some((owner, repo)) = self.browser.repo_coords() else {
+            return;
+        };
+        let client = self.client.clone();
+        let tx = self.tx.clone();
+        std::thread::spawn(move || {
+            trace(&format!("blob start {sha}"));
+            let event = match client.fetch_blob(&owner, &repo, &sha) {
+                Ok(bytes) => {
+                    trace(&format!("blob ok {sha} {} bytes", bytes.len()));
+                    AppEvent::BlobLoaded { sha, name, bytes }
+                }
+                Err(message) => {
+                    trace(&format!("blob ERR {sha} {message}"));
+                    AppEvent::BlobFailed { sha, message }
+                }
+            };
+            let _ = tx.send(event);
+        });
     }
 
     fn spawn_search(&self, gen: u64) {

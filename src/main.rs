@@ -20,6 +20,10 @@ fn main() -> io::Result<()> {
         return Ok(());
     }
 
+    // A full-screen TUI's colors are semantic (mode chips, dirs vs
+    // files), not decoration — ignore NO_COLOR like vim/helix do.
+    ratatui::crossterm::style::Colored::set_ansi_color_disabled(false);
+
     enable_raw_mode()?;
     stdout().execute(EnterAlternateScreen)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
