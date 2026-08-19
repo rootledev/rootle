@@ -22,7 +22,36 @@ fn test_app() -> App {
     App::with(ghx::state::State::default(), tx)
 }
 
-/// Popup closed, ratatui org repos loaded (offline — injected, no workers).
+/// Fake recursive tree for ratatui/ratatui (mirrors the old mock buckets).
+fn ratatui_tree() -> Vec<ghx::github::TreeNode> {
+    fn node(path: &str, is_dir: bool) -> ghx::github::TreeNode {
+        ghx::github::TreeNode {
+            path: path.into(),
+            is_dir,
+            sha: "abc1234def5678".into(),
+            size: if is_dir { None } else { Some(42) },
+        }
+    }
+    vec![
+        node("src", true),
+        node("docs", true),
+        node("examples", true),
+        node("Cargo.toml", false),
+        node("README.md", false),
+        node("LICENSE", false),
+        node("src/widgets", true),
+        node("src/layout", true),
+        node("src/lib.rs", false),
+        node("src/terminal.rs", false),
+        node("src/malformed.bin", false),
+        node("src/widgets/mod.rs", false),
+        node("src/widgets/block.rs", false),
+        node("src/widgets/paragraph.rs", false),
+    ]
+}
+
+/// Popup closed, ratatui org repos + repo tree loaded (offline —
+/// injected, no workers). Lands focused on the repos pane.
 fn browsing_app() -> App {
     let mut app = test_app();
     app.handle_key(key(KeyCode::Esc));
@@ -35,6 +64,12 @@ fn browsing_app() -> App {
             "templates".into(),
             "comfy-table".into(),
         ],
+    });
+    app.handle_action(ghx::action::Action::TreeLoaded {
+        owner: "ratatui".into(),
+        name: "ratatui".into(),
+        entries: ratatui_tree(),
+        truncated: false,
     });
     app
 }
@@ -142,16 +177,28 @@ fn h_moves_focus_to_parent_and_browsing_it_cascades() {
         "should see repo root"
     );
 
-    // h: focus moves left into the repos column; j selects tokio-rs? —
-    // first h reaches repos pane, then j moves to ratatui-website, and
-    // the child column must cascade to the new repo's root.
+    // h: focus moves left into the repos column; j selects
+    // ratatui-website. Repo trees arrive from the API — the child
+    // column appears only when the tree lands.
     app.handle_key(key(KeyCode::Char('h')));
     app.handle_key(key(KeyCode::Char('j')));
     let rows = render(&mut app, 100, 30);
     let screen = rows.join("\n");
     assert!(
-        screen.contains("ratatui-website"),
-        "child column should cascade to the newly selected repo"
+        !screen.contains("Cargo.toml"),
+        "no child column before the tree arrives"
+    );
+    app.handle_action(ghx::action::Action::TreeLoaded {
+        owner: "ratatui".into(),
+        name: "ratatui-website".into(),
+        entries: ratatui_tree(),
+        truncated: false,
+    });
+    let rows = render(&mut app, 100, 30);
+    let screen = rows.join("\n");
+    assert!(
+        screen.contains("Cargo.toml"),
+        "child column should appear with the tree"
     );
     // h again: focus reaches the orgs column → folds to a single pane.
     // j picks tokio-rs. Org repos now arrive from the API — inject the
@@ -188,20 +235,22 @@ fn h_moves_focus_to_parent_and_browsing_it_cascades() {
 fn drilling_into_dir_uses_correct_relative_path() {
     let mut app = browsing_app(); // popup closed + org repos loaded → repos pane
     app.handle_key(key(KeyCode::Char('l'))); // into ratatui root
+                                             // Dirs sort alphabetically: docs/, examples/, src/ — j twice to src.
+    app.handle_key(key(KeyCode::Char('j')));
+    app.handle_key(key(KeyCode::Char('j')));
     app.handle_key(key(KeyCode::Char('l'))); // into src/
     let rows = render(&mut app, 100, 30);
     let screen = rows.join("\n");
     // The src/ bucket: widgets/, layout/, lib.rs in the center pane.
     assert!(screen.contains("widgets/"), "src/ children missing");
     assert!(screen.contains("lib.rs"), "src/ children missing");
-    // Hovering a file proves we drilled correctly: preview renders
-    // lib.rs content (sanitized — the mock embeds ESC sequences).
+    // Hovering a file shows its blob meta (sha + size) until milestone 5.
     app.handle_key(key(KeyCode::Char('j')));
     app.handle_key(key(KeyCode::Char('j'))); // hover lib.rs
     let rows = render(&mut app, 100, 30);
     assert!(
-        rows.join("\n").contains("A Rust TUI library"),
-        "lib.rs preview missing after drilling into src/"
+        rows.join("\n").contains("blob abc1234"),
+        "lib.rs blob meta missing after drilling into src/"
     );
 }
 

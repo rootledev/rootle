@@ -45,6 +45,23 @@ pub enum Action {
         message: String,
     },
 
+    // Repo tree loading
+    LoadRepoTree {
+        owner: String,
+        name: String,
+    },
+    TreeLoaded {
+        owner: String,
+        name: String,
+        entries: Vec<crate::github::types::TreeNode>,
+        truncated: bool,
+    },
+    TreeFailed {
+        owner: String,
+        name: String,
+        message: String,
+    },
+
     // Selection outcomes
     RepoSelected {
         owner: String,

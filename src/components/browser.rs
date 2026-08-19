@@ -2,23 +2,78 @@
 //! Yazi semantics: `h` moves focus left into the parent column, where
 //! j/k then browse the parent — the child column rebuilds (cascades)
 //! from the new selection. `l` drills back in / deeper.
-//! Org repos arrive asynchronously from the GitHub API; repo/dir trees
-//! are still mock data until milestone 4.
+//! Org repos and repo trees arrive asynchronously from the GitHub API;
+//! no mock content is ever shown for trees (honest empty until loaded).
 
 use super::pane::{Entry, EntryKind, Pane};
 use super::preview::Preview;
 use super::vim_input::VimInput;
 use crate::action::Action;
+use crate::github::TreeNode;
 use crate::theme::Theme;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::Frame;
 
+/// A repo's full recursive tree, paths relative to the repo root.
+pub struct RepoTree {
+    pub owner: String,
+    pub name: String,
+    pub truncated: bool,
+    entries: Vec<TreeNode>,
+}
+
+impl RepoTree {
+    /// Direct children of `path` ("" = root), dirs first, then files,
+    /// alphabetical within each group.
+    pub fn children(&self, path: &str) -> Vec<Entry> {
+        let prefix = if path.is_empty() {
+            String::new()
+        } else {
+            format!("{path}/")
+        };
+        let mut dirs = Vec::new();
+        let mut files = Vec::new();
+        for node in &self.entries {
+            let Some(rest) = node.path.strip_prefix(&prefix) else {
+                continue;
+            };
+            if rest.is_empty() || rest.contains('/') {
+                continue;
+            }
+            let entry = Entry::new(
+                rest,
+                if node.is_dir {
+                    EntryKind::Dir
+                } else {
+                    EntryKind::File
+                },
+            );
+            if node.is_dir {
+                dirs.push(entry);
+            } else {
+                files.push(entry);
+            }
+        }
+        let by_name = |a: &Entry, b: &Entry| a.name.cmp(&b.name);
+        dirs.sort_by(by_name);
+        files.sort_by(by_name);
+        dirs.extend(files);
+        dirs
+    }
+
+    pub fn find(&self, path: &str) -> Option<&TreeNode> {
+        self.entries.iter().find(|e| e.path == path)
+    }
+}
+
 pub struct Browser {
     /// Level stack: levels[i] lists the children of the selection in
-    /// levels[i-1]. levels[0] = orgs, levels[1] = repos, then dirs.
+    /// levels[i-1]. levels[0] = orgs, levels[1] = repos, 2 = repo root,
+    /// 3+ = dirs.
     levels: Vec<Pane>,
     /// Which level owns the keyboard. Default = deepest level.
     focus: usize,
+    tree: Option<RepoTree>,
     pub preview: Preview,
     /// `/` filter input, owned here, active in SEARCH mode.
     pub filter_input: VimInput,
@@ -47,6 +102,7 @@ impl Browser {
         let mut browser = Browser {
             levels: vec![Pane::new("orgs", orgs)],
             focus: 0,
+            tree: None,
             preview: Preview::new(),
             filter_input: VimInput::transient(),
         };
@@ -93,6 +149,35 @@ impl Browser {
         self.sync();
     }
 
+    /// Repo tree arrived: install it and rebuild the dir columns.
+    /// Ignored if it doesn't match the currently selected repo.
+    pub fn tree_loaded(
+        &mut self,
+        owner: &str,
+        name: &str,
+        entries: Vec<TreeNode>,
+        truncated: bool,
+    ) {
+        if self.levels.get(1).map(|p| p.title.as_str()) != Some(owner) {
+            return;
+        }
+        let current_repo = self.levels[1].selected_entry().map(|e| e.name.clone());
+        if current_repo.as_deref() != Some(name) {
+            return;
+        }
+        self.tree = Some(RepoTree {
+            owner: owner.to_string(),
+            name: name.to_string(),
+            truncated,
+            entries,
+        });
+        // Rebuild from the repos level: all dir columns were mock/empty.
+        self.levels.truncate(2);
+        self.focus = 1;
+        self.cascade();
+        self.sync();
+    }
+
     fn current(&mut self) -> &mut Pane {
         &mut self.levels[self.focus]
     }
@@ -120,16 +205,48 @@ impl Browser {
         self.levels[self.focus].selected_entry().map(|e| e.kind)
     }
 
+    /// Repos level title = owner of whatever is being browsed.
+    fn current_owner(&self) -> Option<&str> {
+        self.levels.get(1).map(|p| p.title.as_str())
+    }
+
+    /// Children of an entry: orgs never expand locally (API), repos/dirs
+    /// expand from the loaded tree only — no mock trees, ever.
+    fn children_of(&self, entry: &Entry) -> Option<Vec<Entry>> {
+        let tree = self.tree.as_ref()?;
+        match entry.kind {
+            EntryKind::Org | EntryKind::File => None,
+            EntryKind::Repo => (tree.owner == self.current_owner()? && tree.name == entry.name)
+                .then(|| tree.children("")),
+            EntryKind::Dir => {
+                let base = self.dir_path();
+                let child_path = if base.is_empty() {
+                    entry.name.clone()
+                } else {
+                    format!("{base}/{}", entry.name)
+                };
+                Some(tree.children(&child_path))
+            }
+        }
+    }
+
     pub fn set_repo(&mut self, owner: &str, name: &str) {
         self.select_org(owner);
-        // Reuse the API-loaded repos level if present; mock is the
-        // fallback until the org load lands (milestone 4 replaces trees).
+        // Reuse the API-loaded repos level if present; otherwise the
+        // repos pane waits for the org load (never mock repos for an
+        // org we haven't loaded — except the static defaults).
         if self.levels.len() < 2 || self.levels[1].title != owner {
             self.levels.truncate(1);
-            self.levels.push(Pane::new(owner, mock::repos(owner)));
+            self.levels.push(Pane::new(owner, vec![]));
         }
         if let Some(pos) = self.levels[1].entries.iter().position(|e| e.name == name) {
             self.levels[1].select(pos);
+        } else {
+            self.levels[1]
+                .entries
+                .push(Entry::new(name, EntryKind::Repo));
+            let last = self.levels[1].entries.len() - 1;
+            self.levels[1].select(last);
         }
         self.focus = 1;
         self.cascade();
@@ -161,29 +278,6 @@ impl Browser {
         Action::Noop
     }
 
-    /// Drill into the focused entry. Org entries don't have their repos
-    /// locally — the caller must fetch them (`LoadOrgRepos`).
-    fn drill_in(&mut self) -> Action {
-        let Some(entry) = self.levels[self.focus].selected_entry().cloned() else {
-            return Action::Noop;
-        };
-        match entry.kind {
-            EntryKind::File => Action::Noop, // OpenSelected handled by app
-            EntryKind::Org => Action::LoadOrgRepos(entry.name.clone()),
-            EntryKind::Repo | EntryKind::Dir => {
-                if self.focus == self.levels.len() - 1 {
-                    if let Some(children) = mock::children(&entry, &self.dir_path()) {
-                        self.levels.push(Pane::new(entry.name.clone(), children));
-                    }
-                }
-                if self.focus + 1 < self.levels.len() {
-                    self.focus += 1;
-                }
-                Action::Noop
-            }
-        }
-    }
-
     /// Drop levels right of focus and re-derive the immediate child
     /// level from the focused selection. Org entries never cascade —
     /// their repos come from the API (`LoadOrgRepos`).
@@ -192,11 +286,50 @@ impl Browser {
         let Some(entry) = self.levels[self.focus].selected_entry().cloned() else {
             return;
         };
-        if entry.kind == EntryKind::Org {
-            return;
-        }
-        if let Some(children) = mock::children(&entry, &self.dir_path()) {
+        if let Some(children) = self.children_of(&entry) {
             self.levels.push(Pane::new(entry.name.clone(), children));
+        }
+    }
+
+    /// Drill into the focused entry. Org entries don't have their repos
+    /// locally — the caller must fetch them (`LoadOrgRepos`); repos
+    /// likewise fetch their tree (`LoadRepoTree`).
+    fn drill_in(&mut self) -> Action {
+        let Some(entry) = self.levels[self.focus].selected_entry().cloned() else {
+            return Action::Noop;
+        };
+        match entry.kind {
+            EntryKind::File => Action::Noop, // OpenSelected handled by app
+            EntryKind::Org => Action::LoadOrgRepos(entry.name.clone()),
+            EntryKind::Repo => {
+                if self.children_of(&entry).is_none() {
+                    let owner = self.current_owner().unwrap_or_default().to_string();
+                    return Action::LoadRepoTree {
+                        owner,
+                        name: entry.name,
+                    };
+                }
+                if self.focus == self.levels.len() - 1 {
+                    if let Some(children) = self.children_of(&entry) {
+                        self.levels.push(Pane::new(entry.name.clone(), children));
+                    }
+                }
+                if self.focus + 1 < self.levels.len() {
+                    self.focus += 1;
+                }
+                Action::Noop
+            }
+            EntryKind::Dir => {
+                if self.focus == self.levels.len() - 1 {
+                    if let Some(children) = self.children_of(&entry) {
+                        self.levels.push(Pane::new(entry.name.clone(), children));
+                    }
+                }
+                if self.focus + 1 < self.levels.len() {
+                    self.focus += 1;
+                }
+                Action::Noop
+            }
         }
     }
 
@@ -233,11 +366,27 @@ impl Browser {
             return;
         };
         match entry.kind {
-            EntryKind::File => self
-                .preview
-                .set_bytes(&entry.name, &mock::file_bytes(&entry.name)),
-            EntryKind::Dir | EntryKind::Repo => {
-                let children = mock::children(&entry, &self.dir_path()).unwrap_or_default();
+            EntryKind::File => {
+                let base = self.dir_path();
+                let full = if base.is_empty() {
+                    entry.name.clone()
+                } else {
+                    format!("{base}/{}", entry.name)
+                };
+                let node = self.tree.as_ref().and_then(|t| t.find(&full)).cloned();
+                match node {
+                    Some(node) => self
+                        .preview
+                        .set_file_meta(&entry.name, node.size, &node.sha),
+                    None => self.preview.content = Default::default(),
+                }
+            }
+            EntryKind::Dir => {
+                let children = self.children_of(&entry).unwrap_or_default();
+                self.preview.set_dir(&entry.name, children);
+            }
+            EntryKind::Repo => {
+                let children = self.children_of(&entry).unwrap_or_default();
                 self.preview.set_dir(&entry.name, children);
             }
             EntryKind::Org => {
@@ -272,89 +421,5 @@ impl Browser {
         let focus = self.focus;
         self.levels[focus].render(frame, cols[1], theme);
         self.preview.render(frame, cols[2], theme);
-    }
-}
-
-/// Mock data — replaced by the GitHub backend (milestones 3–4).
-pub mod mock {
-    use super::super::pane::{Entry, EntryKind};
-
-    pub fn orgs() -> Vec<Entry> {
-        vec![
-            Entry::new("ratatui", EntryKind::Org),
-            Entry::new("tokio-rs", EntryKind::Org),
-            Entry::new("helix-editor", EntryKind::Org),
-        ]
-    }
-
-    pub fn repos(org: &str) -> Vec<Entry> {
-        let names: &[&str] = match org {
-            "ratatui" => &["ratatui", "ratatui-website", "templates", "comfy-table"],
-            "tokio-rs" => &["tokio", "axum", "hyper", "tracing", "bytes"],
-            "helix-editor" => &["helix", "helix-term"],
-            _ => &["ratatui"],
-        };
-        names
-            .iter()
-            .map(|n| Entry::new(n, EntryKind::Repo))
-            .collect()
-    }
-
-    pub fn dir(_repo: &str, path: &str) -> Vec<Entry> {
-        let entries: &[(&str, EntryKind)] = match path {
-            "" => &[
-                ("src", EntryKind::Dir),
-                ("docs", EntryKind::Dir),
-                ("examples", EntryKind::Dir),
-                ("Cargo.toml", EntryKind::File),
-                ("README.md", EntryKind::File),
-                ("LICENSE", EntryKind::File),
-            ],
-            "src" => &[
-                ("widgets", EntryKind::Dir),
-                ("layout", EntryKind::Dir),
-                ("lib.rs", EntryKind::File),
-                ("terminal.rs", EntryKind::File),
-                ("malformed.bin", EntryKind::File),
-            ],
-            _ => &[
-                ("mod.rs", EntryKind::File),
-                ("block.rs", EntryKind::File),
-                ("paragraph.rs", EntryKind::File),
-            ],
-        };
-        entries.iter().map(|(n, k)| Entry::new(n, *k)).collect()
-    }
-
-    /// Children of an entry given the dir path of the level it sits in.
-    /// None for files (not drillable).
-    pub fn children(entry: &Entry, parent_path: &str) -> Option<Vec<Entry>> {
-        match entry.kind {
-            EntryKind::Org => Some(repos(&entry.name)),
-            EntryKind::Repo => Some(dir(&entry.name, "")),
-            EntryKind::Dir => {
-                let child_path = if parent_path.is_empty() {
-                    entry.name.clone()
-                } else {
-                    format!("{parent_path}/{}", entry.name)
-                };
-                Some(dir(&entry.name, &child_path))
-            }
-            EntryKind::File => None,
-        }
-    }
-
-    /// Mock file bytes. `malformed.bin` deliberately contains ESC/control
-    /// bytes to exercise the sanitization boundary (PLAN.md §9).
-    pub fn file_bytes(name: &str) -> Vec<u8> {
-        match name {
-            "malformed.bin" => b"\x1b[2J\x1b[H wiped?\x07\x00 binary-ish".to_vec(),
-            "lib.rs" => b"//! A Rust TUI library.\n\npub mod terminal;\npub mod widgets;\n\n\x1b]8;;evil\x1b\\link\x07 stripped by sanitize\n"
-                .to_vec(),
-            "Cargo.toml" => b"[package]\nname = \"ratatui\"\nversion = \"0.29.0\"\n".to_vec(),
-            "README.md" => b"# ratatui\n\nA Rust crate for cooking up terminal user interfaces.\n"
-                .to_vec(),
-            _ => b"// mock content\n".to_vec(),
-        }
     }
 }

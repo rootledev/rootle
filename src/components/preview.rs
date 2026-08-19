@@ -55,6 +55,16 @@ impl Preview {
         self.content = PreviewContent::DirSummary(children);
     }
 
+    /// File meta until blob content lands (milestone 5): size + blob sha.
+    pub fn set_file_meta(&mut self, name: &str, size: Option<u64>, sha: &str) {
+        self.title = sanitize::sanitize_inline(name);
+        let size = size.map(|s| s.to_string()).unwrap_or_else(|| "?".into());
+        let short = &sha[..sha.len().min(7)];
+        self.content = PreviewContent::Text(format!(
+            "{size} bytes · blob {short}\n\n(content preview with syntax highlighting\nlands in milestone 5)"
+        ));
+    }
+
     pub fn render(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
         let sem = &theme.semantic;
         let block = Block::default()

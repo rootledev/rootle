@@ -123,6 +123,30 @@ impl App {
             AppEvent::OrgReposFailed { org, message } => {
                 self.status = Some(format!("{org}: {message}"));
             }
+            AppEvent::TreeLoaded {
+                owner,
+                name,
+                entries,
+                truncated,
+            } => {
+                self.handle_action(Action::TreeLoaded {
+                    owner,
+                    name,
+                    entries,
+                    truncated,
+                });
+            }
+            AppEvent::TreeFailed {
+                owner,
+                name,
+                message,
+            } => {
+                self.handle_action(Action::TreeFailed {
+                    owner,
+                    name,
+                    message,
+                });
+            }
         }
     }
 
@@ -179,6 +203,7 @@ impl App {
                 self.browser.set_repo(&owner, &name);
                 self.popup = None;
                 self.mode = Mode::Browse;
+                self.handle_action(Action::LoadRepoTree { owner, name });
             }
             Action::OrgSelected(org) => {
                 trace(&format!("OrgSelected {org}"));
@@ -201,6 +226,28 @@ impl App {
             }
             Action::OrgReposFailed { org, message } => {
                 self.status = Some(format!("{org}: {message}"));
+            }
+            Action::LoadRepoTree { owner, name } => {
+                self.status = Some(format!("loading {owner}/{name} tree…"));
+                if !self.offline {
+                    self.spawn_tree(owner, name);
+                }
+            }
+            Action::TreeLoaded {
+                owner,
+                name,
+                entries,
+                truncated,
+            } => {
+                self.status = None;
+                self.browser.tree_loaded(&owner, &name, entries, truncated);
+            }
+            Action::TreeFailed {
+                owner,
+                name,
+                message,
+            } => {
+                self.status = Some(format!("{owner}/{name}: {message}"));
             }
             Action::Leader => self.mode = Mode::Leader,
             Action::LeaderSearch => {
@@ -268,6 +315,37 @@ impl App {
             let event = match client.org_repos(&org) {
                 Ok(repos) => AppEvent::OrgReposLoaded { org, repos },
                 Err(message) => AppEvent::OrgReposFailed { org, message },
+            };
+            let _ = tx.send(event);
+        });
+    }
+
+    fn spawn_tree(&self, owner: String, name: String) {
+        let client = self.client.clone();
+        let tx = self.tx.clone();
+        std::thread::spawn(move || {
+            trace(&format!("tree start {owner}/{name}"));
+            let event = match client.fetch_tree(&owner, &name) {
+                Ok((tree, truncated)) => {
+                    trace(&format!(
+                        "tree ok {owner}/{name} entries={} truncated={truncated}",
+                        tree.tree.len()
+                    ));
+                    AppEvent::TreeLoaded {
+                        owner,
+                        name,
+                        entries: tree.tree.iter().map(Into::into).collect(),
+                        truncated,
+                    }
+                }
+                Err(message) => {
+                    trace(&format!("tree ERR {owner}/{name} {message}"));
+                    AppEvent::TreeFailed {
+                        owner,
+                        name,
+                        message,
+                    }
+                }
             };
             let _ = tx.send(event);
         });

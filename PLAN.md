@@ -32,9 +32,15 @@
 - VimInput prefill is replaceable (resume: typing starts a fresh query,
   Enter resumes as-is).
 
-**Not started**: repo trees/cache/editor (milestones 4–7), CLI args (8).
+**Not started**: blob preview (5), editor (6), cache eviction (7), CLI (8).
 Milestone 9's Docker/compose scaffold landed early (`Dockerfile`,
 `docker-compose.yml`); what remains there is CI wiring + `gh release`.
+
+Milestone 4 done: real repo trees — `git/trees/{branch}?recursive=1`
+with sha-keyed disk cache (`~/.cache/ghx/trees/<sha>.json`), ref→sha
+mappings revalidated via ETag/304, dirs-first sorting, truncation flag
+surfaced, blob preview shows size+sha meta until milestone 5. Mock
+trees deleted; the UI never shows fake tree content.
 
 **Conventions that matter** (violations break the design):
 

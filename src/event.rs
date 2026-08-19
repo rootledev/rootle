@@ -5,10 +5,33 @@ use crate::github::SearchItem;
 
 #[derive(Debug)]
 pub enum AppEvent {
-    SearchResults { gen: u64, items: Vec<SearchItem> },
-    SearchFailed { gen: u64, message: String },
-    OrgReposLoaded { org: String, repos: Vec<String> },
-    OrgReposFailed { org: String, message: String },
+    SearchResults {
+        gen: u64,
+        items: Vec<SearchItem>,
+    },
+    SearchFailed {
+        gen: u64,
+        message: String,
+    },
+    OrgReposLoaded {
+        org: String,
+        repos: Vec<String>,
+    },
+    OrgReposFailed {
+        org: String,
+        message: String,
+    },
+    TreeLoaded {
+        owner: String,
+        name: String,
+        entries: Vec<crate::github::types::TreeNode>,
+        truncated: bool,
+    },
+    TreeFailed {
+        owner: String,
+        name: String,
+        message: String,
+    },
 }
 
 pub type AppTx = std::sync::mpsc::Sender<AppEvent>;

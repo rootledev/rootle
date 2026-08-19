@@ -1,5 +1,6 @@
 pub mod action;
 pub mod app;
+pub mod cache;
 pub mod components;
 pub mod config;
 pub mod event;
