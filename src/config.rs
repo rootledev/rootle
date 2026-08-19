@@ -8,6 +8,7 @@ use std::path::PathBuf;
 pub struct Config {
     pub editor: EditorConfig,
     pub theme: ThemeConfig,
+    pub cache: CacheConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -16,6 +17,14 @@ pub struct EditorConfig {
     pub program: Option<String>,
     pub args: Vec<String>,
     pub read_only: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct CacheConfig {
+    /// Blob cache size cap in MiB; oldest (least-recently-used) blobs
+    /// are evicted past it.
+    pub max_mb: u64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -37,6 +46,7 @@ impl Default for Config {
                 name: "catppuccin-mocha".into(),
                 path: None,
             },
+            cache: CacheConfig { max_mb: 512 },
         }
     }
 }
@@ -50,6 +60,12 @@ impl Default for EditorConfig {
 impl Default for ThemeConfig {
     fn default() -> Self {
         Config::default().theme
+    }
+}
+
+impl Default for CacheConfig {
+    fn default() -> Self {
+        Config::default().cache
     }
 }
 

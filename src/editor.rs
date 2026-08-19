@@ -122,6 +122,7 @@ mod tests {
                 name: "catppuccin-mocha".into(),
                 path: None,
             },
+            cache: crate::config::CacheConfig { max_mb: 512 },
         }
     }
 

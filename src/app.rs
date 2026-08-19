@@ -53,6 +53,12 @@ pub struct App {
 impl App {
     pub fn new(tx: AppTx) -> Self {
         let mut app = Self::build(State::load(), tx, Client::new(), false);
+        // Cache hardening (PLAN.md §8): orphan sweep + LRU eviction,
+        // off the UI thread — never blocks startup.
+        {
+            let max_bytes = app.config.cache.max_mb * 1024 * 1024;
+            std::thread::spawn(move || crate::cache::harden(max_bytes));
+        }
         // Warm the repos level for the initially selected org.
         if let Some(org) = app.browser.selected_org() {
             app.handle_action(Action::LoadOrgRepos(org));

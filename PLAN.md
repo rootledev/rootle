@@ -56,7 +56,14 @@ suspends the terminal, runs the editor, resumes with the one legitimate
 `VISUAL=true` — override it in tests). Read-only: `-R` for the vim
 family; helix edits the cache copy (never written back).
 
-**Not started**: cache eviction (7), CLI (8).
+Milestone 7 done: cache hardening — LRU eviction uses blob file mtime as
+last-used (touched on every `read_blob`, no index file); cap via
+`[cache] max_mb` (default 512); orphan sweep deletes trees unreferenced
+by any cached ref and blobs unreferenced by any cached tree. Runs in a
+startup thread (verified live: stray test tree swept, referenced
+content kept, startup unaffected).
+
+**Not started**: CLI (8), release CI (9).
 
 **Conventions that matter** (violations break the design):
 
