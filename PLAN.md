@@ -63,9 +63,13 @@ by any cached ref and blobs unreferenced by any cached tree. Runs in a
 startup thread (verified live: stray test tree swept, referenced
 content kept, startup unaffected).
 
-**Not started**: release CI (9) — workflow + `gh release` on tags;
-Docker/compose scaffold is done (`docker compose run --build --rm
-test|release`).
+**All milestones complete.** v0.1.0 released: CI gates on push
+(fmt+clippy+tests in Docker), tag → dockerized musl build → static
+verification → `gh release create` with artifacts + sha256 (verified:
+download matches checksum, `--version` runs, `ldd` static).
+
+Later phase ideas: VISUAL mode (multi-select), settings view, icons,
+truncated-tree per-dir fallback, `cargo-dist` installers/Homebrew.
 
 Milestone 8 done: clap CLI — `--version/-V`, `--config <PATH>`,
 `--theme <NAME>` (external palette files: `~/.config/ghx/themes/<name>.toml`
