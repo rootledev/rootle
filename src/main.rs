@@ -1,7 +1,11 @@
 //! Terminal lifecycle + event loop. Panic hook restores the terminal
 //! before printing (PLAN.md §9: no stray output outside the draw path).
 
+use clap::Parser;
 use ghx::app::App;
+use ghx::cli::Cli;
+use ghx::config::Config;
+use ghx::theme::Theme;
 use ratatui::crossterm::{
     cursor::SetCursorStyle,
     event::{self, Event},
@@ -13,12 +17,8 @@ use std::io::{self, stdout};
 use std::time::Duration;
 
 fn main() -> io::Result<()> {
-    // Headless version print: the release pipeline's smoke check
-    // (PLAN.md §13) runs `ghx --version` on the static binary.
-    if std::env::args().any(|a| a == "--version" || a == "-V") {
-        println!("ghx {}", env!("CARGO_PKG_VERSION"));
-        return Ok(());
-    }
+    // clap handles --version/-V (release pipeline smoke check) and --help.
+    let cli = Cli::parse();
 
     // A full-screen TUI's colors are semantic (mode chips, dirs vs
     // files), not decoration — ignore NO_COLOR like vim/helix do.
@@ -37,7 +37,7 @@ fn main() -> io::Result<()> {
         default_hook(info);
     }));
 
-    let result = run(&mut terminal);
+    let result = run(&mut terminal, cli);
 
     disable_raw_mode()?;
     // Restore the user's cursor shape — never leave it mutated (PLAN.md §5).
@@ -46,9 +46,18 @@ fn main() -> io::Result<()> {
     result
 }
 
-fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> {
+fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cli: Cli) -> io::Result<()> {
+    let config = match &cli.config {
+        Some(path) => Config::load_from(path),
+        None => Config::load(),
+    };
+    let theme = Theme::load(cli.theme.as_deref().unwrap_or(&config.theme.name));
     let (tx, rx) = ghx::event::channel();
-    let mut app = App::new(tx);
+    let mut app = App::new(tx, config, theme);
+    // `ghx owner/repo`: skip search, go straight to browsing.
+    if let Some((owner, name)) = cli.repo_parts() {
+        app.handle_action(ghx::action::Action::RepoSelected { owner, name });
+    }
     let mut last_cursor_style: Option<SetCursorStyle> = None;
     loop {
         // Drain worker outcomes before drawing so a completed fetch

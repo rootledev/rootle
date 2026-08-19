@@ -51,8 +51,8 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(tx: AppTx) -> Self {
-        let mut app = Self::build(State::load(), tx, Client::new(), false);
+    pub fn new(tx: AppTx, config: Config, theme: Theme) -> Self {
+        let mut app = Self::build(State::load(), tx, Client::new(), false, config, theme);
         // Cache hardening (PLAN.md §8): orphan sweep + LRU eviction,
         // off the UI thread — never blocks startup.
         {
@@ -68,10 +68,24 @@ impl App {
 
     /// Offline, state-injectable constructor for tests.
     pub fn with(state: State, tx: AppTx) -> Self {
-        Self::build(state, tx, Client::anonymous(), true)
+        Self::build(
+            state,
+            tx,
+            Client::anonymous(),
+            true,
+            Config::default(),
+            Theme::catppuccin_mocha(),
+        )
     }
 
-    fn build(state: State, tx: AppTx, client: Client, offline: bool) -> Self {
+    fn build(
+        state: State,
+        tx: AppTx,
+        client: Client,
+        offline: bool,
+        config: Config,
+        theme: Theme,
+    ) -> Self {
         // Resume flow: prefill the search with the last repo — one
         // Enter re-runs the query and returns to where the user was.
         let popup = SearchPopup::with_prefill(state.last_repo.as_deref());
@@ -80,8 +94,8 @@ impl App {
             browser: Browser::new(&state.recent_orgs),
             popup: Some(popup), // launch flow opens on search
             modeline: Modeline::new(),
-            theme: Theme::catppuccin_mocha(),
-            config: Config::load(),
+            theme,
+            config,
             state,
             tx,
             client: Arc::new(client),

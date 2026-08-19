@@ -63,7 +63,15 @@ by any cached ref and blobs unreferenced by any cached tree. Runs in a
 startup thread (verified live: stray test tree swept, referenced
 content kept, startup unaffected).
 
-**Not started**: CLI (8), release CI (9).
+**Not started**: release CI (9) — workflow + `gh release` on tags;
+Docker/compose scaffold is done (`docker compose run --build --rm
+test|release`).
+
+Milestone 8 done: clap CLI — `--version/-V`, `--config <PATH>`,
+`--theme <NAME>` (external palette files: `~/.config/ghx/themes/<name>.toml`
+`[semantic]` role overrides merge onto embedded Mocha; bad files/hex
+silently keep defaults), positional `owner/repo` skips search straight
+into browsing (verified: RepoSelected + tree load at startup).
 
 **Conventions that matter** (violations break the design):
 

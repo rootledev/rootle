@@ -74,4 +74,101 @@ impl Theme {
             },
         }
     }
+
+    /// Load the named theme: embedded catppuccin-mocha defaults, merged
+    /// with `~/.config/ghx/themes/<name>.toml` overrides (missing file,
+    /// malformed TOML, unknown roles, bad hex → silently keep defaults;
+    /// theming must never crash the app).
+    pub fn load(name: &str) -> Self {
+        let mut theme = Self::catppuccin_mocha();
+        let Some(dir) = dirs::config_dir() else {
+            return theme;
+        };
+        let path = dir.join("ghx").join("themes").join(format!("{name}.toml"));
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            return theme;
+        };
+        let Ok(overrides) = toml::from_str::<ThemeOverrides>(&text) else {
+            return theme;
+        };
+        overrides.apply(&mut theme);
+        theme
+    }
+}
+
+/// Palette file: only `[semantic]` role overrides for now.
+#[derive(Debug, Default, serde::Deserialize)]
+struct ThemeOverrides {
+    #[serde(default)]
+    semantic: std::collections::HashMap<String, String>,
+}
+
+fn parse_hex(s: &str) -> Option<Color> {
+    let hex = s.strip_prefix('#').unwrap_or(s);
+    u32::from_str_radix(hex, 16).ok().map(Color::from_u32)
+}
+
+impl ThemeOverrides {
+    fn apply(self, theme: &mut Theme) {
+        let sem = &mut theme.semantic;
+        for (role, hex) in self.semantic {
+            let Some(color) = parse_hex(&hex) else {
+                continue;
+            };
+            match role.as_str() {
+                "crust" => sem.crust = color,
+                "mantle" => sem.mantle = color,
+                "base" => sem.base = color,
+                "surface0" => sem.surface0 = color,
+                "surface2" => sem.surface2 = color,
+                "overlay0" => sem.overlay0 = color,
+                "subtext0" => sem.subtext0 = color,
+                "text" => sem.text = color,
+                "border_focused" => sem.border_focused = color,
+                "border_unfocused" => sem.border_unfocused = color,
+                "directory" => sem.directory = color,
+                "file" => sem.file = color,
+                "selection_bg" => sem.selection_bg = color,
+                "selection_fg" => sem.selection_fg = color,
+                "hint" => sem.hint = color,
+                "error" => sem.error = color,
+                "warning" => sem.warning = color,
+                "mode_browse" => sem.mode_browse = color,
+                "mode_search" => sem.mode_search = color,
+                "mode_insert" => sem.mode_insert = color,
+                "mode_normal" => sem.mode_normal = color,
+                "mode_leader" => sem.mode_leader = color,
+                "badge_repo" => sem.badge_repo = color,
+                "badge_org" => sem.badge_org = color,
+                _ => {} // unknown role: ignored, not an error
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hex_parsing() {
+        assert_eq!(parse_hex("#89b4fa"), Some(Color::from_u32(0x89b4fa)));
+        assert_eq!(parse_hex("89b4fa"), Some(Color::from_u32(0x89b4fa)));
+        assert_eq!(parse_hex("nope"), None);
+    }
+
+    #[test]
+    fn overrides_merge_onto_mocha() {
+        let toml = r##"
+            [semantic]
+            border_focused = "#ff0000"
+            unknown_role = "#00ff00"
+        "##;
+        let overrides: ThemeOverrides = toml::from_str(toml).unwrap();
+        let mut theme = Theme::catppuccin_mocha();
+        overrides.apply(&mut theme);
+        assert_eq!(theme.semantic.border_focused, Color::from_u32(0xff0000));
+        // untouched roles keep mocha defaults
+        assert_eq!(theme.semantic.directory, Color::from_u32(0x89b4fa));
+    }
 }

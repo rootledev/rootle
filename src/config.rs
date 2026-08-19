@@ -79,7 +79,12 @@ impl Config {
         let Some(path) = Self::path() else {
             return Self::default();
         };
-        let Ok(text) = std::fs::read_to_string(&path) else {
+        Self::load_from(&path)
+    }
+
+    /// Load from an explicit path (--config); missing/malformed → defaults.
+    pub fn load_from(path: &std::path::Path) -> Self {
+        let Ok(text) = std::fs::read_to_string(path) else {
             return Self::default();
         };
         toml::from_str(&text).unwrap_or_default()
