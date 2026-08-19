@@ -1,0 +1,17 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # fmt + clippy (-D warnings) + cargo test run as Docker build
+      # stages — if the image builds, the gate passed.
+      - name: Build gate (fmt, clippy, tests)
+        run: docker compose run --build --rm test

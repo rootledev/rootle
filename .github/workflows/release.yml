@@ -1,0 +1,33 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build static musl binary
+        run: docker compose run --build --rm release
+
+      # Smoke: prove the artifact is static and runs headless.
+      - name: Verify binary
+        run: |
+          file dist/ghx-linux-x86_64-musl
+          ! ldd dist/ghx-linux-x86_64-musl 2>&1 | grep -q "=>"
+          ./dist/ghx-linux-x86_64-musl --version
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          gh release create "$tag" dist/* \
+            --title "ghx $tag" \
+            --generate-notes
