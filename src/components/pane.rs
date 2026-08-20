@@ -202,11 +202,20 @@ impl Pane {
             })
             .collect();
 
+        let total = self.visible().len();
         let list = List::new(items)
             .block(block)
             .highlight_style(Style::default().bg(sem.selection_bg).fg(sem.selection_fg))
             .highlight_symbol("▌");
         frame.render_stateful_widget(list, area, &mut self.state);
+        super::scrollbar(
+            frame,
+            area,
+            area.height.saturating_sub(2) as usize,
+            total,
+            self.state.offset(),
+            theme,
+        );
     }
 }
 

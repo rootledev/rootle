@@ -814,6 +814,7 @@ impl GlobalSearch {
         self.scroll = self.scroll.min(max_scroll);
 
         frame.render_widget(Paragraph::new(lines).scroll((self.scroll, 0)), inner);
+        super::scrollbar(frame, area, height, total, self.scroll as usize, theme);
     }
 
     fn path_line(

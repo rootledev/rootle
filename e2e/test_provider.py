@@ -10,20 +10,15 @@ import time
 from tui import Tui
 
 
-def provider_pids() -> list[str]:
-    """fs provider children (python3), never the test machinery."""
+def provider_pids(tui: Tui) -> list[str]:
+    """fs provider children of THIS ghx instance — strays from other
+    sessions never pollute the assertion."""
     out = subprocess.run(
-        ["pgrep", "-f", "fs_provider.py"], capture_output=True, text=True
+        ["pgrep", "-P", str(tui._proc.pid), "-f", "fs_provider.py"],
+        capture_output=True,
+        text=True,
     ).stdout.split()
-    pids = []
-    for p in out:
-        try:
-            cmdline = open(f"/proc/{p}/cmdline").read()
-        except OSError:
-            continue
-        if cmdline.startswith("python3"):
-            pids.append(p)
-    return pids
+    return [p for p in out]
 
 
 def test_fs_provider_search_to_tree_to_preview(provider_tui: Tui) -> None:
@@ -69,9 +64,8 @@ def test_provider_process_is_spawned_and_child(provider_tui: Tui) -> None:
     (it may take a beat to notice stdin EOF after the app exits)."""
     tui = provider_tui
     tui.expect("search github")
-    assert provider_pids(), "provider child should be running"
+    assert provider_pids(tui), "provider child should be running"
     tui.stop()
-    deadline = time.monotonic() + 3.0
-    while provider_pids() and time.monotonic() < deadline:
-        time.sleep(0.1)
-    assert not provider_pids(), "provider child should die with the app"
+    # ghx exits gracefully on SIGTERM → App drop kills the child
+    # deterministically (kill + reap in StdioProvider::drop).
+    assert not provider_pids(tui), "provider child should die with the app"

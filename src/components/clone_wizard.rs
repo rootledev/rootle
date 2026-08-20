@@ -39,6 +39,8 @@ pub struct CloneWizard {
     dest: PathBuf,
     dest_entries: Vec<String>,
     dest_cursor: usize,
+    /// Line scroll offset of the current screen's content area.
+    scroll: usize,
 }
 
 impl CloneWizard {
@@ -53,6 +55,7 @@ impl CloneWizard {
             dest: start,
             dest_entries: vec![],
             dest_cursor: 0,
+            scroll: 0,
         };
         wizard.refresh_dest();
         wizard
@@ -102,6 +105,7 @@ impl CloneWizard {
         };
         self.focus = Focus::List;
         self.button = 1;
+        self.scroll = 0;
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) -> Action {
@@ -138,26 +142,36 @@ impl CloneWizard {
             },
             Focus::List => match key.code {
                 KeyCode::Char('j') | KeyCode::Down => {
-                    let len = match self.screen {
-                        Screen::Repos => self.repos.len(),
-                        Screen::Destination => self.dest_entries.len(),
-                        Screen::Summary => 0,
-                    };
-                    if len > 0 {
-                        let cursor = match self.screen {
-                            Screen::Repos => &mut self.cursor,
-                            _ => &mut self.dest_cursor,
-                        };
-                        *cursor = (*cursor + 1).min(len - 1);
+                    match self.screen {
+                        // The summary has no list — j/k scroll it.
+                        Screen::Summary => self.scroll += 1,
+                        _ => {
+                            let len = match self.screen {
+                                Screen::Repos => self.repos.len(),
+                                _ => self.dest_entries.len(),
+                            };
+                            if len > 0 {
+                                let cursor = match self.screen {
+                                    Screen::Repos => &mut self.cursor,
+                                    _ => &mut self.dest_cursor,
+                                };
+                                *cursor = (*cursor + 1).min(len - 1);
+                            }
+                        }
                     }
                     Action::Noop
                 }
                 KeyCode::Char('k') | KeyCode::Up => {
-                    let cursor = match self.screen {
-                        Screen::Repos => &mut self.cursor,
-                        _ => &mut self.dest_cursor,
-                    };
-                    *cursor = cursor.saturating_sub(1);
+                    match self.screen {
+                        Screen::Summary => self.scroll = self.scroll.saturating_sub(1),
+                        _ => {
+                            let cursor = match self.screen {
+                                Screen::Repos => &mut self.cursor,
+                                _ => &mut self.dest_cursor,
+                            };
+                            *cursor = cursor.saturating_sub(1);
+                        }
+                    }
                     Action::Noop
                 }
                 KeyCode::Tab | KeyCode::BackTab => {
@@ -236,15 +250,29 @@ impl CloneWizard {
             .constraints([Constraint::Min(1), Constraint::Length(2)])
             .split(inner);
 
-        match self.screen {
-            Screen::Repos => self.render_repos(frame, rows[0], theme),
-            Screen::Destination => self.render_destination(frame, rows[0], theme),
-            Screen::Summary => self.render_summary(frame, rows[0], theme),
+        let (lines, cursor_pos) = match self.screen {
+            Screen::Repos => (self.repos_lines(theme), Some(self.cursor)),
+            Screen::Destination => (self.destination_lines(theme), Some(self.dest_cursor)),
+            Screen::Summary => (self.summary_lines(theme), None),
+        };
+        let total = lines.len();
+        let height = rows[0].height as usize;
+        // Keep the list cursor visible; the summary scrolls freely.
+        if let Some(pos) = cursor_pos {
+            if pos < self.scroll {
+                self.scroll = pos;
+            } else if pos >= self.scroll + height {
+                self.scroll = pos + 1 - height.min(pos + 1);
+            }
         }
+        self.scroll = self.scroll.min(total.saturating_sub(height));
+        let scroll = self.scroll;
+        frame.render_widget(Paragraph::new(lines).scroll((scroll as u16, 0)), rows[0]);
+        super::scrollbar(frame, popup, height, total, scroll, theme);
         self.render_buttons(frame, rows[1], theme, back, next);
     }
 
-    fn render_repos(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
+    fn repos_lines(&self, theme: &Theme) -> Vec<Line<'static>> {
         let sem = &theme.semantic;
         let lines: Vec<Line> = self
             .repos
@@ -273,10 +301,10 @@ impl CloneWizard {
                 ])
             })
             .collect();
-        frame.render_widget(Paragraph::new(lines), area);
+        lines
     }
 
-    fn render_destination(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
+    fn destination_lines(&self, theme: &Theme) -> Vec<Line<'static>> {
         let sem = &theme.semantic;
         let mut lines = vec![Line::from(vec![
             Span::styled(" dest: ", Style::default().fg(sem.subtext0)),
@@ -302,10 +330,10 @@ impl CloneWizard {
                 Span::styled(format!("▸ {entry}"), style),
             ]));
         }
-        frame.render_widget(Paragraph::new(lines), area);
+        lines
     }
 
-    fn render_summary(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
+    fn summary_lines(&self, theme: &Theme) -> Vec<Line<'static>> {
         let sem = &theme.semantic;
         let repos: Vec<&String> = self.checked().collect();
         let cmd = Style::default().fg(sem.text);
@@ -359,7 +387,7 @@ impl CloneWizard {
                 Span::styled(self.target(repo).to_string_lossy().into_owned(), cmd),
             ]));
         }
-        frame.render_widget(Paragraph::new(lines), area);
+        lines
     }
 
     fn render_buttons(

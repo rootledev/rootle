@@ -826,3 +826,34 @@ fn launch_popup_only_when_state_has_no_repos() {
         "orgs-only history should also skip the popup"
     );
 }
+
+#[test]
+fn scrollable_popups_show_a_border_scrollbar() {
+    let mut app = browsing_app();
+    app.handle_key(key(KeyCode::Char('?')));
+    let rows = render(&mut app, 100, 30);
+    let screen = rows.join("\n");
+    assert!(screen.contains('┃'), "scrollbar thumb missing:\n{screen}");
+
+    // Scrolling moves the thumb.
+    for _ in 0..24 {
+        app.handle_key(key(KeyCode::Char('j')));
+    }
+    let rows = render(&mut app, 100, 30);
+    assert!(
+        rows.join("\n").contains('┃'),
+        "thumb should persist mid-scroll"
+    );
+}
+
+#[test]
+fn panes_get_scrollbars_when_they_overflow() {
+    let mut app = browsing_app();
+    app.handle_key(key(KeyCode::Char('l'))); // drill into the repo root (6 entries)
+    // Terminal too short for the root listing → scrollbar appears.
+    let rows = render(&mut app, 60, 7);
+    assert!(
+        rows.join("\n").contains('┃'),
+        "overflowing panes should show a scrollbar"
+    );
+}

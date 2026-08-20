@@ -1,13 +1,20 @@
 # ghx
 
-ghx is a modal terminal UI (ratatui) for browsing remote GitHub
-repositories: a yazi-style miller-column browser (org, repo, directory,
-file) with a syntax-highlighted preview pane, running against the
-GitHub REST API and a local content-addressed cache. No clone is
+ghx is a modal terminal UI (ratatui) for browsing remote
+source-control systems: a yazi-style miller-column browser (org, repo,
+directory, file) with a syntax-highlighted preview pane. No clone is
 required — files open read-only in your editor, browser URLs yank to
 the clipboard, and a full-screen search view finds files and greps
-content. Other backends plug in as stdio provider processes
-([doc/provider-protocol.md](doc/provider-protocol.md)).
+content.
+
+**ghx is not tied to any one forge.** Backends plug in behind a
+provider seam: GitHub ships in-tree as the reference implementation,
+and any other system (GitLab, your internal SCM, …) can be wrapped as
+a child process speaking NDJSON-RPC 2.0 over stdio — a small script
+conforms it to the protocol. More providers are planned, and the
+protocol will evolve with them. Spec:
+[doc/provider-protocol.md](doc/provider-protocol.md); scaffolding:
+[skills/ghx-provider](skills/ghx-provider/SKILL.md).
 
 ![ghx demo](doc/demo.gif)
 
@@ -20,13 +27,16 @@ it at any time, prefilled with the last repo (Enter resumes it).
 `ghx owner/repo` skips the popup entirely.
 
 ```
-type query, Enter   search GitHub (orgs + repos)
+type query, Enter   search (orgs + repos)
 j / k               move               h / l   focus out / drill in
 J / K               scroll the preview
 /                   filter the focused pane (Enter commits, Esc cancels)
 Enter               open: file → editor (read-only), dir/repo/org → drill in
 ?                   keybinds popup     :   command line     q  quit
 ```
+
+Scrolling surfaces carry a scrollbar on the left border — the track is
+the border, the thumb the accent.
 
 ### Find and grep (global search view)
 
@@ -45,25 +55,27 @@ Enter on results    open the hit in the editor (read-only)
 Esc                 close the view; the browser is untouched underneath
 ```
 
-Repo-scope file find runs over the cached tree with no API call.
-Grep and global file find use code search, which requires a token.
+Repo-scope file find runs over the cached tree — no provider call at
+all. Grep and global file find use the provider's code search (GitHub
+code search requires a token; other providers decide for themselves).
 
 ### Clone
 
-`v` enters VISUAL mode; `␣` marks entries (file/dir marks fold up to
-their repo). `:clone` opens a three-screen wizard: repos, destination,
-summary.
+`v` enters VISUAL mode; `␣` marks entries — repos, files (fold up to
+their repo), or whole orgs (expand down to every repo). Marks persist
+after leaving VISUAL; `␣ c` clears them, `␣ d` deletes marked orgs.
+`:clone` opens a three-screen wizard: repos, destination, summary.
 
 ```
-␣                   toggle a repo checkbox
-Tab                 list ↔ buttons            j / k   move
+␣                   toggle a mark (●/○)
+Tab                 list ↔ buttons            j / k   move / scroll
 l / Enter on dirs   descend (destination)     h       go up
-Enter on [clone!]   git clone into <dest>/<repo>
+Enter on [clone!]   git clone into <dest>/<org>/<repo>
 Esc                 cancel the whole wizard from any screen
 ```
 
 With no marks, `:clone` offers every repo of the selected org. Clones
-run sequentially on a worker thread; the modeline reports the outcome.
+run on a worker thread; the modeline reports the outcome.
 
 ## Install
 
@@ -76,23 +88,22 @@ download, `chmod +x`, run. Build from source with Docker (exports
 docker compose run --build --rm release
 ```
 
-## Auth
+## Auth (GitHub provider)
 
-Token resolution, first match wins (`src/github/client.rs`):
+If your machine is already set up for GitHub — `gh auth login` done,
+or `GHX_TOKEN`/`GITHUB_TOKEN` exported — you're done; ghx picks it up.
+Anonymous use can browse and preview; only code search needs a token
+(the app says so when it does).
 
-1. `GHX_TOKEN`
-2. `GITHUB_TOKEN`
-3. `gh auth token`
-4. anonymous
-
-Anonymous use can browse. Code search (`␣ g`, and `␣ f` outside repo
-scope) fails with a message telling you to set a token.
+Other providers authenticate inside their own adapter — ghx never sees
+their credentials.
 
 ## Configuration
 
 `~/.config/ghx/config.toml` — missing or malformed falls back to
 defaults; editable in the app via `:settings`, which writes the file
-back and hot-reloads the theme:
+back and hot-reloads the theme. The full reference:
+[doc/settings.md](doc/settings.md).
 
 ```toml
 [editor]
@@ -113,10 +124,19 @@ command = []          # argv, used when kind = "stdio"
 
 ## Providers
 
-The GitHub backend is one implementation of a provider seam: any
-source-control system can be wrapped as a child process speaking
-NDJSON-RPC 2.0 over stdio (`examples/providers/fs_provider.py` is the
-reference adapter). Spec: [doc/provider-protocol.md](doc/provider-protocol.md).
+`[provider] kind = "github"` is the default. For anything else, run an
+adapter process and point at it:
+
+```toml
+[provider]
+kind = "stdio"
+command = ["python3", "/path/to/adapter.py", "…"]
+```
+
+The reference adapter is [`examples/providers/fs_provider.py`](examples/providers/fs_provider.py)
+— it serves local directories as repos and doubles as the offline e2e
+backend. A minimal useful adapter needs four methods; the protocol is
+versioned by handshake.
 
 ## Development
 

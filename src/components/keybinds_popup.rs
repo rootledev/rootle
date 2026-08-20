@@ -49,7 +49,7 @@ impl KeybindsPopup {
                         .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(
-                    format!(" v{VERSION} · a github browser "),
+                    format!(" v{VERSION} · browse any source-control backend "),
                     Style::default().fg(sem.subtext0),
                 ),
             ]),
@@ -120,7 +120,16 @@ impl KeybindsPopup {
         let rows = self.rows(theme);
         let max_scroll = rows.len().saturating_sub(inner.height as usize) as u16;
         self.scroll = self.scroll.min(max_scroll);
+        let total = rows.len();
         frame.render_widget(Paragraph::new(rows).scroll((self.scroll, 0)), inner);
+        super::scrollbar(
+            frame,
+            popup,
+            inner.height as usize,
+            total,
+            self.scroll as usize,
+            theme,
+        );
     }
 }
 

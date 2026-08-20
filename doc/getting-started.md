@@ -11,16 +11,15 @@ it in Docker — the release stage exports the same binary to `./dist/`:
 docker compose run --build --rm release
 ```
 
-## Auth (optional but recommended)
+## Auth (only code search needs it)
 
-ghx resolves a GitHub token in this order — set any one of them:
+Zero setup if your machine already talks to GitHub: `gh auth login`
+done once, or `GHX_TOKEN`/`GITHUB_TOKEN` exported — ghx picks it up.
+Everything else works anonymously; only code search asks for a token,
+and it says so in the status line when it does.
 
-```
-export GHX_TOKEN=ghp_...      # or GITHUB_TOKEN, or log in with: gh auth login
-```
-
-Anonymous use works for browsing and previews. Code search (`␣ g`, and
-`␣ f` outside repo scope) requires a token and says so otherwise.
+Using a stdio provider instead? Credentials live entirely inside your
+adapter — ghx never sees them.
 
 ## First run
 
