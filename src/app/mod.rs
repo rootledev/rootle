@@ -254,6 +254,21 @@ impl App {
                     view.update(&Action::GlobalSearchFailed { message });
                 }
             }
+            AppEvent::CloneExpanded { repos, errors } => {
+                if repos.is_empty() {
+                    self.status = Some(if errors.is_empty() {
+                        "nothing to clone".into()
+                    } else {
+                        format!("no repos: {}", errors.join("; "))
+                    });
+                } else {
+                    if !errors.is_empty() {
+                        self.status = Some(format!("some orgs failed: {}", errors.join("; ")));
+                    }
+                    let cwd = std::env::current_dir().unwrap_or_default();
+                    self.wizard = Some(CloneWizard::new(repos, cwd));
+                }
+            }
             AppEvent::CloneDone { ok, failed } => {
                 let mut status = format!(
                     "cloned {} repo{}",
@@ -433,9 +448,16 @@ impl App {
                         self.settings = Some(SettingsPopup::new(&self.config, themes));
                     }
                     "clone" => {
-                        let repos = self.clone_candidates();
-                        let cwd = std::env::current_dir().unwrap_or_default();
-                        self.wizard = Some(CloneWizard::new(repos, cwd));
+                        let (repos, orgs) = self.clone_candidates();
+                        if orgs.is_empty() {
+                            let cwd = std::env::current_dir().unwrap_or_default();
+                            self.wizard = Some(CloneWizard::new(repos, cwd));
+                        } else {
+                            self.status = Some(format!("expanding {} org(s)…", orgs.len()));
+                            if !self.offline {
+                                self.spawn_expand_clone(repos, orgs);
+                            }
+                        }
                     }
                     other => self.status = Some(format!("unknown command: {other}")),
                 }

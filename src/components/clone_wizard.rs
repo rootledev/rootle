@@ -252,10 +252,11 @@ impl CloneWizard {
             .enumerate()
             .map(|(i, (repo, on))| {
                 let selected = i == self.cursor && self.focus == Focus::List;
+                // Same dot language as VISUAL mode (plans/0004 §1).
                 let (mark, mark_color) = if *on {
-                    ("[x]", sem.mode_browse)
+                    ("●", sem.mode_browse)
                 } else {
-                    ("[ ]", sem.subtext0)
+                    ("○", sem.subtext0)
                 };
                 let style = if selected {
                     Style::default().fg(sem.selection_fg).bg(sem.selection_bg)
@@ -267,8 +268,8 @@ impl CloneWizard {
                         if selected { "▌ " } else { "  " },
                         Style::default().fg(sem.border_focused),
                     ),
-                    Span::styled(mark, Style::default().fg(mark_color)),
-                    Span::styled(format!(" {repo}"), style),
+                    Span::styled(format!("{mark} "), Style::default().fg(mark_color)),
+                    Span::styled(repo.to_string(), style),
                 ])
             })
             .collect();

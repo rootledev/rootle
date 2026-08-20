@@ -62,7 +62,12 @@ record the answer — the scaffold and the tests encode them.
 14. Where does the adapter get credentials? (Env, config file,
     keychain — ghx NEVER sees provider auth.) Never log them.
 15. Rate limits/cost per call? Where does the adapter cache (it owns
-    its own caching; ghx caches nothing for stdio providers)?
+    its own caching; ghx caches nothing for stdio providers)? If you
+    cache on disk, use `~/.cache/ghx/providers/<name>/` — never the
+    TUI's root. The GitHub provider's layout
+    (`~/.cache/ghx/providers/github/`) is the reference: sha-keyed
+    immutable blobs/trees, ETag-revalidated ref mappings, atomic
+    writes, LRU eviction + orphan sweep. Copy that shape.
 16. Errors: map backend failures to short human messages — they land
     verbatim in the TUI status line.
 17. Multiplexing: is this one backend or a fan-out over several (e.g.

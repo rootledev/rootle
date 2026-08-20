@@ -142,3 +142,22 @@ same content-id and opaque-repo rules apply.
 Scaffolding: `skills/ghx-provider/SKILL.md` (in this repo) walks
 through building a provider — capability questionnaire, adapter
 skeleton, and a conformance test suite that gates integration.
+
+## Provider disk caches
+
+Providers that cache on disk must not write into `~/.cache/ghx/`
+directly — that root belongs to the TUI (`edit/` scratch). Use a
+provider-scoped subtree:
+
+```
+~/.cache/ghx/providers/<name>/…
+```
+
+The GitHub provider is the reference design
+(`~/.cache/ghx/providers/github/`): content-addressed blobs and trees
+(`blobs/<ab>/<rest>`, `trees/<sha>.json` — immutable, never
+invalidated, only evicted), mutable ref→sha mappings revalidated with
+ETag (`index/refs/<org>/<repo>/<branch>` — a `304` is free), atomic
+tmp+rename writes, LRU eviction by mtime at startup, orphan sweep
+(trees not referenced by any ref, blobs not referenced by any live
+tree). If your backend can produce the same shape, copy it.

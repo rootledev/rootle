@@ -68,6 +68,33 @@ impl App {
         });
     }
 
+    /// Expand org marks to their repos off the UI thread, then the
+    /// wizard opens with the combined list.
+    pub(super) fn spawn_expand_clone(&self, repos: Vec<String>, orgs: Vec<String>) {
+        let provider = self.provider.clone();
+        let tx = self.tx.clone();
+        std::thread::spawn(move || {
+            let mut repos = repos;
+            let mut errors = Vec::new();
+            for org in orgs {
+                match provider.org_repos(&org) {
+                    Ok(names) => {
+                        for name in names {
+                            let full = format!("{org}/{name}");
+                            if !repos.contains(&full) {
+                                repos.push(full);
+                            }
+                        }
+                    }
+                    Err(e) => errors.push(format!("{org}: {e}")),
+                }
+            }
+            repos.sort();
+            repos.dedup();
+            let _ = tx.send(AppEvent::CloneExpanded { repos, errors });
+        });
+    }
+
     /// Sequential clones on one worker: git is bandwidth-bound anyway,
     /// and per-repo outcomes aggregate into one CloneDone toast.
     pub(super) fn spawn_clones(&self, repos: Vec<String>, dest: std::path::PathBuf) {
@@ -205,32 +232,46 @@ impl App {
         });
     }
 
-    /// Repos for the clone wizard (plans/0004 §2): VISUAL marks resolve
-    /// to their repos (file/dir marks fold up to the open repo); no
-    /// marks → the repos level of the selected org.
-    pub(super) fn clone_candidates(&self) -> Vec<String> {
-        fn push(repos: &mut Vec<String>, r: String) {
-            if !repos.contains(&r) {
-                repos.push(r);
-            }
-        }
+    /// Clone candidates (plans/0004 §2): (immediate repos, orgs to
+    /// expand on a worker — the UI thread never calls the provider).
+    /// Repo marks stay verbatim, file/dir marks fold up to the open
+    /// repo, org marks fan out to ALL the org's repos.
+    pub(super) fn clone_candidates(&self) -> (Vec<String>, Vec<String>) {
         let mut repos: Vec<String> = Vec::new();
+        let mut orgs: Vec<String> = Vec::new();
         let marks = self.browser.visual_marks();
         if !marks.is_empty() {
             for mark in marks {
-                let (title, _name) = mark.split_once('/').unwrap_or(("", &mark));
-                if Some(title) == self.browser.selected_org().as_deref() {
-                    push(&mut repos, mark.clone()); // repo-level mark: "org/repo"
-                } else if let Some((owner, repo)) = self.browser.repo_coords() {
-                    push(&mut repos, format!("{owner}/{repo}")); // file/dir → its repo
+                let (title, name) = mark.split_once('/').unwrap_or(("", &mark));
+                match title {
+                    "orgs" => orgs.push(name.to_string()),
+                    _ if Some(title) == self.browser.selected_org().as_deref() => {
+                        if !repos.contains(&mark) {
+                            repos.push(mark.clone());
+                        }
+                    }
+                    _ => {
+                        if let Some((owner, repo)) = self.browser.repo_coords() {
+                            let full = format!("{owner}/{repo}");
+                            if !repos.contains(&full) {
+                                repos.push(full);
+                            }
+                        }
+                    }
                 }
             }
         } else {
             // No marks: everything in the org's repos level.
             for full in self.browser.org_repo_full_names() {
-                push(&mut repos, full);
+                if !repos.contains(&full) {
+                    repos.push(full);
+                }
             }
         }
-        repos
+        repos.sort();
+        repos.dedup();
+        orgs.sort();
+        orgs.dedup();
+        (repos, orgs)
     }
 }

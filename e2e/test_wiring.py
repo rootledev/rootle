@@ -191,3 +191,30 @@ def test_delete_marked_orgs(tmp_path: Path) -> None:
         assert "local/" not in screen  # gone from the orgs pane
     finally:
         tui.stop()
+
+
+def test_org_mark_fans_out_to_all_repos(tmp_path: Path) -> None:
+    """Marking the org expands to ALL its repos (worker-resolved)."""
+    root = make_fs_root(tmp_path)
+    tui = launch(tmp_path, root)
+    try:
+        tui.type_query("zzz")
+        tui.key("ENTER")
+        tui.expect("local")
+        tui.key("ENTER")
+        tui.expect("beta/")
+
+        tui.send("h")  # → repos level
+        tui.send("h")  # → orgs level
+        tui.send("v")
+        tui.send(" ")  # mark the ORG
+        tui.send("v")
+        tui.send(":")
+        tui.type_query("clone")
+        tui.key("ENTER")
+        # Worker expanded the org: wizard opens with BOTH repos.
+        screen = tui.expect("clone — 1/3 repos", timeout=8)
+        assert "local/alpha" in screen and "local/beta" in screen
+        assert "● local/alpha" in screen  # dot markers, not [x]
+    finally:
+        tui.stop()

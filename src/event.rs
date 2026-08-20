@@ -56,6 +56,12 @@ pub enum AppEvent {
         ok: Vec<String>,
         failed: Vec<(String, String)>,
     },
+    /// Org marks expanded to their repos; open the clone wizard with
+    /// the combined list (plans/0004).
+    CloneExpanded {
+        repos: Vec<String>,
+        errors: Vec<String>,
+    },
 }
 
 pub type AppTx = std::sync::mpsc::Sender<AppEvent>;

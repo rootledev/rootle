@@ -1,4 +1,6 @@
-//! Content-addressable disk cache under ~/.cache/ghx (PLAN.md §8).
+//! Content-addressable disk cache for the GitHub provider, under
+//! ~/.cache/ghx/providers/github (plans/0005: each provider owns its
+//! cache subtree; the TUI-level edit/ scratch stays at ~/.cache/ghx).
 //! Trees are immutable (sha-keyed) — never invalidated, only evicted.
 //! Ref mappings (owner/repo/branch → tree_sha + etag) are mutable and
 //! revalidated with If-None-Match on every open.
@@ -15,8 +17,33 @@ pub struct RefCache {
     pub etag: Option<String>,
 }
 
+/// The provider's cache subtree. Other providers must use their own
+/// (`~/.cache/ghx/providers/<name>`) — see doc/provider-protocol.md.
+#[cfg(test)]
 pub fn root() -> Option<PathBuf> {
-    dirs::cache_dir().map(|d| d.join("ghx"))
+    dirs::cache_dir().map(|d| d.join("ghx").join("providers").join("github"))
+}
+
+/// One-time move from the pre-provider layout (~/.cache/ghx/{trees,
+/// blobs,index}) into this provider's subtree. Best-effort: partial
+/// moves just mean re-fetches.
+fn migrate_from_legacy(base: &Path) {
+    let mine = base.join("providers").join("github");
+    for dir in ["trees", "blobs", "index"] {
+        let old = base.join(dir);
+        let new = mine.join(dir);
+        if old.exists() && !new.exists() {
+            let _ = std::fs::create_dir_all(&mine);
+            let _ = std::fs::rename(&old, &new);
+        }
+    }
+}
+
+/// Resolve the cache root, migrating the legacy layout once.
+fn root_or_migrate() -> Option<PathBuf> {
+    let base = dirs::cache_dir().map(|d| d.join("ghx"))?;
+    migrate_from_legacy(&base);
+    Some(base.join("providers").join("github"))
 }
 
 fn ref_path(root: &std::path::Path, owner: &str, repo: &str, branch: &str) -> PathBuf {
@@ -35,33 +62,37 @@ fn blob_path(root: &std::path::Path, sha: &str) -> PathBuf {
 }
 
 pub fn read_blob(sha: &str) -> Option<Vec<u8>> {
-    let path = blob_path(&root()?, sha);
+    let path = blob_path(&root_or_migrate()?, sha);
     let bytes = std::fs::read(&path).ok()?;
     touch(&path); // mtime = last-used, drives LRU eviction
     Some(bytes)
 }
 
 pub fn write_blob(sha: &str, bytes: &[u8]) -> io::Result<()> {
-    let Some(root) = root() else { return Ok(()) };
+    let Some(root) = root_or_migrate() else {
+        return Ok(());
+    };
     atomic_write(&blob_path(&root, sha), bytes)
 }
 
 /// The branch a repo was last opened on (first cached ref) — lets
 /// fetch_tree skip the repo-meta round trip entirely.
 pub fn cached_branch(owner: &str, repo: &str) -> Option<String> {
-    let dir = root()?.join("index/refs").join(owner).join(repo);
+    let dir = root_or_migrate()?.join("index/refs").join(owner).join(repo);
     let entry = std::fs::read_dir(dir).ok()?.next()?.ok()?;
     entry.file_name().into_string().ok()
 }
 
 pub fn read_ref(owner: &str, repo: &str, branch: &str) -> Option<RefCache> {
-    let path = ref_path(&root()?, owner, repo, branch);
+    let path = ref_path(&root_or_migrate()?, owner, repo, branch);
     let text = std::fs::read_to_string(path).ok()?;
     serde_json::from_str(&text).ok()
 }
 
 pub fn write_ref(owner: &str, repo: &str, branch: &str, entry: &RefCache) -> io::Result<()> {
-    let Some(root) = root() else { return Ok(()) };
+    let Some(root) = root_or_migrate() else {
+        return Ok(());
+    };
     atomic_write(
         &ref_path(&root, owner, repo, branch),
         serde_json::to_string(entry)?.as_bytes(),
@@ -69,13 +100,15 @@ pub fn write_ref(owner: &str, repo: &str, branch: &str, entry: &RefCache) -> io:
 }
 
 pub fn read_tree(sha: &str) -> Option<TreeResponse> {
-    let path = tree_path(&root()?, sha);
+    let path = tree_path(&root_or_migrate()?, sha);
     let text = std::fs::read_to_string(path).ok()?;
     serde_json::from_str(&text).ok()
 }
 
 pub fn write_tree(tree: &TreeResponse) -> io::Result<()> {
-    let Some(root) = root() else { return Ok(()) };
+    let Some(root) = root_or_migrate() else {
+        return Ok(());
+    };
     atomic_write(
         &tree_path(&root, &tree.sha),
         serde_json::to_string(tree)?.as_bytes(),
@@ -104,7 +137,9 @@ fn atomic_write(path: &PathBuf, bytes: &[u8]) -> io::Result<()> {
 /// Startup hardening: sweep orphans, then evict least-recently-used
 /// blobs while total size exceeds `max_bytes`.
 pub fn harden(max_bytes: u64) {
-    let Some(root) = root() else { return };
+    let Some(root) = root_or_migrate() else {
+        return;
+    };
     sweep_orphans(&root);
     evict_blobs(&root, max_bytes);
 }

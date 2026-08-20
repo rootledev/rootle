@@ -133,7 +133,7 @@ Marks **persist after leaving VISUAL** (the ● stays) — they drive
 `:clone` and `␣ d`. `␣ c` clears them all.
 
 - `:clone` resolves marks to repos — files fold up to their repo,
-  a marked org expands down to its repos — and walks three screens:
+  a marked org expands down to ALL its repos — and walks three screens:
   repo checkboxes, a destination mini-browser over your local folders,
   and a summary with the exact commands. Repos clone into
   `<dest>/<org>/<repo>` so same-named repos never collide. `Esc`
@@ -156,7 +156,8 @@ Marks **persist after leaving VISUAL** (the ● stays) — they drive
 | `~/.config/ghx/config.toml` | configuration |
 | `~/.config/ghx/themes/<name>.toml` | palette overrides (`[semantic]` role = hex) |
 | `~/.local/state/ghx/state.json` | recents, last org/repo/path, last search scope/extension |
-| `~/.cache/ghx/` | content-addressed cache (safe to delete anytime) |
+| `~/.cache/ghx/edit/` | files materialized for your editor |
+| `~/.cache/ghx/providers/<name>/` | per-provider content cache (safe to delete) |
 
 Cache layout: `trees/<sha>.json` (immutable repo trees), `blobs/<ab>/<rest>`
 (blobs sharded by the first two sha chars), `index/refs/<owner>/<repo>/<branch>`

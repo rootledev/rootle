@@ -94,8 +94,10 @@ palette change recolors previews automatically.
 
 Blobs/trees are content-addressed and immutable (never invalidated,
 only evicted); repo refs revalidate via ETag (a `304` is free).
-Deleting `~/.cache/ghx` is always safe. This section is
-GitHub-provider-internal — stdio providers manage their own caching.
+The GitHub provider's store lives at
+`~/.cache/ghx/providers/github/` (the TUI-level `edit/` scratch stays
+at `~/.cache/ghx/`); deleting either is always safe. stdio providers
+manage their own caches under `~/.cache/ghx/providers/<name>/`.
 
 ## `[provider]` — backend selection
 
