@@ -37,3 +37,12 @@ services:
         && echo "released: /dist/ghx-linux-x86_64-musl"
     volumes:
       - ./dist:/dist
+
+  e2e:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: e2e
+    # PTY suite runs at container start (CMD in the Dockerfile); the
+    # `test`-stage gate + compile are reused from the image cache —
+    # `docker compose run --build --rm e2e` after source changes.

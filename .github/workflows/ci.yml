@@ -11,7 +11,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # fmt + clippy (-D warnings) + cargo test run as Docker build
-      # stages — if the image builds, the gate passed.
       - name: Build gate (fmt, clippy, tests)
         run: docker compose run --build --rm test
+
+      # PTY e2e suite (pyte screen reconstruction) in the same image —
+      # offline: the fs stdio provider backs all flows, no network.
+      - name: E2E (PTY suite)
+        run: docker compose run --build --rm e2e

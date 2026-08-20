@@ -10,8 +10,8 @@ WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 COPY tests ./tests
+COPY examples ./examples
 
-# Quality gate stage: fmt + clippy + tests. Built by the `test` service.
 FROM builder AS test
 RUN cargo fmt --check \
     && cargo clippy --locked --all-targets -- -D warnings \
@@ -28,3 +28,18 @@ RUN cargo build --release --locked \
 FROM scratch AS ship
 COPY --from=release /app/target/release/ghx /ghx
 ENTRYPOINT ["/ghx"]
+
+# e2e PTY suite (plans/0002-v0.2 §6, productionize). FROM test reuses
+# the gate's compiled target/ — no second artifact tree, and the gate
+# must have passed for this stage to build at all.
+FROM test AS e2e
+# python3+uv for the harness; git for the clone-wizard e2e (fs provider
+# repos are real local git remotes).
+RUN apk add --no-cache python3 uv git
+COPY e2e/pyproject.toml e2e/uv.lock ./e2e/
+RUN cargo build --locked && cd e2e && uv sync --locked
+COPY e2e ./e2e
+# Binary already compiled by the gate stage; harness must not rebuild.
+ENV GHX_E2E_IN_DOCKER=1
+WORKDIR /app/e2e
+CMD ["uv", "run", "--locked", "--no-sync", "pytest"]
