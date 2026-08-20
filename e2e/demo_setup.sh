@@ -1,0 +1,42 @@
+#!/bin/sh
+# Demo fixture for doc/demo.tape: a two-repo "code root" served by the
+# fs stdio provider, plus the provider config. Idempotent.
+set -eu
+
+DEMO=/tmp/ghx-demo
+rm -rf "$DEMO"
+mkdir -p "$DEMO/code/alpha/src" "$DEMO/code/beta"
+
+cat > "$DEMO/code/alpha/src/main.rs" <<'EOF'
+fn main() {
+    let view = render();
+    println!("{view}");
+}
+
+fn render() -> &'static str {
+    "ghx"
+}
+EOF
+cat > "$DEMO/code/alpha/src/render.rs" <<'EOF'
+//! Rendering pipeline.
+pub fn render(view: &View) -> Frame {
+    let frame = Frame::new();
+    view.draw(&frame);
+    frame
+}
+EOF
+cat > "$DEMO/code/alpha/README.md" <<'EOF'
+# alpha
+render docs
+EOF
+cat > "$DEMO/code/beta/notes.txt" <<'EOF'
+nothing to see
+EOF
+
+cat > "$DEMO/provider.toml" <<EOF
+[provider]
+kind = "stdio"
+command = ["python3", "$PWD/examples/providers/fs_provider.py", "$DEMO/code"]
+EOF
+
+echo "demo fixture ready: $DEMO"
