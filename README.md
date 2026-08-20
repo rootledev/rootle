@@ -9,6 +9,8 @@ the clipboard, and a full-screen search view finds files and greps
 content. Other backends plug in as stdio provider processes
 ([doc/provider-protocol.md](doc/provider-protocol.md)).
 
+![ghx demo](doc/demo.gif)
+
 ## Flows
 
 ### Browse

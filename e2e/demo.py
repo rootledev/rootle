@@ -1,8 +1,12 @@
 """Demo capture: drives ghx through the golden path over the fs stdio
 provider and records an asciinema v2 cast to dist/demo.cast.
 
-    cd e2e && uv run python demo.py
-    # replay: asciinema play ../dist/demo.cast  (or upload to asciinema.org)
+    cd e2e && uv run python demo.py          # writes e2e/demo.cast
+    # replay: asciinema play demo.cast
+    # GIF for the README (doc/demo.gif):
+    docker run --rm -v "$PWD:/data" ghcr.io/asciinema/agg \
+        --font-size 14 --speed 1.4 --theme dracula \
+        /data/demo.cast /data/../doc/demo.gif
 
 A VHS tape (doc/demo.tape) renders the same flow to GIF/MP4 later —
 `vhs doc/demo.tape` — without needing a live environment.
