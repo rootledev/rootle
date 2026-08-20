@@ -55,8 +55,8 @@ v                 VISUAL multi-select             ␣ c    clear marks
 q                 quit
 ```
 
-Every key is listed in the `?` popup, generated from the same tables
-that drive dispatch (`src/keymap.rs`) — the two cannot drift.
+Every key is listed in the `?` popup — the same tables that drive
+dispatch generate it, so the two cannot drift.
 
 ![keybinds popup](img/08-keybinds.png)
 
@@ -92,9 +92,8 @@ the terminal, and runs your editor on it. Edits are never written back.
 
 ![browsing with the preview pane](img/03-browse.png)
 
-Editor resolution (`src/editor.rs`): `[editor].program` in config.toml,
-then `$VISUAL`, then `$EDITOR`, then the first of `hx`, `nvim`, `vim`,
-`vi` found on PATH. With `read_only = true` (the default) the vim
+Editor resolution: `[editor].program` in config.toml, then `$VISUAL`,
+then `$EDITOR`, then the first of `hx`, `nvim`, `vim`, `vi` on PATH. With `read_only = true` (the default) the vim
 family is started with `-R`. The same flow opens search-view hits.
 
 ## Yank a URL (`␣ y`)
@@ -109,9 +108,9 @@ clipboard and confirms in the modeline ("yanked …"):
 
 ![yank toast](img/07-yank.png)
 
-Clipboard path (`src/clipboard.rs`): OSC 52 first (works over SSH and
-tmux), then a local tool (`wl-copy`, `xclip`, `xsel`, `pbcopy`).
-`GHX_CLIPBOARD=<path>` redirects yanks to a file for scripts and CI.
+Clipboard: OSC 52 first (works over SSH and tmux), then a local tool
+(`wl-copy`, `xclip`, `xsel`, `pbcopy`). `GHX_CLIPBOARD=<path>`
+redirects yanks to a file for scripts and CI.
 
 ## The command line (`:`)
 
@@ -145,12 +144,12 @@ summary. `Esc` cancels the wizard from any screen.
 
 ## Where things live
 
-| Path | Contents | Source |
-|---|---|---|
-| `~/.config/ghx/config.toml` | configuration | `src/config.rs` |
-| `~/.config/ghx/themes/<name>.toml` | palette overrides (`[semantic]` role = hex) | `src/theme.rs` |
-| `~/.local/state/ghx/state.json` | recents, last org/repo/path, last search scope/extension | `src/state.rs` |
-| `~/.cache/ghx/` | content-addressed cache (GitHub provider-internal) | `src/github/cache.rs` |
+| Path | Contents |
+|---|---|
+| `~/.config/ghx/config.toml` | configuration |
+| `~/.config/ghx/themes/<name>.toml` | palette overrides (`[semantic]` role = hex) |
+| `~/.local/state/ghx/state.json` | recents, last org/repo/path, last search scope/extension |
+| `~/.cache/ghx/` | content-addressed cache (safe to delete anytime) |
 
 Cache layout: `trees/<sha>.json` (immutable repo trees), `blobs/<ab>/<rest>`
 (blobs sharded by the first two sha chars), `index/refs/<owner>/<repo>/<branch>`
@@ -163,5 +162,6 @@ state and config are separate files.
 
 - [provider-protocol.md](provider-protocol.md) — run ghx against your
   own backend via a stdio provider.
-- [house-style.md](house-style.md) — the component contract, for
-  contributors.
+- [development.md](development.md) — architecture, dev workflow, and
+  the test harness, for contributors.
+- [house-style.md](house-style.md) — the component contract.

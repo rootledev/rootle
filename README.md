@@ -123,10 +123,12 @@ reference adapter). Spec: [doc/provider-protocol.md](doc/provider-protocol.md).
 ```
 cargo test                          # unit + TestBackend render tests
 cd e2e && uv run pytest             # PTY end-to-end suite
-docker compose run --rm test        # fmt + clippy -D warnings + cargo test
+docker compose run --build --rm test  # fmt + clippy -D warnings + cargo test
 docker compose run --build --rm e2e # same e2e suite in a container
 ```
 
 Further docs: [doc/getting-started.md](doc/getting-started.md) (first
-run, key map, state/cache/config locations) and
-[doc/house-style.md](doc/house-style.md) (the component contract).
+run, key map, state/cache/config locations),
+[doc/development.md](doc/development.md) (architecture, dev workflow,
+e2e harness) and [doc/house-style.md](doc/house-style.md) (the
+component contract).
