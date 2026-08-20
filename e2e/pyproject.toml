@@ -6,6 +6,8 @@ requires-python = ">=3.10"
 dependencies = [
     "pyte>=0.8.2",
     "pytest>=8.0",
+    "pillow>=11",
+    "fonttools>=4.63.0",
 ]
 
 [tool.pytest.ini_options]

@@ -39,6 +39,10 @@ repos. `j/k` move, Enter opens. On every later launch the browser opens
 directly with your recent orgs/repos; `␣ s` reopens the search popup,
 prefilled with the last repo — Enter alone resumes it.
 
+![launch search popup](img/01-launch-search.png)
+
+![repo results](img/02-repo-results.png)
+
 ## Key map essentials
 
 ```
@@ -54,6 +58,28 @@ q                 quit
 Every key is listed in the `?` popup, generated from the same tables
 that drive dispatch (`src/keymap.rs`) — the two cannot drift.
 
+![keybinds popup](img/08-keybinds.png)
+
+## Find and grep (`␣ f` / `␣ g`)
+
+Full-screen search replaces the browser: a field row on top (query ·
+scope · extension), Zed-style result blocks below — path + match-count
+badge, syntax-highlighted preview lines with real line numbers, and
+matched text chipped in yellow. `Tab` cycles fields, `Enter` runs the
+search and focuses results, `j/k` move between blocks, `/` filters the
+results locally, `Enter` on a hit opens it in your editor.
+
+![grep results](img/04-grep.png)
+
+![results filter](img/05-results-filter.png)
+
+Scope waterfalls from where you are — an open repo defaults to
+`repo:`, a selected org to `org:`, otherwise `global`. `j/k` on the
+scope field cycles directly; `Enter` opens the radio popup where the
+selection follows the cursor live (`Esc` reverts).
+
+![scope popup](img/06-scope-popup.png)
+
 In any popup or search view: `Tab` moves between fields, `Enter`
 submits, `Esc` steps back. Text inputs are modal like vim: Esc in
 INSERT drops to NORMAL (`h/l/0/$/x`, `i/a/A` to re-enter INSERT).
@@ -63,6 +89,8 @@ INSERT drops to NORMAL (`h/l/0/$/x`, `i/a/A` to re-enter INSERT).
 Move the cursor onto a file and press `Enter`. ghx materializes the
 cached blob under `~/.cache/ghx/edit/<owner>__<repo>/<path>`, suspends
 the terminal, and runs your editor on it. Edits are never written back.
+
+![browsing with the preview pane](img/03-browse.png)
 
 Editor resolution (`src/editor.rs`): `[editor].program` in config.toml,
 then `$VISUAL`, then `$EDITOR`, then the first of `hx`, `nvim`, `vim`,
@@ -79,6 +107,8 @@ clipboard and confirms in the modeline ("yanked …"):
 - search view — the hit's URL, with a `#L<line>` fragment for the
   matched line
 
+![yank toast](img/07-yank.png)
+
 Clipboard path (`src/clipboard.rs`): OSC 52 first (works over SSH and
 tmux), then a local tool (`wl-copy`, `xclip`, `xsel`, `pbcopy`).
 `GHX_CLIPBOARD=<path>` redirects yanks to a file for scripts and CI.
@@ -93,6 +123,26 @@ tmux), then a local tool (`wl-copy`, `xclip`, `xsel`, `pbcopy`).
   the theme).
 - `:clone` — the clone wizard over VISUAL marks (see README).
 
+![settings editor tab](img/09-settings.png)
+
+![settings theme tab](img/10-settings-theme.png)
+
+### Clone wizard (`v` + `:clone`)
+
+`v` in browse mode enters VISUAL: `Space` marks entries (green ●),
+`␣ c` clears all marks, `v`/`Esc` exits. `:clone` resolves marks to
+repos (files fold up to their repo) and walks three screens — repo
+checkboxes, a destination mini-browser over your local folders, and a
+summary. `Esc` cancels the wizard from any screen.
+
+![visual marks](img/11-visual.png)
+
+![clone wizard: repos](img/12-clone-repos.png)
+
+![clone wizard: destination](img/13-clone-destination.png)
+
+![clone wizard: summary](img/14-clone-summary.png)
+
 ## Where things live
 
 | Path | Contents | Source |
@@ -100,7 +150,7 @@ tmux), then a local tool (`wl-copy`, `xclip`, `xsel`, `pbcopy`).
 | `~/.config/ghx/config.toml` | configuration | `src/config.rs` |
 | `~/.config/ghx/themes/<name>.toml` | palette overrides (`[semantic]` role = hex) | `src/theme.rs` |
 | `~/.local/state/ghx/state.json` | recents, last org/repo/path, last search scope/extension | `src/state.rs` |
-| `~/.cache/ghx/` | content-addressed cache | `src/cache.rs` |
+| `~/.cache/ghx/` | content-addressed cache (GitHub provider-internal) | `src/github/cache.rs` |
 
 Cache layout: `trees/<sha>.json` (immutable repo trees), `blobs/<ab>/<rest>`
 (blobs sharded by the first two sha chars), `index/refs/<owner>/<repo>/<branch>`
