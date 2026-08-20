@@ -5,25 +5,49 @@ description: End-to-end debugging and verification workflow for the ghx ratatui 
 
 # ghx TUI end-to-end debugging
 
-Two complementary verification paths. Use BOTH for behavioral changes:
-snapshot tests for deterministic frame content, live PTY for real
-terminal lifecycle.
+Three complementary verification paths. Use the first two for every
+behavioral change; hub PTY is for ad-hoc poking only:
 
-## 1. Live PTY run (real terminal)
+1. **e2e harness** (`e2e/`, uv + pytest + pyte) — scripted PTY runs
+   against the real binary with screen reconstruction and assertions.
+2. **Frame snapshots** (`tests/render.rs`, ratatui `TestBackend`) —
+   deterministic frame content without a TTY.
+3. **hub PTY** — manual/ad-hoc interaction when the above don't fit.
 
-Start the app in a project-scoped PTY process:
+## 1. e2e harness (`e2e/`)
+
+The project has a permanent, uv-managed PTY harness. Prefer it over
+hand-rolled PTY scripts — it's hermetic and repeatable:
+
+- Run the suite: `cd e2e && uv run pytest` (builds the debug binary
+  itself via a session fixture), or dockerized — reusing the `test`
+  gate's compile cache with zero host artifacts:
+  `docker compose run --build --rm e2e` (`--build` is required after
+  source changes, same as every compose service).
+- `e2e/tui.py` — generic driver: `Tui(binary, cols, rows)`, `send()` /
+  `key()` / `type_query()`, `expect()` / `expect_gone()` with screen
+  dumps on timeout, `screen()` returns the pyte-reconstructed frame.
+  Sessions are hermetic: HOME and XDG dirs point at a temp dir, so
+  tests never touch real state/cache/config; `VISUAL=true` makes the
+  editor-open path an instant no-op (suspend/resume still exercised).
+- `e2e/conftest.py` — `tui` fixture (one instance per test) and
+  `dismiss_launch_popup()` for the launch flow.
+- New generic TUI behaviors (a flow any user could hit) belong in
+  `e2e/`; component-edge cases belong in Rust unit tests.
+
+Hub PTY remains useful for quick manual checks:
 
 ```
 hub(op="start", name="ghx", application="cargo", args=["run", "--quiet"],
-Then:
+```
 
 - Inject keys: `hub(op="send", name="ghx", text="jj")` for printable
   input; `keys=["ENTER"]` / `["ESCAPE"]` / `["TAB"]` for special keys.
   Send ESC **one call at a time** — back-to-back `\x1b` bytes can merge
   into `Alt+<key>` in crossterm's parser and look like a bug.
 - Read output: `hub(op="logs", name="ghx")`. Output contains raw ANSI —
-  to reconstruct the visible screen, pipe through a terminal emulator
-  parser instead of eyeballing escapes (see §3).
+  reconstruct the visible screen via the harness/pyte instead of
+  eyeballing escapes (see §3).
 - Stop: `hub(op="stop", name="ghx")` (or send `q`).
 
 The binary must never leave the terminal in raw mode or the alternate
@@ -59,20 +83,19 @@ Rules:
 ## 3. Reconstructing a live screen
 
 `hub logs` render ANSI-stripped text, which mangles frame diffs. For a
-ground-truth view, drive ghx on a raw PTY yourself and replay the
-capture through a VT emulator:
+ground-truth view, use the uv-managed harness in `e2e/` (pyte-backed):
 
-- Preferred: `pyte` (`pip install pyte`). Feed the raw capture to
-  `pyte.Screen(120, 36)` and print `screen.display`.
-- No pyte/pip available? A ~60-line Python VT emulator handling CUP,
+- `cd e2e && uv run pytest` runs the PTY e2e suite; `e2e/tui.py` is the
+  generic driver (hermetic HOME/XDG, winsize set pre-spawn, `expect()` /
+  `expect_gone()` assertions). Add generic TUI scenarios there.
+- For one-off captures: `uv run python` from `e2e/`, drive `Tui`, print
+  `tui.screen()` — pyte reconstructs the frame.
+- No uv/pyte available? A ~60-line Python VT emulator handling CUP,
   CUU/CUD/CUF/CUB, ED(2J), EL(K), CR/LF and printable chars is enough
-  for ratatui output (ghx's `/tmp/vt.py` pattern).
-- Deterministic driver (preferred over `script`, which breaks on piped
-  stdin): Python `pty.fork()`, **set the window size with
-  `fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack('HHHH', 36, 120, 0, 0))`**
-  — a 0×0 PTY makes ratatui draw nothing at all (looks like a hang).
-  Write keys with sleeps, read output with `select`, reconstruct with
-  the VT emulator.
+  for ratatui output. The harness (`e2e/tui.py`) already sets the
+  window size with `fcntl.ioctl(slave, termios.TIOCSWINSZ, …)` before
+  spawn — a 0×0 PTY makes ratatui draw nothing at all (looks like a
+  hang). Write keys with sleeps, read output with `select`.
 - Worker/backend events: set `GHX_TRACE=/tmp/ghx_trace.log` in the
   child env — spawn/results/selection lines with timestamps.
 
