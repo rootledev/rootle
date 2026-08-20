@@ -7,5 +7,5 @@ gotchas, and conventions. Not part of the public integration surface
 | Skill | Purpose |
 |---|---|
 | [ghx-component](ghx-component/SKILL.md) | scaffold a new UI component (trait contract, keymap, theming, tests) |
-| [ghx-tui-debug](ghx-tui-debug/SKILL.md) | e2e verification: harness, frame snapshots, PTY debugging |
+| [ghx-pr](ghx-pr/SKILL.md) | author PRs: what/why/how template + evidence contract (frames, screenshots, recordings) |
 | [ghx-demo-capture](ghx-demo-capture/SKILL.md) | demo GIF + doc screenshots, with the capture gotchas |
