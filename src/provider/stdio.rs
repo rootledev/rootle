@@ -241,6 +241,7 @@ impl Provider for StdioProvider {
         path: &str,
         branch: &str,
         line: Option<u32>,
+        is_file: bool,
     ) -> Result<String, String> {
         #[derive(serde::Deserialize)]
         struct R {
@@ -248,7 +249,7 @@ impl Provider for StdioProvider {
         }
         let r: R = de(self.request(
             "repo/web_url",
-            json!({ "repo": repo, "path": path, "branch": branch, "line": line }),
+            json!({ "repo": repo, "path": path, "branch": branch, "line": line, "is_file": is_file }),
         )?)?;
         Ok(r.url)
     }

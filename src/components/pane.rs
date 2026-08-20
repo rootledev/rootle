@@ -42,9 +42,13 @@ pub struct Pane {
     pub filter: String,
     /// Render `[repo]`/`[org]` badges before entries (search results).
     pub show_badges: bool,
-    /// VISUAL mode: entry names carrying a check mark; `Some` enables
-    /// checkbox rendering (plans/0004 §1).
+    /// VISUAL mode: entry names carrying a mark; `Some` enables mark
+    /// rendering (plans/0004 §1).
     pub checkboxes: Option<std::collections::HashSet<String>>,
+    /// With checkboxes set but visual OFF: show ● for marked entries
+    /// only (marks persist after leaving visual; ○ would imply the
+    /// rows are selectable right now).
+    pub marks_only: bool,
     selected: usize,
     state: ListState,
     pub focused: bool,
@@ -60,6 +64,7 @@ impl Pane {
             filter: String::new(),
             show_badges: false,
             checkboxes: None,
+            marks_only: false,
             selected: 0,
             state,
             focused: false,
@@ -149,12 +154,13 @@ impl Pane {
                 // VISUAL marker gutter, before any badge/name: a green
                 // ● for marked entries, dim ○ otherwise.
                 let checkbox = self.checkboxes.as_ref().map(|set| {
-                    let (mark, color) = if set.contains(&e.name) {
-                        ("●  ", sem.mode_browse)
+                    if set.contains(&e.name) {
+                        Span::styled("●  ", Style::default().fg(sem.mode_browse))
+                    } else if self.marks_only {
+                        Span::raw("   ") // marked-only view: keep the gutter blank
                     } else {
-                        ("○  ", sem.subtext0)
-                    };
-                    Span::styled(mark, Style::default().fg(color))
+                        Span::styled("○  ", Style::default().fg(sem.subtext0))
+                    }
                 });
                 let line = match e.kind {
                     EntryKind::Repo | EntryKind::Org if self.show_badges => {

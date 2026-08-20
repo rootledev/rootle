@@ -79,11 +79,13 @@ impl App {
             for repo in repos {
                 trace(&format!("clone start {repo}"));
                 let outcome = provider.clone_url(&repo).and_then(|url| {
-                    let name = repo.rsplit('/').next().unwrap_or(&repo);
-                    let target = dest.join(name);
+                    // dest/org/repo — the org level avoids collisions.
+                    let target = dest.join(&repo);
                     if target.exists() {
                         return Err("destination exists".into());
                     }
+                    std::fs::create_dir_all(target.parent().unwrap_or(&dest))
+                        .map_err(|e| e.to_string())?;
                     std::process::Command::new("git")
                         .args(["clone", &url])
                         .arg(&target)

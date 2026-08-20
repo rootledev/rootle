@@ -187,6 +187,35 @@ impl Browser {
         self.sync();
     }
 
+    /// Delete marked orgs from the orgs level (␣ d). Returns the
+    /// deleted org names; non-org marks are left untouched (reported
+    /// by the caller).
+    pub fn delete_marked_orgs(&mut self) -> Vec<String> {
+        let orgs_prefix = "orgs/";
+        let deleted: Vec<String> = self
+            .marks
+            .iter()
+            .filter_map(|k| k.strip_prefix(orgs_prefix).map(str::to_string))
+            .collect();
+        if deleted.is_empty() {
+            return deleted;
+        }
+        self.levels[0]
+            .entries
+            .retain(|e| !deleted.contains(&e.name));
+        for org in &deleted {
+            self.marks.remove(&format!("{orgs_prefix}{org}"));
+        }
+        // Selected org deleted → drop to the first remaining entry.
+        if let Some(sel) = self.levels[0].selected_entry() {
+            if deleted.contains(&sel.name) {
+                self.levels[0].select(0);
+            }
+        }
+        self.sync();
+        deleted
+    }
+
     /// Marked entries as `"<pane title>/<name>"` keys.
     pub fn visual_marks(&self) -> Vec<String> {
         let mut marks: Vec<String> = self.marks.iter().cloned().collect();
@@ -273,18 +302,20 @@ impl Browser {
     fn sync(&mut self) {
         for (i, pane) in self.levels.iter_mut().enumerate() {
             pane.focused = i == self.focus;
-            // VISUAL checkboxes: this pane's marked entry names.
-            pane.checkboxes = if self.visual {
-                let prefix = format!("{}/", pane.title);
-                Some(
-                    self.marks
-                        .iter()
-                        .filter_map(|k| k.strip_prefix(&prefix).map(str::to_string))
-                        .collect(),
-                )
+            // Marks stay visible after leaving VISUAL (they drive
+            // :clone / ␣d); ○ only while visual is active.
+            let prefix = format!("{}/", pane.title);
+            let pane_marks: std::collections::HashSet<String> = self
+                .marks
+                .iter()
+                .filter_map(|k| k.strip_prefix(&prefix).map(str::to_string))
+                .collect();
+            pane.checkboxes = if self.visual || !pane_marks.is_empty() {
+                Some(pane_marks)
             } else {
                 None
             };
+            pane.marks_only = !self.visual;
         }
         self.refresh_preview();
     }

@@ -46,7 +46,20 @@ fn main() -> io::Result<()> {
     result
 }
 
+/// SIGTERM/SIGINT set this; the poll loop exits through the normal
+/// cleanup path (terminal restore + App drop kills provider children).
+fn terminated_flag() -> &'static std::sync::Arc<std::sync::atomic::AtomicBool> {
+    static FLAG: std::sync::OnceLock<std::sync::Arc<std::sync::atomic::AtomicBool>> =
+        std::sync::OnceLock::new();
+    FLAG.get_or_init(|| std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)))
+}
+
 fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cli: Cli) -> io::Result<()> {
+    {
+        use signal_hook::consts::{SIGINT, SIGTERM};
+        let _ = signal_hook::flag::register(SIGTERM, terminated_flag().clone());
+        let _ = signal_hook::flag::register(SIGINT, terminated_flag().clone());
+    }
     let config = match &cli.config {
         Some(path) => Config::load_from(path),
         None => Config::load(),
@@ -123,7 +136,7 @@ fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cli: Cli) -> io::R
             last_cursor_style = None; // editor reset the shape
         }
 
-        if app.should_quit {
+        if app.should_quit || terminated_flag().load(std::sync::atomic::Ordering::Relaxed) {
             return Ok(());
         }
     }

@@ -133,9 +133,61 @@ def test_clone_wizard_runs_git_clone(tmp_path: Path, git_root: Path) -> None:
         tui.key("ENTER")
         screen = tui.expect("cloned 1 repo")
         print(screen)
-        # Cloned into <cwd>/alpha (default destination = launch cwd).
-        cloned = Path.cwd() / "alpha"
+        # Cloned into <cwd>/local/alpha — dest/org/repo, org level
+        # prevents same-name collisions.
+        cloned = Path.cwd() / "local" / "alpha"
         assert (cloned / ".git").is_dir(), "clone should materialize a git repo"
     finally:
         tui.stop()
-        subprocess.run(["rm", "-rf", str(Path.cwd() / "alpha")], check=False)
+        subprocess.run(["rm", "-rf", str(Path.cwd() / "local")], check=False)
+
+
+def test_yank_file_yields_blob_url(tmp_path: Path) -> None:
+    """A file under the cursor yanks the FILE (blob) URL, not the dir."""
+    clip = tmp_path / "clip.txt"
+    root = make_fs_root(tmp_path)
+    tui = launch(tmp_path, root, {"GHX_CLIPBOARD": str(clip)})
+    try:
+        tui.type_query("alpha")
+        tui.key("ENTER")
+        tui.expect("local/alpha")
+        tui.key("ENTER")
+        tui.expect("main.rs")
+        tui.send("l")  # into src/, main.rs selected
+        tui.expect("fn render")
+
+        tui.send(" ")
+        tui.send("y")
+        screen = tui.expect("yanked")
+        assert "src/main.rs" in screen  # the FILE, not its dir
+        assert clip.read_text().endswith("/alpha/src/main.rs")
+    finally:
+        tui.stop()
+
+
+def test_delete_marked_orgs(tmp_path: Path) -> None:
+    root = make_fs_root(tmp_path)
+    tui = launch(tmp_path, root)
+    try:
+        # Load the org's repos, mark nothing, ␣d → honest no-op toast.
+        tui.type_query("zzz")
+        tui.key("ENTER")
+        tui.expect("local")
+        tui.key("ENTER")
+        tui.expect("beta/")
+        tui.send(" ")
+        tui.send("d")
+        tui.expect("no marked orgs")
+
+        # VISUAL-mark the org at the orgs level, ␣d deletes it.
+        tui.send("h")  # → repos level
+        tui.send("h")  # → orgs level
+        tui.send("v")
+        tui.send(" ")  # mark local
+        tui.send("v")
+        tui.send(" ")
+        tui.send("d")
+        screen = tui.expect("deleted 1 org")
+        assert "local/" not in screen  # gone from the orgs pane
+    finally:
+        tui.stop()

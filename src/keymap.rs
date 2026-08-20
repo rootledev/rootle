@@ -28,6 +28,7 @@ pub fn hints(mode: Mode) -> &'static [(&'static str, &'static str)] {
             ("g", "grep"),
             ("y", "yank url"),
             ("c", "clear marks"),
+            ("d", "del org"),
             ("r", "reload"),
             ("q", "quit"),
             ("esc", "back"),
@@ -36,6 +37,7 @@ pub fn hints(mode: Mode) -> &'static [(&'static str, &'static str)] {
             ("j/k", "move"),
             ("␣", "select"),
             ("h/l", "out/in"),
+            (":", "command"),
             ("v", "exit"),
         ],
     }
@@ -71,6 +73,8 @@ pub fn visual(code: KeyCode) -> Action {
         KeyCode::Char('h') | KeyCode::Left => Action::DrillOut,
         KeyCode::Char('l') | KeyCode::Right => Action::DrillIn,
         KeyCode::Char(' ') => Action::ToggleSelect,
+        KeyCode::Char(':') => Action::CommandLine,
+        KeyCode::Char('?') => Action::KeybindsPopup,
         KeyCode::Char('v') | KeyCode::Esc => Action::ExitVisual,
         _ => Action::Noop,
     }
@@ -83,6 +87,7 @@ pub fn leader(code: KeyCode) -> Action {
         KeyCode::Char('g') => Action::LeaderGrep,
         KeyCode::Char('y') => Action::LeaderYank,
         KeyCode::Char('c') => Action::ClearMarks,
+        KeyCode::Char('d') => Action::DeleteMarked,
         KeyCode::Char('r') => Action::LeaderReload,
         KeyCode::Char('q') => Action::LeaderQuit,
         KeyCode::Esc => Action::ClosePopup, // reused: "back to previous mode"

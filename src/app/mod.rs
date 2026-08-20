@@ -108,7 +108,10 @@ impl App {
         // for a fresh install (no repos in state yet). With recents,
         // the browser opens directly; ␣ s still offers resume via the
         // prefilled last repo.
-        let popup = if state.recent_repos.is_empty() && state.last_repo.is_none() {
+        let popup = if state.recent_repos.is_empty()
+            && state.recent_orgs.is_empty()
+            && state.last_repo.is_none()
+        {
             Some(SearchPopup::with_prefill(state.last_repo.as_deref()))
         } else {
             None
@@ -425,7 +428,10 @@ impl App {
             Action::RunCommand(name) => {
                 self.command_line = None;
                 match name.as_str() {
-                    "settings" => self.settings = Some(SettingsPopup::new(&self.config)),
+                    "settings" => {
+                        let themes = Theme::available_names();
+                        self.settings = Some(SettingsPopup::new(&self.config, themes));
+                    }
                     "clone" => {
                         let repos = self.clone_candidates();
                         let cwd = std::env::current_dir().unwrap_or_default();
@@ -457,6 +463,27 @@ impl App {
                     self.status = Some("nothing to reload".into());
                 }
             }
+            Action::DeleteMarked => {
+                self.mode = Mode::Browse;
+                let deleted = self.browser.delete_marked_orgs();
+                if deleted.is_empty() {
+                    self.status = Some("no marked orgs (mark orgs in VISUAL, ␣d)".into());
+                } else {
+                    // Keep persisted recents in sync.
+                    self.state.recent_orgs.retain(|o| !deleted.contains(o));
+                    if self
+                        .state
+                        .last_org
+                        .as_deref()
+                        .is_some_and(|o| deleted.iter().any(|d| d == o))
+                    {
+                        self.state.last_org = None;
+                    }
+                    self.state.save();
+                    self.browser.clear_marks();
+                    self.status = Some(format!("deleted {} org(s)", deleted.len()));
+                }
+            }
             Action::ClearMarks => {
                 self.mode = Mode::Browse;
                 self.browser.clear_marks();
@@ -471,14 +498,19 @@ impl App {
                 let url = if let Some(view) = &self.search_view {
                     view.selected_hit().and_then(|h| {
                         self.provider
-                            .web_url(&h.repo, &h.path, &h.branch, Some(h.line))
+                            .web_url(&h.repo, &h.path, &h.branch, Some(h.line), true)
                             .ok()
                     })
                 } else if let Some((owner, repo)) = self.browser.repo_coords() {
-                    let path = self.browser.dir_path();
+                    // File under the cursor yanks the FILE (blob URL);
+                    // otherwise the current directory (tree URL).
+                    let (path, is_file) = match self.browser.selected_file() {
+                        Some((file, _sha)) => (file, true),
+                        None => (self.browser.dir_path(), false),
+                    };
                     let branch = self.browser.branch().unwrap_or("");
                     self.provider
-                        .web_url(&format!("{owner}/{repo}"), &path, branch, None)
+                        .web_url(&format!("{owner}/{repo}"), &path, branch, None, is_file)
                         .ok()
                 } else {
                     self.browser
@@ -597,9 +629,13 @@ impl App {
                         .unwrap_or("hit");
                     match crate::editor::resolve_program(&self.config) {
                         Some(program) => {
+                            // Content-address the mock body like a real blob.
+                            use sha2::{Digest, Sha256};
+                            let sha = format!("{:x}", Sha256::digest(hit.body.as_bytes()));
                             match crate::editor::materialize(
                                 "mock",
                                 slug,
+                                &sha,
                                 &hit.path,
                                 hit.body.as_bytes(),
                             ) {
@@ -636,6 +672,7 @@ impl App {
             Action::ApplySettings(config) => {
                 self.settings = None; // close the popup
                 let theme_changed = config.theme != self.config.theme;
+                let provider_changed = config.provider != self.config.provider;
                 self.config = config;
                 // Hot reload: rebuild the palette; every component
                 // reads Theme per render, so the repaint is automatic.
@@ -644,7 +681,13 @@ impl App {
                     self.theme = Theme::load(&name);
                 }
                 match self.config.save() {
-                    Ok(()) => self.status = Some("settings saved".into()),
+                    Ok(()) => {
+                        self.status = Some(if provider_changed {
+                            "settings saved — provider applies after restart".into()
+                        } else {
+                            "settings saved".into()
+                        })
+                    }
                     Err(e) => self.status = Some(format!("settings: {e} (applied live)")),
                 }
             }

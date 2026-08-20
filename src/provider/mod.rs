@@ -84,14 +84,17 @@ pub trait Provider: Send + Sync {
     /// URL `git clone` accepts for a repo (clone wizard, plans/0004).
     fn clone_url(&self, repo: &str) -> Result<String, String>;
 
-    /// Browser URL for yank (␣ y): repo root, or a path/line inside
-    /// it. `branch` may be empty (the provider resolves it).
+    /// Browser URL for yank (␣ y): repo root, or a path inside it.
+    /// `is_file` picks the grammar (GitHub: blob vs tree); `line`
+    /// adds a fragment when Some. `branch` may be empty (the provider
+    /// resolves it).
     fn web_url(
         &self,
         repo: &str,
         path: &str,
         branch: &str,
         line: Option<u32>,
+        is_file: bool,
     ) -> Result<String, String>;
 
     /// Browser URL for an org/group page.
@@ -152,7 +155,14 @@ pub fn offline() -> Arc<dyn Provider> {
         fn clone_url(&self, _: &str) -> Result<String, String> {
             Err("offline".into())
         }
-        fn web_url(&self, _: &str, _: &str, _: &str, _: Option<u32>) -> Result<String, String> {
+        fn web_url(
+            &self,
+            _: &str,
+            _: &str,
+            _: &str,
+            _: Option<u32>,
+            _: bool,
+        ) -> Result<String, String> {
             Err("offline".into())
         }
         fn org_url(&self, _: &str) -> Result<String, String> {

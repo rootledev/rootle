@@ -58,27 +58,38 @@ pub fn build_args(program: &str, config: &Config) -> Vec<String> {
     args
 }
 
-/// Write the blob bytes to `~/.cache/ghx/edit/<owner>__<repo>/<path>`
-/// so the editor shows a real filename. Traversal-safe: rejects
-/// absolute paths and `..` components (git trees shouldn't contain
-/// them, but the bytes come from the network — verify anyway).
-pub fn materialize(owner: &str, repo: &str, rel_path: &str, bytes: &[u8]) -> io::Result<PathBuf> {
-    let rel = Path::new(rel_path);
-    if rel.is_absolute() {
-        return Err(io::Error::new(io::ErrorKind::InvalidInput, "absolute path"));
+/// Write the blob bytes to `~/.cache/ghx/edit/<owner>/<repo>/<sha>.<ext>`
+/// — content-addressed like the rest of the cache, so the same path in
+/// two branches/repos never collides and the editor still gets a real
+/// extension for syntax detection. Traversal-safe: the sha must be hex
+/// (network bytes never reach a path component).
+pub fn materialize(
+    owner: &str,
+    repo: &str,
+    sha: &str,
+    rel_path: &str,
+    bytes: &[u8],
+) -> io::Result<PathBuf> {
+    if sha.is_empty() || !sha.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "bad content id",
+        ));
     }
-    for component in rel.components() {
-        if matches!(component, std::path::Component::ParentDir) {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "path traversal",
-            ));
-        }
-    }
+    let ext = Path::new(rel_path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .filter(|e| e.chars().all(|c| c.is_ascii_alphanumeric()))
+        .unwrap_or("");
     let Some(root) = dirs::cache_dir().map(|d| d.join("ghx")) else {
         return Err(io::Error::new(io::ErrorKind::NotFound, "no cache dir"));
     };
-    let file = root.join("edit").join(format!("{owner}__{repo}")).join(rel);
+    let name = if ext.is_empty() {
+        sha.to_string()
+    } else {
+        format!("{sha}.{ext}")
+    };
+    let file = root.join("edit").join(owner).join(repo).join(name);
     if let Some(parent) = file.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -103,7 +114,7 @@ pub fn prepare(
     let (owner, name) = repo
         .split_once('/')
         .ok_or_else(|| format!("bad repo id: {repo:?}"))?;
-    let file = materialize(owner, name, rel_path, &bytes).map_err(|e| e.to_string())?;
+    let file = materialize(owner, name, sha, rel_path, &bytes).map_err(|e| e.to_string())?;
     let mut args = build_args(&program, config);
     args.push(file.to_string_lossy().into_owned());
     Ok(EditorJob { program, args })
@@ -158,11 +169,12 @@ mod tests {
     }
 
     #[test]
-    fn materialize_rejects_traversal() {
-        let err = materialize("o", "r", "../escape", b"x").unwrap_err();
-        assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
-        let err = materialize("o", "r", "/abs", b"x").unwrap_err();
-        assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+    fn materialize_rejects_bad_ids() {
+        // Non-hex ids never reach a path component.
+        for sha in ["", "abc-", "../escape", "/abs/x"] {
+            let err = materialize("o", "r", sha, "lib.rs", b"x").unwrap_err();
+            assert_eq!(err.kind(), io::ErrorKind::InvalidInput, "sha {sha:?}");
+        }
     }
 
     #[test]
@@ -170,7 +182,14 @@ mod tests {
         if dirs::cache_dir().is_none() {
             return;
         }
-        let path = materialize("testowner", "testrepo", "src/lib.rs", b"fn main() {}").unwrap();
+        let path = materialize(
+            "testowner",
+            "testrepo",
+            "cafe1234",
+            "src/lib.rs",
+            b"fn main() {}",
+        )
+        .unwrap();
         assert!(path.is_file());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "fn main() {}");
     }

@@ -39,6 +39,8 @@ pub enum Action {
     LeaderYank,
     /// `␣ c` — clear all VISUAL marks.
     ClearMarks,
+    /// `␣ d` — delete marked orgs from the browser (+ state).
+    DeleteMarked,
     /// `␣ r` — reload the open repo's tree (or the org's repos).
     LeaderReload,
     /// Settings popup closed with edits: persist + hot reload.

@@ -1,9 +1,9 @@
 //! Settings popup (`:settings`, plans/0003 §4): tabs across the top —
 //! one per config section — fields below. Tab or h/l switch tabs,
-//! j/k move between fields, Enter edits a value in place (Enter
-//! commits, Esc stops editing), Esc closes. Stage mock: values come
-//! from `Config`, edits stay in memory (write-back + hot reload wire
-//! up in the functionality pass).
+//! j/k move between fields. Field kinds: text edits in place (Enter
+//! commits, Esc cancels), booleans and lists (themes, provider kind)
+//! cycle with Space. Esc closes; a dirty popup saves config.toml and
+//! hot-reloads the theme (provider changes note a restart).
 
 use super::vim_input::{Outcome, VimInput};
 use crate::action::Action;
@@ -19,15 +19,51 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph};
 use std::path::PathBuf;
 
-/// One editable field: label + current value as text.
+#[derive(Debug, Clone)]
+enum Kind {
+    /// Free text; Enter edits in place.
+    Text,
+    /// true/false; Space toggles.
+    Bool,
+    /// One of N; Space cycles.
+    List(Vec<String>),
+}
+
 #[derive(Debug, Clone)]
 struct Field {
     key: &'static str,
     value: String,
+    kind: Kind,
+}
+
+impl Field {
+    /// Space on a non-text field: toggle/cycle and return the new value.
+    fn cycle(&mut self) -> Option<String> {
+        match &self.kind {
+            Kind::Text => None,
+            Kind::Bool => {
+                self.value = if self.value == "true" {
+                    "false"
+                } else {
+                    "true"
+                }
+                .into();
+                Some(self.value.clone())
+            }
+            Kind::List(options) => {
+                let next = options
+                    .iter()
+                    .position(|o| o == &self.value)
+                    .map(|i| (i + 1) % options.len())
+                    .unwrap_or(0);
+                self.value = options[next].clone();
+                Some(self.value.clone())
+            }
+        }
+    }
 }
 
 pub struct SettingsPopup {
-    /// Tab titles = config sections; fields per tab.
     tabs: Vec<(&'static str, Vec<Field>)>,
     tab: usize,
     field: usize,
@@ -39,25 +75,35 @@ pub struct SettingsPopup {
 }
 
 impl SettingsPopup {
-    pub fn new(config: &Config) -> Self {
+    pub fn new(config: &Config, themes: Vec<String>) -> Self {
+        let mut theme_names = vec!["catppuccin-mocha".to_string()];
+        for t in themes {
+            if !theme_names.contains(&t) {
+                theme_names.push(t);
+            }
+        }
         let editor = vec![
             Field {
                 key: "program",
                 value: config.editor.program.clone().unwrap_or_default(),
+                kind: Kind::Text,
             },
             Field {
                 key: "args",
                 value: config.editor.args.join(" "),
+                kind: Kind::Text,
             },
             Field {
                 key: "read_only",
                 value: config.editor.read_only.to_string(),
+                kind: Kind::Bool,
             },
         ];
         let theme = vec![
             Field {
                 key: "name",
                 value: config.theme.name.clone(),
+                kind: Kind::List(theme_names),
             },
             Field {
                 key: "path",
@@ -67,14 +113,33 @@ impl SettingsPopup {
                     .as_ref()
                     .map(|p| p.to_string_lossy().into_owned())
                     .unwrap_or_default(),
+                kind: Kind::Text,
             },
         ];
         let cache = vec![Field {
             key: "max_mb",
             value: config.cache.max_mb.to_string(),
+            kind: Kind::Text,
         }];
+        let provider = vec![
+            Field {
+                key: "kind",
+                value: config.provider.kind.clone(),
+                kind: Kind::List(vec!["github".into(), "stdio".into()]),
+            },
+            Field {
+                key: "command",
+                value: config.provider.command.join(" "),
+                kind: Kind::Text,
+            },
+        ];
         SettingsPopup {
-            tabs: vec![("editor", editor), ("theme", theme), ("cache", cache)],
+            tabs: vec![
+                ("editor", editor),
+                ("theme", theme),
+                ("cache", cache),
+                ("provider", provider),
+            ],
             tab: 0,
             field: 0,
             editing: None,
@@ -117,11 +182,24 @@ impl SettingsPopup {
             ("cache", "max_mb") => {
                 self.config.cache.max_mb = value.trim().parse().unwrap_or(512);
             }
+            ("provider", "kind") => {
+                self.config.provider.kind = value.to_string();
+            }
+            ("provider", "command") => {
+                self.config.provider.command =
+                    value.split_whitespace().map(str::to_string).collect();
+            }
             _ => {}
         }
         if self.config != before {
             self.dirty = true;
         }
+    }
+
+    fn commit_field(&mut self, value: String) {
+        let (tab, key) = (self.tabs[self.tab].0, self.tabs[self.tab].1[self.field].key);
+        self.commit(tab, key, &value);
+        self.tabs[self.tab].1[self.field].value = value;
     }
 
     /// Modeline chip: INSERT while editing a field, BROWSE otherwise.
@@ -143,9 +221,7 @@ impl SettingsPopup {
             let (outcome, value) = (input.handle_key(key), input.value());
             match outcome {
                 Outcome::Submitted => {
-                    let (tab, key) = (self.tabs[self.tab].0, self.tabs[self.tab].1[self.field].key);
-                    self.commit(tab, key, &value);
-                    self.tabs[self.tab].1[self.field].value = value;
+                    self.commit_field(value);
                     self.editing = None;
                 }
                 Outcome::Cancelled => self.editing = None,
@@ -176,6 +252,13 @@ impl SettingsPopup {
                 self.field = self.field.saturating_sub(1);
                 Action::Noop
             }
+            // Space: toggle bools / cycle lists in place.
+            KeyCode::Char(' ') => {
+                if let Some(value) = self.tabs[self.tab].1[self.field].cycle() {
+                    self.commit_field(value);
+                }
+                Action::Noop
+            }
             KeyCode::Enter => {
                 // Transient: Esc stops editing directly, no NORMAL
                 // sub-mode (same feel as `/` filters).
@@ -204,7 +287,7 @@ impl SettingsPopup {
         let hint = if self.editing.is_some() {
             " enter commit · esc stop editing "
         } else {
-            " tab/h/l tabs · j/k fields · enter edit · esc close "
+            " tab/h/l tabs · j/k fields · enter edit · ␣ toggle · esc close "
         };
         let block = Block::default()
             .borders(Borders::ALL)
@@ -242,8 +325,9 @@ impl SettingsPopup {
         }
         frame.render_widget(Paragraph::new(Line::from(tab_spans)), rows[0]);
 
-        // Fields: label left, value right; selected row highlighted,
-        // editing row shows the live input.
+        // Fields: label left, value right; the selected row highlights,
+        // an editing row shows the live input. Non-text fields hint
+        // their Space affordance.
         let (_, fields) = &self.tabs[self.tab];
         let mut lines = Vec::new();
         for (i, f) in fields.iter().enumerate() {
@@ -261,10 +345,23 @@ impl SettingsPopup {
             } else {
                 Style::default().fg(sem.text)
             };
+            let affordance = match (&f.kind, selected) {
+                (Kind::Bool, true) | (Kind::List(_), true) => "   (␣ to change)",
+                _ => "",
+            };
             lines.push(Line::from(vec![
                 Span::styled(format!(" {:12}", f.key), Style::default().fg(sem.subtext0)),
                 Span::styled(value, style),
+                Span::styled(affordance, Style::default().fg(sem.hint)),
             ]));
+        }
+        // Provider changes only apply at startup — say so on that tab.
+        if self.tabs[self.tab].0 == "provider" {
+            lines.push(Line::raw(""));
+            lines.push(Line::from(Span::styled(
+                " provider changes take effect after restart",
+                Style::default().fg(sem.hint),
+            )));
         }
         frame.render_widget(Paragraph::new(lines), rows[1]);
 
@@ -293,32 +390,80 @@ mod tests {
         }
     }
 
+    fn popup() -> SettingsPopup {
+        SettingsPopup::new(&Config::default(), vec!["gruvbox-dark".into()])
+    }
+
     #[test]
     fn tab_switches_sections_and_jk_move_fields() {
-        let mut popup = SettingsPopup::new(&Config::default());
-        assert_eq!(popup.tabs[popup.tab].0, "editor");
-        popup.handle_key(key(KeyCode::Tab));
-        assert_eq!(popup.tabs[popup.tab].0, "theme");
-        popup.handle_key(key(KeyCode::Tab));
-        assert_eq!(popup.tabs[popup.tab].0, "cache");
-        popup.handle_key(key(KeyCode::BackTab));
-        assert_eq!(popup.tabs[popup.tab].0, "theme");
+        let mut p = popup();
+        assert_eq!(p.tabs[p.tab].0, "editor");
+        for want in ["theme", "cache", "provider", "editor"] {
+            p.handle_key(key(KeyCode::Tab));
+            assert_eq!(p.tabs[p.tab].0, want);
+        }
+        p.handle_key(key(KeyCode::BackTab));
+        assert_eq!(p.tabs[p.tab].0, "provider");
 
-        popup.handle_key(key(KeyCode::Char('j')));
-        assert_eq!(popup.field, 1);
-        popup.handle_key(key(KeyCode::Char('k')));
-        assert_eq!(popup.field, 0);
+        p.handle_key(key(KeyCode::Char('j')));
+        assert_eq!(p.field, 1);
+        p.handle_key(key(KeyCode::Char('k')));
+        assert_eq!(p.field, 0);
+    }
+
+    #[test]
+    fn space_toggles_bools_and_commits() {
+        let mut p = popup();
+        p.handle_key(key(KeyCode::Char('j')));
+        p.handle_key(key(KeyCode::Char('j')));
+        p.handle_key(key(KeyCode::Char(' '))); // read_only: true → false
+        assert_eq!(p.tabs[p.tab].1[2].value, "false");
+        assert!(p.dirty);
+        assert!(!p.config.editor.read_only);
+    }
+
+    #[test]
+    fn space_cycles_theme_list() {
+        let mut p = popup();
+        p.handle_key(key(KeyCode::Tab)); // theme tab
+        assert_eq!(p.tabs[1].1[0].value, "catppuccin-mocha");
+        p.handle_key(key(KeyCode::Char(' ')));
+        assert_eq!(p.tabs[1].1[0].value, "gruvbox-dark");
+        assert_eq!(p.config.theme.name, "gruvbox-dark");
+    }
+
+    #[test]
+    fn provider_tab_cycles_kind_and_edits_command() {
+        let mut p = popup();
+        p.handle_key(key(KeyCode::Tab));
+        p.handle_key(key(KeyCode::Tab));
+        p.handle_key(key(KeyCode::Tab)); // → provider
+        p.handle_key(key(KeyCode::Char(' '))); // github → stdio
+        assert_eq!(p.config.provider.kind, "stdio");
+
+        p.handle_key(key(KeyCode::Char('j')));
+        p.handle_key(key(KeyCode::Enter));
+        assert!(p.editing.is_some());
+        for c in "python3 /tmp/p.py".chars() {
+            p.handle_key(key(KeyCode::Char(c)));
+        }
+        p.handle_key(key(KeyCode::Enter)); // commit
+        assert_eq!(p.config.provider.command, vec!["python3", "/tmp/p.py"]);
+        // Dirty popup emits ApplySettings on Esc.
+        assert!(matches!(
+            p.handle_key(key(KeyCode::Esc)),
+            Action::ApplySettings(_)
+        ));
     }
 
     #[test]
     fn enter_edits_and_esc_closes() {
-        let mut popup = SettingsPopup::new(&Config::default());
-        popup.handle_key(key(KeyCode::Enter));
-        assert!(popup.editing.is_some());
-        assert_eq!(popup.effective_mode(), Mode::Insert);
-        // Esc stops editing, second Esc closes.
-        popup.handle_key(key(KeyCode::Esc));
-        assert!(popup.editing.is_none());
-        assert_eq!(popup.handle_key(key(KeyCode::Esc)), Action::ClosePopup);
+        let mut p = popup();
+        p.handle_key(key(KeyCode::Enter));
+        assert!(p.editing.is_some());
+        assert_eq!(p.effective_mode(), Mode::Insert);
+        p.handle_key(key(KeyCode::Esc)); // stop editing
+        assert!(p.editing.is_none());
+        assert_eq!(p.handle_key(key(KeyCode::Esc)), Action::ClosePopup);
     }
 }

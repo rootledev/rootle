@@ -140,7 +140,10 @@ fn render(app: &mut App, width: u16, height: u16) -> Vec<String> {
 
 #[test]
 fn renders_three_panes_modeline_and_popup() {
+    // Seeded orgs behind the popup; the popup itself opened via ␣ s
+    // (auto-open happens only on a fresh state).
     let mut app = app_with_orgs(&["ratatui", "tokio-rs", "helix-editor"]);
+    app.handle_action(ghx::action::Action::LeaderSearch);
     let rows = render(&mut app, 100, 30);
     let screen = rows.join("\n");
 
@@ -628,7 +631,7 @@ fn keybinds_popup_scrolls_and_closes_without_residue() {
     println!("{screen}");
 
     // Scroll down: later sections appear.
-    for _ in 0..20 {
+    for _ in 0..24 {
         app.handle_key(key(KeyCode::Char('j')));
     }
     let rows = render(&mut app, 100, 30);
@@ -795,7 +798,7 @@ fn launch_popup_only_when_state_has_no_repos() {
         "fresh launch should open the search popup"
     );
 
-    // Returning user (recents in state) → straight into the browser.
+    // Returning user (repos OR orgs in state) → straight into the browser.
     let state = ghx::state::State {
         recent_repos: vec!["ratatui/ratatui".into()],
         ..Default::default()
@@ -808,4 +811,18 @@ fn launch_popup_only_when_state_has_no_repos() {
         "launch with recents should skip the popup"
     );
     assert!(screen.contains("BROWSE"));
+
+    let (tx, _rx) = ghx::event::channel();
+    let mut orgs_only = App::with(
+        ghx::state::State {
+            recent_orgs: vec!["ratatui".into()],
+            ..Default::default()
+        },
+        tx,
+    );
+    let screen = render(&mut orgs_only, 100, 30).join("\n");
+    assert!(
+        !screen.contains("search github"),
+        "orgs-only history should also skip the popup"
+    );
 }

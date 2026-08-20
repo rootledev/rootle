@@ -12,7 +12,7 @@ def test_keybinds_popup_scrolls_and_closes(tui: Tui) -> None:
     tui.send("?")
     screen = tui.expect("keybindings")
     assert "BROWSE" in screen
-    for _ in range(20):
+    for _ in range(24):
         tui.send("j")
     screen = tui.expect("VISUAL")
     assert "LEADER" in screen
@@ -44,37 +44,47 @@ def test_command_line_filters_and_opens_settings(tui: Tui) -> None:
     tui.expect_gone("settings")
 
 
-def test_visual_mode_and_clone_wizard(tui: Tui) -> None:
-    dismiss_launch_popup(tui)
+def test_visual_mode_and_clone_wizard(provider_tui: Tui) -> None:
+    tui = provider_tui
+    # Deterministic fs provider: load the org's repos, mark both on
+    # the repos level.
+    tui.type_query("zzz")  # no repo match → org listed
+    tui.key("ENTER")
+    tui.expect("local")
+    tui.key("ENTER")
+    tui.expect("beta/")
+
     tui.send("v")
-    screen = tui.expect("○")
+    screen = tui.expect("\u25cb")
     assert "VISUAL" in screen
+    tui.send(" ")  # mark alpha
+    tui.send("j")
+    tui.send(" ")  # mark beta
+    tui.expect("\u25cf")
 
-    # The launch flow sits at the orgs level; drill into repos first.
-    tui.key("ENTER")  # org → repos (visual keeps h/l; enter drills)
-    tui.send(" ")
-    screen = tui.expect("●")
-
-    tui.send("v")  # exit visual
-    tui.expect_gone("●")
-    tui.expect("BROWSE")
-
-    # :clone picks up the marks.
+    # ':' opens straight from VISUAL (marks persist) — :clone walks
+    # the marked repos through the wizard.
     tui.send(":")
     tui.type_query("clone")
     tui.key("ENTER")
     screen = tui.expect("clone — 1/3 repos")
-    assert "next" in screen
-
-    tui.key("TAB")  # list → buttons
-    tui.key("ENTER")  # next → destination
-    screen = tui.expect("clone — 2/3 destination")
-    assert "dest:" in screen
+    assert "local/alpha" in screen and "local/beta" in screen
 
     tui.key("TAB")
-    tui.key("ENTER")  # next → summary
-    screen = tui.expect("clone — 3/3 summary")
+    tui.key("ENTER")  # → destination
+    tui.expect("2/3 destination")
+    tui.key("TAB")
+    tui.key("ENTER")  # → summary
+    screen = tui.expect("3/3 summary")
     assert "git clone" in screen
 
-    tui.key("ESC")  # cancel the whole wizard
+    tui.key("ESC")  # cancel the whole wizard (mode is still VISUAL)
     tui.expect_gone("clone —")
+    assert "VISUAL" in tui.screen()
+
+    tui.send("v")  # exit visual; marks stay visible
+    tui.expect("BROWSE")
+    assert "\u25cf" in tui.screen()
+    tui.send(" ")
+    tui.send("c")  # ␣ c clears the marks
+    tui.expect_gone("\u25cf")

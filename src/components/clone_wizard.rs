@@ -79,6 +79,12 @@ impl CloneWizard {
         self.repos.iter().filter(|(_, on)| *on).map(|(r, _)| r)
     }
 
+    /// Clone target: <dest>/<org>/<repo> — the org level prevents
+    /// same-name collisions between orgs.
+    fn target(&self, repo: &str) -> std::path::PathBuf {
+        self.dest.join(repo)
+    }
+
     fn buttons(&self) -> (&'static str, &'static str) {
         match self.screen {
             Screen::Repos | Screen::Destination => ("back", "next"),
@@ -301,6 +307,10 @@ impl CloneWizard {
     fn render_summary(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
         let sem = &theme.semantic;
         let repos: Vec<&String> = self.checked().collect();
+        let cmd = Style::default().fg(sem.text);
+        let dim = Style::default().fg(sem.subtext0);
+        let accent = Style::default().fg(sem.border_focused);
+
         let mut lines = vec![
             Line::from(Span::styled(
                 format!(
@@ -312,14 +322,40 @@ impl CloneWizard {
                 Style::default().fg(sem.text).add_modifier(Modifier::BOLD),
             )),
             Line::raw(""),
+            Line::from(Span::styled("destination", accent)),
         ];
-        for repo in repos {
+        // The tree the destination will grow: dest/└ org/├ repo…
+        let mut by_org: Vec<(String, Vec<String>)> = Vec::new();
+        for repo in &repos {
+            let (org, name) = repo.split_once('/').unwrap_or(("", repo));
+            match by_org.iter_mut().find(|(o, _)| o == org) {
+                Some((_, v)) => v.push(name.to_string()),
+                None => by_org.push((org.to_string(), vec![name.to_string()])),
+            }
+        }
+        for (org, names) in &by_org {
+            lines.push(Line::from(Span::styled(
+                format!("  └ {org}/"),
+                Style::default()
+                    .fg(sem.directory)
+                    .add_modifier(Modifier::BOLD),
+            )));
+            for (i, name) in names.iter().enumerate() {
+                let branch = if i + 1 == names.len() { "└" } else { "├" };
+                lines.push(Line::from(Span::styled(
+                    format!("      {branch} {name}/"),
+                    dim,
+                )));
+            }
+        }
+        lines.push(Line::raw(""));
+        lines.push(Line::from(Span::styled("commands", accent)));
+        for repo in &repos {
             lines.push(Line::from(vec![
-                Span::styled("  $ ", Style::default().fg(sem.subtext0)),
-                Span::styled(
-                    format!("git clone https://github.com/{repo}"),
-                    Style::default().fg(sem.text),
-                ),
+                Span::styled("  $ ", dim),
+                Span::styled(format!("git clone {repo}"), cmd),
+                Span::styled(" → ", dim),
+                Span::styled(self.target(repo).to_string_lossy().into_owned(), cmd),
             ]));
         }
         frame.render_widget(Paragraph::new(lines), area);
@@ -351,13 +387,11 @@ impl CloneWizard {
                 )
             }
         };
-        let line = Line::from(vec![
-            Span::raw("  "),
-            button(back, 0),
-            Span::raw("  "),
-            button(next, 1),
-        ]);
-        frame.render_widget(Paragraph::new(line), area);
+        let line = Line::from(vec![button(back, 0), Span::raw("  "), button(next, 1)]);
+        frame.render_widget(
+            Paragraph::new(line).alignment(ratatui::layout::Alignment::Center),
+            area,
+        );
     }
 }
 

@@ -98,6 +98,7 @@ impl Provider for GitHubProvider {
         path: &str,
         branch: &str,
         line: Option<u32>,
+        is_file: bool,
     ) -> Result<String, String> {
         split_repo(repo)?;
         if path.is_empty() {
@@ -110,9 +111,10 @@ impl Provider for GitHubProvider {
         } else {
             branch.to_string()
         };
-        let (kind, fragment) = match line {
-            Some(line) => ("blob", format!("#L{line}")),
-            None => ("tree", String::new()),
+        let kind = if is_file { "blob" } else { "tree" };
+        let fragment = match (is_file, line) {
+            (true, Some(line)) => format!("#L{line}"),
+            _ => String::new(),
         };
         Ok(format!(
             "https://github.com/{repo}/{kind}/{branch}/{path}{fragment}"
@@ -154,18 +156,25 @@ mod tests {
         let p = GitHubProvider::anonymous();
         // Repo root.
         assert_eq!(
-            p.web_url("ratatui/ratatui", "", "", None).unwrap(),
+            p.web_url("ratatui/ratatui", "", "", None, false).unwrap(),
             "https://github.com/ratatui/ratatui"
         );
-        // Blob with line + known branch (no I/O).
+        // File with a line: blob + fragment (known branch, no I/O).
         assert_eq!(
-            p.web_url("ratatui/ratatui", "src/lib.rs", "main", Some(42))
+            p.web_url("ratatui/ratatui", "src/lib.rs", "main", Some(42), true)
                 .unwrap(),
             "https://github.com/ratatui/ratatui/blob/main/src/lib.rs#L42"
         );
-        // Dir tree.
+        // File without a line: blob, no fragment.
         assert_eq!(
-            p.web_url("ratatui/ratatui", "src", "master", None).unwrap(),
+            p.web_url("ratatui/ratatui", "src/lib.rs", "main", None, true)
+                .unwrap(),
+            "https://github.com/ratatui/ratatui/blob/main/src/lib.rs"
+        );
+        // Directory: tree.
+        assert_eq!(
+            p.web_url("ratatui/ratatui", "src", "master", None, false)
+                .unwrap(),
             "https://github.com/ratatui/ratatui/tree/master/src"
         );
         assert_eq!(p.org_url("ratatui").unwrap(), "https://github.com/ratatui");

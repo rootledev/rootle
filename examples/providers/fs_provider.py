@@ -171,8 +171,9 @@ def handle(root: str, method: str, params: dict) -> dict:
         base = pathlib.Path(repo_dir(root, params["repo"])).resolve().as_uri()
         path = params.get("path", "")
         line = params.get("line")
+        is_file = params.get("is_file", False)
         url = f"{base}/{path}" if path else base
-        if line:
+        if is_file and line:
             url += f"#L{line}"
         return {"url": url}
     if method == "org/url":

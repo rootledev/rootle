@@ -33,8 +33,8 @@ ghx --theme NAME   # override the theme for this session
 ghx --config PATH  # use a different config file
 ```
 
-The search popup appears only when state is fresh (no recently opened
-repos). Type a query and press Enter; results list orgs first, then
+The search popup appears only when state is fresh (no recent repos or
+orgs). Type a query and press Enter; results list orgs first, then
 repos. `j/k` move, Enter opens. On every later launch the browser opens
 directly with your recent orgs/repos; `␣ s` reopens the search popup,
 prefilled with the last repo — Enter alone resumes it.
@@ -128,11 +128,18 @@ redirects yanks to a file for scripts and CI.
 
 ### Clone wizard (`v` + `:clone`)
 
-`v` in browse mode enters VISUAL: `Space` marks entries (green ●),
-`␣ c` clears all marks, `v`/`Esc` exits. `:clone` resolves marks to
-repos (files fold up to their repo) and walks three screens — repo
-checkboxes, a destination mini-browser over your local folders, and a
-summary. `Esc` cancels the wizard from any screen.
+`v` in browse mode enters VISUAL: `Space` marks entries (green ●).
+Marks **persist after leaving VISUAL** (the ● stays) — they drive
+`:clone` and `␣ d`. `␣ c` clears them all.
+
+- `:clone` resolves marks to repos — files fold up to their repo,
+  a marked org expands down to its repos — and walks three screens:
+  repo checkboxes, a destination mini-browser over your local folders,
+  and a summary with the exact commands. Repos clone into
+  `<dest>/<org>/<repo>` so same-named repos never collide. `Esc`
+  cancels the wizard from any screen; `:` works from inside VISUAL.
+- `␣ d` deletes marked **orgs** from the orgs pane (and your recents)
+  — the way to clean up orgs you no longer browse.
 
 ![visual marks](img/11-visual.png)
 
