@@ -3,6 +3,7 @@ name: demo
 # Re-render the README demo and doc screenshots whenever the app or
 # the demo tooling changes — README always shows the current look.
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     paths:
