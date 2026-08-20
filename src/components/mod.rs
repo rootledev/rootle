@@ -47,7 +47,7 @@ pub(crate) fn centered(area: Rect, pct_x: u16, pct_y: u16) -> Rect {
         .split(vertical[1])[1]
 }
 
-/// Pretty scrollbar embedded in the left border of a bordered box:
+/// Pretty scrollbar embedded in the RIGHT border of a bordered box:
 /// the track is the border itself (│, surface2), the thumb a bold
 /// accent column (┃). No-op when the content fits. `total` = content
 /// lines, `offset` = index of the top visible line.
@@ -60,7 +60,7 @@ pub(crate) fn scrollbar(
     theme: &Theme,
 ) {
     let track = content_height;
-    if total <= track || track == 0 || outer.height < 2 {
+    if total <= track || track == 0 || outer.height < 2 || outer.width == 0 {
         return;
     }
     let thumb = (track * track / total).max(1);
@@ -69,7 +69,7 @@ pub(crate) fn scrollbar(
     let sem = &theme.semantic;
     let buf = frame.buffer_mut();
     for i in 0..track {
-        let x = outer.x;
+        let x = outer.x + outer.width - 1;
         let y = outer.y + 1 + i as u16;
         if x >= buf.area().width || y >= buf.area().height {
             break;

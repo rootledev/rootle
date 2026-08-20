@@ -103,11 +103,14 @@ Gotchas that have bitten (all covered by the suite):
 
 ## Demo + screenshots
 
-`doc/demo.gif` renders from `doc/demo.tape` via the VHS docker image;
-`doc/img/*.png` render from `e2e/shots.py` (pyte screen → PNG). Both
+`doc/demo.gif` renders from `demos/demo.tape` via the VHS docker image;
+`doc/img/*.png` render from `demos/shots.py` (pyte screen → PNG). Both
 carry gotcha lists in the
 [ghx-demo-capture](../.agents/skills/ghx-demo-capture/SKILL.md)
-skill; re-capture when any shown surface changes.
+skill; re-capture when any shown surface changes — or let the `demo`
+workflow (`.github/workflows/demo.yml`) do it: on pushes touching
+`src/`, `demos/`, or `e2e/` it rebuilds, re-renders, and commits
+changed artifacts back to main (`[skip ci]`, idempotent).
 
 ## Skills (`.agents/skills/`)
 

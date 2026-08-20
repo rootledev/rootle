@@ -49,7 +49,19 @@ incremental session — keystrokes filter live (case-insensitive
 substring), **Enter commits** (filter stays applied), **Esc cancels**
 (restore the pre-session value). With a committed filter, the first
 Esc clears it; the next Esc closes/closes the pane (`pane.rs` title
-shows `title /filter`; `search_popup.rs`, `global_search.rs`).
+shows `title /filter`; `search_popup.rs`, `global_search.rs`). **Any
+list a user scans should be filterable** — this includes wizard lists
+(clone repos, destination folders: `clone_wizard.rs`); a scrollable
+list without `/` is a style bug.
+
+## Scrollbars
+
+Any content that scrolls shows one: the track is the right border
+itself (`│`, `surface2`), the thumb a bold accent column (`┃`,
+`border_focused`) — `components::scrollbar` (`mod.rs`), called with
+(outer rect, content height, total lines, offset). Nothing renders
+when content fits. No separate scrollbar column is ever allocated —
+the bar lives inside the border, and content never shifts.
 
 ## Popup shell rules
 

@@ -3,6 +3,7 @@
 //! no git runs; the summary shows what *would* happen. Esc anywhere
 //! closes the whole wizard (no partial state).
 
+use super::vim_input::{Outcome, VimInput};
 use crate::action::Action;
 use crate::theme::Theme;
 use ratatui::Frame;
@@ -41,6 +42,11 @@ pub struct CloneWizard {
     dest_cursor: usize,
     /// Line scroll offset of the current screen's content area.
     scroll: usize,
+    /// Transient `/` filter (house style: every scanned list filters).
+    filter: VimInput,
+    filtering: bool,
+    pre_filter: String,
+    filter_value: String,
 }
 
 impl CloneWizard {
@@ -56,6 +62,10 @@ impl CloneWizard {
             dest_entries: vec![],
             dest_cursor: 0,
             scroll: 0,
+            filter: VimInput::transient(),
+            filtering: false,
+            pre_filter: String::new(),
+            filter_value: String::new(),
         };
         wizard.refresh_dest();
         wizard
@@ -80,6 +90,35 @@ impl CloneWizard {
 
     fn checked(&self) -> impl Iterator<Item = &String> {
         self.repos.iter().filter(|(_, on)| *on).map(|(r, _)| r)
+    }
+
+    /// Repo indices surviving the committed filter.
+    fn visible_repos(&self) -> Vec<usize> {
+        let needle = self.filter_value.to_lowercase();
+        self.repos
+            .iter()
+            .enumerate()
+            .filter(|(_, (r, _))| needle.is_empty() || r.to_lowercase().contains(&needle))
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    /// Destination indices surviving the committed filter.
+    fn visible_dest(&self) -> Vec<usize> {
+        let needle = self.filter_value.to_lowercase();
+        self.dest_entries
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| needle.is_empty() || e.to_lowercase().contains(&needle))
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    fn set_filter(&mut self, value: String) {
+        self.filter_value = value;
+        self.cursor = 0;
+        self.dest_cursor = 0;
+        self.scroll = 0;
     }
 
     /// Clone target: <dest>/<org>/<repo> — the org level prevents
@@ -109,6 +148,40 @@ impl CloneWizard {
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) -> Action {
+        // Active `/` session captures everything until commit/cancel.
+        if self.filtering {
+            return match self.filter.handle_key(key) {
+                Outcome::Changed => {
+                    self.set_filter(self.filter.value());
+                    Action::Noop
+                }
+                Outcome::Submitted => {
+                    self.filtering = false;
+                    Action::Noop
+                }
+                Outcome::Cancelled => {
+                    self.set_filter(self.pre_filter.clone());
+                    self.filtering = false;
+                    Action::Noop
+                }
+                Outcome::Noop => Action::Noop,
+            };
+        }
+        // `/` filters the repos/destination lists (house style).
+        if key.code == KeyCode::Char('/')
+            && self.focus == Focus::List
+            && self.screen != Screen::Summary
+        {
+            self.pre_filter = self.filter_value.clone();
+            self.filter.set(&self.pre_filter);
+            self.filtering = true;
+            return Action::Noop;
+        }
+        // Committed filter? First Esc clears it, second closes.
+        if key.code == KeyCode::Esc && !self.filter_value.is_empty() {
+            self.set_filter(String::new());
+            return Action::Noop;
+        }
         // Esc closes the whole wizard from any screen (plans/0004 §2).
         if key.code == KeyCode::Esc {
             return Action::ClosePopup;
@@ -147,8 +220,8 @@ impl CloneWizard {
                         Screen::Summary => self.scroll += 1,
                         _ => {
                             let len = match self.screen {
-                                Screen::Repos => self.repos.len(),
-                                _ => self.dest_entries.len(),
+                                Screen::Repos => self.visible_repos().len(),
+                                _ => self.visible_dest().len(),
                             };
                             if len > 0 {
                                 let cursor = match self.screen {
@@ -179,8 +252,10 @@ impl CloneWizard {
                     Action::Noop
                 }
                 KeyCode::Char(' ') if self.screen == Screen::Repos => {
-                    if let Some((_, on)) = self.repos.get_mut(self.cursor) {
-                        *on = !*on;
+                    if let Some(&orig) = self.visible_repos().get(self.cursor) {
+                        if let Some((_, on)) = self.repos.get_mut(orig) {
+                            *on = !*on;
+                        }
                     }
                     Action::Noop
                 }
@@ -188,15 +263,17 @@ impl CloneWizard {
                 KeyCode::Char('l') | KeyCode::Enter | KeyCode::Right
                     if self.screen == Screen::Destination =>
                 {
-                    if let Some(entry) = self.dest_entries.get(self.dest_cursor) {
-                        let next = if entry == ".." {
-                            self.dest.parent().map(|p| p.to_path_buf())
-                        } else {
-                            Some(self.dest.join(entry))
-                        };
-                        if let Some(next) = next {
-                            self.dest = next;
-                            self.refresh_dest();
+                    if let Some(&orig) = self.visible_dest().get(self.dest_cursor) {
+                        if let Some(entry) = self.dest_entries.get(orig) {
+                            let next = if entry == ".." {
+                                self.dest.parent().map(|p| p.to_path_buf())
+                            } else {
+                                Some(self.dest.join(entry))
+                            };
+                            if let Some(next) = next {
+                                self.dest = next;
+                                self.refresh_dest();
+                            }
                         }
                     }
                     Action::Noop
@@ -239,7 +316,7 @@ impl CloneWizard {
                 Style::default().fg(sem.text).add_modifier(Modifier::BOLD),
             ))
             .title_bottom(Span::styled(
-                " tab buttons · enter activate · esc cancel ",
+                " tab buttons · enter activate · / filter · esc cancel ",
                 Style::default().fg(sem.hint),
             ));
         let inner = block.inner(popup);
@@ -275,13 +352,15 @@ impl CloneWizard {
     fn repos_lines(&self, theme: &Theme) -> Vec<Line<'static>> {
         let sem = &theme.semantic;
         let lines: Vec<Line> = self
-            .repos
-            .iter()
+            .visible_repos()
+            .into_iter()
             .enumerate()
-            .map(|(i, (repo, on))| {
+            .map(|(i, orig)| {
+                let (repo, on) = &self.repos[orig];
+                let on = *on;
                 let selected = i == self.cursor && self.focus == Focus::List;
                 // Same dot language as VISUAL mode (plans/0004 §1).
-                let (mark, mark_color) = if *on {
+                let (mark, mark_color) = if on {
                     ("●", sem.mode_browse)
                 } else {
                     ("○", sem.subtext0)
@@ -297,7 +376,7 @@ impl CloneWizard {
                         Style::default().fg(sem.border_focused),
                     ),
                     Span::styled(format!("{mark} "), Style::default().fg(mark_color)),
-                    Span::styled(repo.to_string(), style),
+                    Span::styled(repo.clone(), style),
                 ])
             })
             .collect();
@@ -315,7 +394,8 @@ impl CloneWizard {
                     .add_modifier(Modifier::BOLD),
             ),
         ])];
-        for (i, entry) in self.dest_entries.iter().enumerate() {
+        for (i, orig) in self.visible_dest().into_iter().enumerate() {
+            let entry = &self.dest_entries[orig];
             let selected = i == self.dest_cursor && self.focus == Focus::List;
             let style = if selected {
                 Style::default().fg(sem.selection_fg).bg(sem.selection_bg)
@@ -470,6 +550,21 @@ mod tests {
         assert_eq!(w.checked().count(), 1);
         w.handle_key(key(KeyCode::Tab));
         w.handle_key(key(KeyCode::Enter)); // → destination
+        assert_eq!(w.handle_key(key(KeyCode::Esc)), Action::ClosePopup);
+    }
+    #[test]
+    fn slash_filter_narrows_repos_and_destination() {
+        let mut w = wizard(); // alpha + comfy-table
+        w.handle_key(key(KeyCode::Char('/')));
+        for c in "comfy".chars() {
+            w.handle_key(key(KeyCode::Char(c)));
+        }
+        assert_eq!(w.visible_repos().len(), 1);
+        w.handle_key(key(KeyCode::Enter)); // commit
+        assert_eq!(w.visible_repos().len(), 1);
+        w.handle_key(key(KeyCode::Esc)); // first Esc clears the filter…
+        assert_eq!(w.visible_repos().len(), 2);
+        // …the second closes the wizard.
         assert_eq!(w.handle_key(key(KeyCode::Esc)), Action::ClosePopup);
     }
 }

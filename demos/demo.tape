@@ -1,6 +1,7 @@
 # ghx demo tape — renders doc/demo.gif. Requires docker:
 #   docker run --rm -v "$PWD:/vhs" -w /vhs ghcr.io/charmbracelet/vhs doc/demo.tape
-# The app under test is ./target/debug/ghx (musl static, runs anywhere);
+# The app under test is ./dist/ghx-linux-x86_64-musl (CI builds it;
+# locally, demo_setup.sh falls back to a debug build).
 # the fs stdio provider serves a temp fixture built by demo_setup.sh.
 
 Output doc/demo.gif
@@ -12,9 +13,9 @@ Set Height 760
 Set TypingSpeed 10ms
 Set Theme "Catppuccin Mocha"
 
-Type "bash e2e/demo_setup.sh && clear" Enter
+Type "bash demos/demo_setup.sh && clear" Enter
 Sleep 600ms
-Type "./target/debug/ghx --config /tmp/ghx-demo/provider.toml" Enter
+Type "./dist/ghx-linux-x86_64-musl --config /tmp/ghx-demo/provider.toml" Enter
 Sleep 1600ms
 Set TypingSpeed 60ms
 

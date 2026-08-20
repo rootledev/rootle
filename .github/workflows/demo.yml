@@ -1,0 +1,45 @@
+name: demo
+
+# Re-render the README demo and doc screenshots whenever the app or
+# the demo tooling changes — README always shows the current look.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "demos/**"
+      - "e2e/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+
+permissions:
+  contents: write
+
+jobs:
+  demo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      # shots.py renders with DejaVu fonts (present on ubuntu runners).
+      - name: Screenshots (doc/img)
+        run: uv run --project e2e python demos/shots.py
+
+      - name: Build binary for the tape
+        run: docker compose run --build --rm release
+
+      - name: Render demo.gif
+        run: docker run --rm -v "$PWD:/vhs" -w /vhs ghcr.io/charmbracelet/vhs demos/demo.tape
+
+      # Idempotent: an unchanged render commits nothing, so this never
+      # loops. [skip ci] keeps the gate quiet on the demo commit.
+      - name: Commit changed artifacts
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add doc/demo.gif doc/img/
+          git diff --cached --quiet && exit 0
+          git commit -m "docs: refresh demo.gif + screenshots [skip ci]"
+          git push

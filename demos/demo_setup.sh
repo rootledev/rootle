@@ -39,4 +39,11 @@ kind = "stdio"
 command = ["python3", "$PWD/examples/providers/fs_provider.py", "$DEMO/code"]
 EOF
 
+# The tape launches the release binary; fall back to a debug build.
+if [ ! -x dist/ghx-linux-x86_64-musl ]; then
+    cargo build --quiet
+    mkdir -p dist
+    cp target/debug/ghx dist/ghx-linux-x86_64-musl
+fi
+
 echo "demo fixture ready: $DEMO"

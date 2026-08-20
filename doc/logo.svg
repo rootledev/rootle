@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 300" font-family="DejaVu Sans Mono, monospace">
+  <!-- ghx logo: the miller-column browser as a terminal card, Catppuccin Mocha -->
+  <!-- dark backdrop: the wordmark is light text — this keeps it legible
+       on GitHub's light theme too -->
+  <rect width="480" height="300" rx="16" fill="#11111b"/>
+  <!-- terminal card -->
+  <rect x="24" y="20" width="432" height="196" rx="12" fill="#1e1e2e" stroke="#585b70" stroke-width="2"/>
+  <!-- panes: orgs (dim) · repo (focused) · preview -->
+  <rect x="40" y="36" width="88" height="160" rx="8" fill="none" stroke="#585b70" stroke-width="1.5"/>
+  <rect x="136" y="36" width="128" height="160" rx="8" fill="none" stroke="#89b4fa" stroke-width="2.5"/>
+  <rect x="272" y="36" width="168" height="160" rx="8" fill="none" stroke="#585b70" stroke-width="1.5"/>
+  <!-- orgs pane entries -->
+  <rect x="52" y="52" width="52" height="8" rx="3" fill="#585b70"/>
+  <rect x="52" y="72" width="60" height="8" rx="3" fill="#585b70"/>
+  <rect x="52" y="92" width="44" height="8" rx="3" fill="#585b70"/>
+  <!-- repo pane entries with a selected row (▌ gutter + selection bg) -->
+  <rect x="148" y="52" width="68" height="8" rx="3" fill="#a6adc8"/>
+  <rect x="148" y="72" width="108" height="18" rx="4" fill="#313244"/>
+  <rect x="150" y="76" width="4" height="10" fill="#89b4fa"/>
+  <rect x="158" y="76" width="84" height="8" rx="3" fill="#89b4fa"/>
+  <rect x="148" y="104" width="76" height="8" rx="3" fill="#a6adc8"/>
+  <rect x="148" y="124" width="92" height="8" rx="3" fill="#a6adc8"/>
+  <rect x="148" y="144" width="56" height="8" rx="3" fill="#a6adc8"/>
+  <!-- scrollbar: track on the right border, thumb accent -->
+  <rect x="260" y="50" width="3" height="132" rx="1.5" fill="#313244"/>
+  <rect x="260" y="72" width="3" height="34" rx="1.5" fill="#89b4fa"/>
+  <!-- preview pane: code lines + a grep match chip -->
+  <rect x="284" y="52" width="120" height="7" rx="3" fill="#a6adc8"/>
+  <rect x="284" y="68" width="140" height="7" rx="3" fill="#a6adc8"/>
+  <rect x="284" y="84" width="34" height="9" rx="2" fill="#f9e2af"/>
+  <rect x="324" y="84" width="80" height="7" rx="3" fill="#a6adc8"/>
+  <rect x="284" y="100" width="96" height="7" rx="3" fill="#a6adc8"/>
+  <rect x="284" y="116" width="124" height="7" rx="3" fill="#a6adc8"/>
+  <rect x="284" y="132" width="64" height="7" rx="3" fill="#a6adc8"/>
+  <!-- modeline: bar + green mode chip -->
+  <rect x="24" y="196" width="432" height="20" rx="10" fill="#181825"/>
+  <rect x="32" y="199" width="58" height="14" rx="4" fill="#a6e3a1"/>
+  <rect x="100" y="203" width="220" height="6" rx="3" fill="#6c7086"/>
+  <!-- wordmark -->
+  <text x="240" y="274" text-anchor="middle" font-size="52" font-weight="bold" fill="#cdd6f4">gh<tspan fill="#89b4fa">x</tspan></text>
+</svg>

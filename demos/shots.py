@@ -6,8 +6,12 @@ names — no PTY/VHS timing races.
     cd e2e && uv run python shots.py     # writes ../doc/img/*.png
 """
 
+import sys
 import tempfile
 from pathlib import Path
+
+# The PTY harness and fixtures live with the test suite.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "e2e"))
 
 from PIL import Image, ImageDraw, ImageFont
 
