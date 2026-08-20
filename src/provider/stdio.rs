@@ -21,9 +21,19 @@ pub struct StdioProvider {
 struct Io {
     stdin: ChildStdin,
     stdout: BufReader<ChildStdout>,
-    #[allow(dead_code)] // held so the child dies with us (Drop)
     child: Child,
     next_id: u64,
+}
+
+impl Drop for StdioProvider {
+    /// ghx owns the provider lifecycle: the child dies with the app
+    /// (kill first — stdin EOF alone is timing-dependent).
+    fn drop(&mut self) {
+        if let Ok(io) = self.io.get_mut() {
+            let _ = io.child.kill();
+            let _ = io.child.wait();
+        }
+    }
 }
 
 impl StdioProvider {
