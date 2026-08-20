@@ -2,12 +2,25 @@
 
 use crate::keymap;
 use crate::mode::Mode;
-use crate::theme::Theme;
+use crate::theme::{Semantic, Theme};
+use ratatui::Frame;
 use ratatui::layout::Rect;
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
-use ratatui::Frame;
+
+/// Chip color per mode — modeline, keybinds popup, anywhere a mode
+/// chip is drawn.
+pub(crate) fn mode_color(mode: Mode, sem: &Semantic) -> Color {
+    match mode {
+        Mode::Browse => sem.mode_browse,
+        Mode::Search => sem.mode_search,
+        Mode::Insert => sem.mode_insert,
+        Mode::Normal => sem.mode_normal,
+        Mode::Leader => sem.mode_leader,
+        Mode::Visual => sem.mode_visual,
+    }
+}
 
 pub struct Modeline {
     pub context: String,
@@ -32,14 +45,7 @@ impl Modeline {
 
     pub fn render(&self, frame: &mut Frame, area: Rect, mode: Mode, theme: &Theme) {
         let sem = &theme.semantic;
-        let chip_bg = match mode {
-            Mode::Browse => sem.mode_browse,
-            Mode::Search => sem.mode_search,
-            Mode::Insert => sem.mode_insert,
-            Mode::Normal => sem.mode_normal,
-            Mode::Leader => sem.mode_leader,
-            Mode::Visual => sem.mode_leader,
-        };
+        let chip_bg = mode_color(mode, sem);
 
         let mut spans = vec![
             Span::styled(

@@ -1,14 +1,8 @@
 //! Serde models for the GitHub REST API (only what ghx consumes).
+//! UI-facing types (`SearchItem`, `TreeNode`, …) live in
+//! `crate::provider` — the trait boundary; these are wire models.
 
 use serde::Deserialize;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SearchItem {
-    /// "owner/name"
-    Repo(String),
-    /// org login
-    Org(String),
-}
 
 #[derive(Debug, Deserialize)]
 pub struct SearchReposResponse {
@@ -40,6 +34,43 @@ pub struct RepoMeta {
     pub default_branch: String,
 }
 
+/// GET /search/code (Accept: application/vnd.github.text-match+json).
+#[derive(Debug, Deserialize)]
+pub struct SearchCodeResponse {
+    pub items: Vec<CodeItem>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CodeItem {
+    pub path: String,
+    pub sha: String,
+    pub repository: CodeRepo,
+    #[serde(default)]
+    pub text_matches: Vec<TextMatch>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CodeRepo {
+    pub full_name: String,
+    #[serde(default)]
+    pub default_branch: Option<String>,
+}
+
+/// A matched fragment: snippet text + match positions (byte indices
+/// into `fragment`). Fragments carry no absolute line numbers — the
+/// app locates them in the fetched blob for real line numbers.
+#[derive(Debug, Deserialize)]
+pub struct TextMatch {
+    pub fragment: String,
+    #[serde(default)]
+    pub matches: Vec<MatchRange>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct MatchRange {
+    pub text: String,
+}
+
 /// GET /repos/{o}/{r}/git/trees/{branch}?recursive=1
 #[derive(Debug, Clone, Deserialize, serde::Serialize)]
 pub struct TreeResponse {
@@ -57,26 +88,6 @@ pub struct TreeEntry {
     pub sha: String,
     #[serde(default)]
     pub size: Option<u64>,
-}
-
-/// Internal, UI-facing node derived from a TreeEntry.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TreeNode {
-    pub path: String,
-    pub is_dir: bool,
-    pub sha: String,
-    pub size: Option<u64>,
-}
-
-impl From<&TreeEntry> for TreeNode {
-    fn from(e: &TreeEntry) -> Self {
-        TreeNode {
-            path: e.path.clone(),
-            is_dir: e.kind == "tree",
-            sha: e.sha.clone(),
-            size: e.size,
-        }
-    }
 }
 
 #[cfg(test)]
@@ -109,11 +120,7 @@ mod tests {
         }"#;
         let parsed: TreeResponse = serde_json::from_str(json).unwrap();
         assert_eq!(parsed.tree.len(), 2);
-        let node = TreeNode::from(&parsed.tree[0]);
-        assert!(node.is_dir);
-        assert_eq!(node.path, "src");
-        let file = TreeNode::from(&parsed.tree[1]);
-        assert!(!file.is_dir);
-        assert_eq!(file.size, Some(42));
+        assert_eq!(parsed.tree[0].kind, "tree");
+        assert_eq!(parsed.tree[1].size, Some(42));
     }
 }

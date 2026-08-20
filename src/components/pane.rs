@@ -4,11 +4,11 @@
 use crate::action::Action;
 use crate::sanitize;
 use crate::theme::Theme;
+use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, List, ListItem, ListState};
-use ratatui::Frame;
 use unicode_width::UnicodeWidthStr;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,6 +42,9 @@ pub struct Pane {
     pub filter: String,
     /// Render `[repo]`/`[org]` badges before entries (search results).
     pub show_badges: bool,
+    /// VISUAL mode: entry names carrying a check mark; `Some` enables
+    /// checkbox rendering (plans/0004 §1).
+    pub checkboxes: Option<std::collections::HashSet<String>>,
     selected: usize,
     state: ListState,
     pub focused: bool,
@@ -56,6 +59,7 @@ impl Pane {
             entries,
             filter: String::new(),
             show_badges: false,
+            checkboxes: None,
             selected: 0,
             state,
             focused: false,
@@ -136,11 +140,22 @@ impl Pane {
                 Style::default().fg(sem.subtext0),
             ));
 
-        let width = area.width.saturating_sub(2) as usize;
+        let box_w = if self.checkboxes.is_some() { 4 } else { 0 };
+        let width = area.width.saturating_sub(2 + box_w) as usize;
         let items: Vec<ListItem> = self
             .visible()
             .iter()
             .map(|e| {
+                // VISUAL marker gutter, before any badge/name: a green
+                // ● for marked entries, dim ○ otherwise.
+                let checkbox = self.checkboxes.as_ref().map(|set| {
+                    let (mark, color) = if set.contains(&e.name) {
+                        ("●  ", sem.mode_browse)
+                    } else {
+                        ("○  ", sem.subtext0)
+                    };
+                    Span::styled(mark, Style::default().fg(color))
+                });
                 let line = match e.kind {
                     EntryKind::Repo | EntryKind::Org if self.show_badges => {
                         let (badge, color) = match e.kind {
@@ -169,6 +184,14 @@ impl Pane {
                         Style::default().fg(sem.file),
                     )),
                 };
+                let line = match checkbox {
+                    Some(mark) => {
+                        let mut spans = vec![mark];
+                        spans.extend(line.spans);
+                        Line::from(spans)
+                    }
+                    None => line,
+                };
                 ListItem::new(line)
             })
             .collect();
@@ -182,7 +205,7 @@ impl Pane {
 }
 
 /// Truncate to display width (CJK = 2 cells), never byte-count (PLAN.md §9).
-fn fit(s: &str, width: usize) -> String {
+pub(crate) fn fit(s: &str, width: usize) -> String {
     if s.width() <= width {
         return s.to_string();
     }

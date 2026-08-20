@@ -7,12 +7,12 @@ use ghx::cli::Cli;
 use ghx::config::Config;
 use ghx::theme::Theme;
 use ratatui::crossterm::{
+    ExecutableCommand,
     cursor::SetCursorStyle,
     event::{self, Event},
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-    ExecutableCommand,
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use ratatui::{backend::CrosstermBackend, Terminal};
+use ratatui::{Terminal, backend::CrosstermBackend};
 use std::io::{self, stdout};
 use std::time::Duration;
 
@@ -109,6 +109,11 @@ fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cli: Cli) -> io::R
             if let Event::Key(key) = event::read()? {
                 app.handle_key(key);
             }
+        }
+
+        // Yank: write to the clipboard outside the draw path.
+        if let Some(text) = app.take_clipboard() {
+            ghx::clipboard::copy(&text);
         }
 
         // Editor: suspend the terminal, run the editor to completion,

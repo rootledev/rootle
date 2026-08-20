@@ -4,11 +4,11 @@
 use super::pane::{Entry, EntryKind};
 use crate::sanitize;
 use crate::theme::Theme;
+use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Paragraph, Wrap};
-use ratatui::Frame;
 
 #[derive(Debug, Clone, Default)]
 pub enum PreviewContent {

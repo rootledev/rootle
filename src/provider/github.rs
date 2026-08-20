@@ -1,0 +1,183 @@
+//! GitHub provider (reference implementation, plans/0005): wraps the
+//! REST `Client` — auth resolution, sha-keyed disk cache, ETag
+//! revalidation all live inside it (PLAN.md §7/§8).
+
+use super::{Capabilities, CodeMatch, Provider, SearchItem, TreeNode, TreeResult};
+use crate::github::Client;
+
+pub struct GitHubProvider {
+    client: Client,
+}
+
+impl GitHubProvider {
+    pub fn new(max_mb: u64) -> Self {
+        // Self-hardening: orphan sweep + LRU eviction of the content
+        // store, off-thread — the TUI never knows this exists.
+        let max_bytes = max_mb * 1024 * 1024;
+        std::thread::spawn(move || crate::github::cache::harden(max_bytes));
+        GitHubProvider {
+            client: Client::new(),
+        }
+    }
+
+    /// Token-less provider (tests, offline defaults).
+    /// Token-less, no hardening (tests and offline defaults).
+    pub fn anonymous() -> Self {
+        GitHubProvider {
+            client: Client::anonymous(),
+        }
+    }
+}
+
+fn split_repo(repo: &str) -> Result<(&str, &str), String> {
+    repo.split_once('/')
+        .ok_or_else(|| format!("bad repo id: {repo:?} (expected owner/name)"))
+}
+
+impl From<&crate::github::types::TreeEntry> for TreeNode {
+    fn from(e: &crate::github::types::TreeEntry) -> Self {
+        TreeNode {
+            path: e.path.clone(),
+            is_dir: e.kind == "tree",
+            sha: e.sha.clone(),
+            size: e.size,
+        }
+    }
+}
+
+impl Provider for GitHubProvider {
+    fn name(&self) -> &str {
+        "github"
+    }
+
+    fn capabilities(&self) -> Capabilities {
+        Capabilities {
+            orgs: true,
+            code_search: true,
+        }
+    }
+
+    fn default_orgs(&self) -> Vec<String> {
+        ["ratatui", "tokio-rs", "helix-editor"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect()
+    }
+
+    fn search(&self, query: &str) -> Result<Vec<SearchItem>, String> {
+        self.client.search(query)
+    }
+
+    fn org_repos(&self, org: &str) -> Result<Vec<String>, String> {
+        self.client.org_repos(org)
+    }
+
+    fn fetch_tree(&self, repo: &str) -> Result<TreeResult, String> {
+        let (owner, name) = split_repo(repo)?;
+        let (tree, truncated, branch) = self.client.fetch_tree(owner, name)?;
+        Ok(TreeResult {
+            entries: tree.tree.iter().map(Into::into).collect(),
+            truncated,
+            branch,
+        })
+    }
+
+    fn fetch_blob(&self, repo: &str, sha: &str) -> Result<Vec<u8>, String> {
+        let (owner, name) = split_repo(repo)?;
+        self.client.fetch_blob(owner, name, sha)
+    }
+
+    fn clone_url(&self, repo: &str) -> Result<String, String> {
+        split_repo(repo)?;
+        Ok(format!("https://github.com/{repo}.git"))
+    }
+
+    fn web_url(
+        &self,
+        repo: &str,
+        path: &str,
+        branch: &str,
+        line: Option<u32>,
+    ) -> Result<String, String> {
+        split_repo(repo)?;
+        if path.is_empty() {
+            return Ok(format!("https://github.com/{repo}"));
+        }
+        // Blob vs tree grammar; the branch is cheap to resolve — the
+        // tree is disk-cached whenever the repo has been browsed.
+        let branch = if branch.is_empty() {
+            self.fetch_tree(repo).map(|t| t.branch)?
+        } else {
+            branch.to_string()
+        };
+        let (kind, fragment) = match line {
+            Some(line) => ("blob", format!("#L{line}")),
+            None => ("tree", String::new()),
+        };
+        Ok(format!(
+            "https://github.com/{repo}/{kind}/{branch}/{path}{fragment}"
+        ))
+    }
+
+    fn org_url(&self, org: &str) -> Result<String, String> {
+        Ok(format!("https://github.com/{org}"))
+    }
+
+    fn search_code(&self, q: &str) -> Result<Vec<CodeMatch>, String> {
+        let items = self.client.search_code(q)?;
+        Ok(items
+            .into_iter()
+            .map(|item| CodeMatch {
+                repo: item.repository.full_name,
+                path: item.path,
+                sha: item.sha,
+                branch: item
+                    .repository
+                    .default_branch
+                    .unwrap_or_else(|| "main".into()),
+                matches: item
+                    .text_matches
+                    .iter()
+                    .flat_map(|tm| tm.matches.iter().map(|m| m.text.clone()))
+                    .collect(),
+            })
+            .collect())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn web_url_grammar() {
+        let p = GitHubProvider::anonymous();
+        // Repo root.
+        assert_eq!(
+            p.web_url("ratatui/ratatui", "", "", None).unwrap(),
+            "https://github.com/ratatui/ratatui"
+        );
+        // Blob with line + known branch (no I/O).
+        assert_eq!(
+            p.web_url("ratatui/ratatui", "src/lib.rs", "main", Some(42))
+                .unwrap(),
+            "https://github.com/ratatui/ratatui/blob/main/src/lib.rs#L42"
+        );
+        // Dir tree.
+        assert_eq!(
+            p.web_url("ratatui/ratatui", "src", "master", None).unwrap(),
+            "https://github.com/ratatui/ratatui/tree/master/src"
+        );
+        assert_eq!(p.org_url("ratatui").unwrap(), "https://github.com/ratatui");
+    }
+
+    #[test]
+    fn clone_url_grammar() {
+        let p = GitHubProvider::anonymous();
+        assert_eq!(
+            p.clone_url("ratatui/ratatui").unwrap(),
+            "https://github.com/ratatui/ratatui.git"
+        );
+        assert!(p.clone_url("no-slash").is_err());
+    }
+}

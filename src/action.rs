@@ -21,15 +21,54 @@ pub enum Action {
     // Leader
     Leader,
     LeaderSearch,
+    LeaderFileFind,
+    LeaderGrep,
     LeaderQuit,
 
     // Popup
     ClosePopup,
 
+    // Overlays & command layer (plans/0003, plans/0004)
+    KeybindsPopup,
+    CommandLine,
+    RunCommand(String),
+    Visual,
+    ExitVisual,
+    ToggleSelect,
+    /// `␣ y` — yank the context's remote URL (plans/0003 §1).
+    LeaderYank,
+    /// `␣ c` — clear all VISUAL marks.
+    ClearMarks,
+    /// `␣ r` — reload the open repo's tree (or the org's repos).
+    LeaderReload,
+    /// Settings popup closed with edits: persist + hot reload.
+    ApplySettings(crate::config::Config),
+    /// Clone wizard: run the clones (repos + destination).
+    RunClone {
+        repos: Vec<String>,
+        dest: std::path::PathBuf,
+    },
+
+    // Global search view (plans/0002-v0.2)
+    CloseSearchView,
+    GlobalSearchSubmitted {
+        kind: crate::components::global_search::SearchKind,
+        query: String,
+        scope: String,
+        extension: String,
+    },
+    GlobalSearchResults {
+        hits: Vec<crate::components::global_search::SearchHit>,
+    },
+    GlobalSearchFailed {
+        message: String,
+    },
+    OpenSearchHit(crate::components::global_search::SearchHit),
+
     // Search popup ↔ GitHub backend
     SearchSubmitted(String),
     SearchResults {
-        items: Vec<crate::github::SearchItem>,
+        items: Vec<crate::provider::SearchItem>,
     },
     SearchFailed {
         message: String,
@@ -55,8 +94,9 @@ pub enum Action {
     TreeLoaded {
         owner: String,
         name: String,
-        entries: Vec<crate::github::types::TreeNode>,
+        entries: Vec<crate::provider::TreeNode>,
         truncated: bool,
+        branch: String,
     },
     TreeFailed {
         owner: String,

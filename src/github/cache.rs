@@ -46,6 +46,14 @@ pub fn write_blob(sha: &str, bytes: &[u8]) -> io::Result<()> {
     atomic_write(&blob_path(&root, sha), bytes)
 }
 
+/// The branch a repo was last opened on (first cached ref) — lets
+/// fetch_tree skip the repo-meta round trip entirely.
+pub fn cached_branch(owner: &str, repo: &str) -> Option<String> {
+    let dir = root()?.join("index/refs").join(owner).join(repo);
+    let entry = std::fs::read_dir(dir).ok()?.next()?.ok()?;
+    entry.file_name().into_string().ok()
+}
+
 pub fn read_ref(owner: &str, repo: &str, branch: &str) -> Option<RefCache> {
     let path = ref_path(&root()?, owner, repo, branch);
     let text = std::fs::read_to_string(path).ok()?;
@@ -269,7 +277,7 @@ mod tests {
         put_blob(&root, "aa1234", 100, 1000); // oldest
         put_blob(&root, "bb1234", 100, 2000);
         put_blob(&root, "cc1234", 100, 3000); // newest
-                                              // Cap at 250 bytes: aa must go, bb and cc stay.
+        // Cap at 250 bytes: aa must go, bb and cc stay.
         evict_blobs(&root, 250);
         assert!(!blob_path(&root, "aa1234").exists(), "oldest evicted");
         assert!(blob_path(&root, "bb1234").exists());
@@ -310,5 +318,29 @@ mod tests {
         write_tree(&tree).unwrap();
         let loaded = read_tree("test-sha-ghx").unwrap();
         assert_eq!(loaded.sha, "test-sha-ghx");
+    }
+
+    #[test]
+    fn cached_branch_roundtrip() {
+        if root().is_none() {
+            return;
+        }
+        // write_ref lands in index/refs/owner/repo/branch; cached_branch
+        // must find it back without any network.
+        write_ref(
+            "ratatui",
+            "ratatui",
+            "main",
+            &RefCache {
+                tree_sha: "abc".into(),
+                etag: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(cached_branch("ratatui", "ratatui").as_deref(), Some("main"));
+        assert!(cached_branch("ratatui", "never-opened").is_none());
+        if let Some(root) = root() {
+            std::fs::remove_dir_all(root).unwrap();
+        }
     }
 }

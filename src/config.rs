@@ -1,17 +1,29 @@
 //! ~/.config/ghx/config.toml — [editor] and [theme]. Settings view: later.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default)]
 pub struct Config {
     pub editor: EditorConfig,
     pub theme: ThemeConfig,
     pub cache: CacheConfig,
+    pub provider: ProviderConfig,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+/// Backend selection (plans/0005): built-in GitHub by default, or an
+/// external stdio provider (NDJSON-RPC child process).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default)]
+pub struct ProviderConfig {
+    /// "github" | "stdio"
+    pub kind: String,
+    /// argv for kind = "stdio"
+    pub command: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default)]
 pub struct EditorConfig {
     pub program: Option<String>,
@@ -19,7 +31,7 @@ pub struct EditorConfig {
     pub read_only: bool,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default)]
 pub struct CacheConfig {
     /// Blob cache size cap in MiB; oldest (least-recently-used) blobs
@@ -27,7 +39,7 @@ pub struct CacheConfig {
     pub max_mb: u64,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default)]
 pub struct ThemeConfig {
     pub name: String,
@@ -47,6 +59,16 @@ impl Default for Config {
                 path: None,
             },
             cache: CacheConfig { max_mb: 512 },
+            provider: ProviderConfig::default(),
+        }
+    }
+}
+
+impl Default for ProviderConfig {
+    fn default() -> Self {
+        ProviderConfig {
+            kind: "github".into(),
+            command: Vec::new(),
         }
     }
 }
@@ -80,6 +102,19 @@ impl Config {
             return Self::default();
         };
         Self::load_from(&path)
+    }
+
+    /// Write the config back atomically (settings popup save).
+    pub fn save(&self) -> std::io::Result<()> {
+        let Some(path) = Self::path() else {
+            return Ok(()); // no config dir — nothing to persist
+        };
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let text = toml::to_string_pretty(self).map_err(std::io::Error::other)?;
+        std::fs::write(path.with_extension("toml.tmp"), text)?;
+        std::fs::rename(path.with_extension("toml.tmp"), path)
     }
 
     /// Load from an explicit path (--config); missing/malformed → defaults.

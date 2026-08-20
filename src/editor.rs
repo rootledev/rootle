@@ -3,7 +3,7 @@
 //! with a full redraw — the one legitimate `terminal.clear()`.
 
 use crate::config::Config;
-use crate::github::Client;
+use crate::provider::Provider;
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -75,7 +75,7 @@ pub fn materialize(owner: &str, repo: &str, rel_path: &str, bytes: &[u8]) -> io:
             ));
         }
     }
-    let Some(root) = crate::cache::root() else {
+    let Some(root) = dirs::cache_dir().map(|d| d.join("ghx")) else {
         return Err(io::Error::new(io::ErrorKind::NotFound, "no cache dir"));
     };
     let file = root.join("edit").join(format!("{owner}__{repo}")).join(rel);
@@ -91,8 +91,7 @@ pub fn materialize(owner: &str, repo: &str, rel_path: &str, bytes: &[u8]) -> io:
 /// materialize the file.
 pub fn prepare(
     config: &Config,
-    client: &Client,
-    owner: &str,
+    provider: &dyn Provider,
     repo: &str,
     rel_path: &str,
     sha: &str,
@@ -100,8 +99,11 @@ pub fn prepare(
     let program = resolve_program(config).ok_or_else(|| {
         "no editor found — set [editor].program in config.toml or $EDITOR".to_string()
     })?;
-    let bytes = client.fetch_blob(owner, repo, sha)?;
-    let file = materialize(owner, repo, rel_path, &bytes).map_err(|e| e.to_string())?;
+    let bytes = provider.fetch_blob(repo, sha)?;
+    let (owner, name) = repo
+        .split_once('/')
+        .ok_or_else(|| format!("bad repo id: {repo:?}"))?;
+    let file = materialize(owner, name, rel_path, &bytes).map_err(|e| e.to_string())?;
     let mut args = build_args(&program, config);
     args.push(file.to_string_lossy().into_owned());
     Ok(EditorJob { program, args })
@@ -123,6 +125,7 @@ mod tests {
                 path: None,
             },
             cache: crate::config::CacheConfig { max_mb: 512 },
+            provider: crate::config::ProviderConfig::default(),
         }
     }
 
@@ -164,7 +167,7 @@ mod tests {
 
     #[test]
     fn materialize_writes_real_file() {
-        if crate::cache::root().is_none() {
+        if dirs::cache_dir().is_none() {
             return;
         }
         let path = materialize("testowner", "testrepo", "src/lib.rs", b"fn main() {}").unwrap();

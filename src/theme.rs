@@ -35,9 +35,13 @@ pub struct Semantic {
     pub mode_insert: Color,
     pub mode_normal: Color,
     pub mode_leader: Color,
+    pub mode_visual: Color,
 
     pub badge_repo: Color,
     pub badge_org: Color,
+
+    /// Background of a grep match inside a preview line (fg = crust).
+    pub search_match: Color,
 }
 
 impl Theme {
@@ -68,9 +72,12 @@ impl Theme {
                 mode_insert: Color::from_u32(0x94e2d5), // teal
                 mode_normal: Color::from_u32(0x89b4fa), // blue
                 mode_leader: Color::from_u32(0xfab387), // peach
+                mode_visual: Color::from_u32(0xf5c2e7), // pink
 
                 badge_repo: Color::from_u32(0x89b4fa), // blue
                 badge_org: Color::from_u32(0xfab387),  // peach
+
+                search_match: Color::from_u32(0xf9e2af), // yellow
             },
         }
     }
@@ -138,8 +145,10 @@ impl ThemeOverrides {
                 "mode_insert" => sem.mode_insert = color,
                 "mode_normal" => sem.mode_normal = color,
                 "mode_leader" => sem.mode_leader = color,
+                "mode_visual" => sem.mode_visual = color,
                 "badge_repo" => sem.badge_repo = color,
                 "badge_org" => sem.badge_org = color,
+                "search_match" => sem.search_match = color,
                 _ => {} // unknown role: ignored, not an error
             }
         }

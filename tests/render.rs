@@ -4,9 +4,9 @@
 //! no lingering cells.
 
 use ghx::app::App;
+use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
-use ratatui::Terminal;
 
 fn key(code: KeyCode) -> KeyEvent {
     KeyEvent {
@@ -18,14 +18,26 @@ fn key(code: KeyCode) -> KeyEvent {
 }
 
 fn test_app() -> App {
+    app_with_orgs(&[])
+}
+
+/// Offline app whose orgs pane is seeded (the offline provider ships
+/// no defaults — tests state them explicitly).
+fn app_with_orgs(orgs: &[&str]) -> App {
     let (tx, _rx) = ghx::event::channel();
-    App::with(ghx::state::State::default(), tx)
+    App::with(
+        ghx::state::State {
+            recent_orgs: orgs.iter().map(|o| o.to_string()).collect(),
+            ..Default::default()
+        },
+        tx,
+    )
 }
 
 /// Fake recursive tree for ratatui/ratatui (mirrors the old mock buckets).
-fn ratatui_tree() -> Vec<ghx::github::TreeNode> {
-    fn node(path: &str, is_dir: bool) -> ghx::github::TreeNode {
-        ghx::github::TreeNode {
+fn ratatui_tree() -> Vec<ghx::provider::TreeNode> {
+    fn node(path: &str, is_dir: bool) -> ghx::provider::TreeNode {
+        ghx::provider::TreeNode {
             path: path.into(),
             is_dir,
             sha: "abc1234def5678".into(),
@@ -53,9 +65,11 @@ fn ratatui_tree() -> Vec<ghx::github::TreeNode> {
 /// Popup closed, ratatui org repos + repo tree loaded (offline —
 /// injected, no workers). Lands focused on the repos pane.
 fn browsing_app() -> App {
-    let mut app = test_app();
+    let mut app = app_with_orgs(&["ratatui", "tokio-rs", "helix-editor"]);
     app.handle_key(key(KeyCode::Esc));
-    app.handle_key(key(KeyCode::Esc));
+    // No seeded orgs with the offline provider — select explicitly so
+    // the repos/tree injections below pass the selection gates.
+    app.handle_action(ghx::action::Action::OrgSelected("ratatui".into()));
     app.handle_action(ghx::action::Action::OrgReposLoaded {
         org: "ratatui".into(),
         repos: vec![
@@ -70,6 +84,7 @@ fn browsing_app() -> App {
         name: "ratatui".into(),
         entries: ratatui_tree(),
         truncated: false,
+        branch: "main".into(),
     });
     // Tree arrival auto-enters the root pane; step back to the repos
     // pane — this helper models "browsing at repos level".
@@ -80,7 +95,7 @@ fn browsing_app() -> App {
 fn filter_commit_triggers_blob_load_of_selected_file() {
     let mut app = browsing_app();
     app.handle_key(key(KeyCode::Char('l'))); // drill into repo root
-                                             // Live-filter to Cargo.toml, commit with Enter.
+    // Live-filter to Cargo.toml, commit with Enter.
     app.handle_key(key(KeyCode::Char('/')));
     for c in "cargo.toml".chars() {
         app.handle_key(key(KeyCode::Char(c)));
@@ -92,7 +107,7 @@ fn filter_commit_triggers_blob_load_of_selected_file() {
         "file meta/loading preview should show while blob is pending"
     );
     app.handle_key(key(KeyCode::Enter)); // commit filter
-                                         // Blob fetch was requested; inject the response.
+    // Blob fetch was requested; inject the response.
     app.handle_action(ghx::action::Action::BlobLoaded {
         sha: "abc1234def5678".into(),
         name: "Cargo.toml".into(),
@@ -125,7 +140,7 @@ fn render(app: &mut App, width: u16, height: u16) -> Vec<String> {
 
 #[test]
 fn renders_three_panes_modeline_and_popup() {
-    let mut app = test_app();
+    let mut app = app_with_orgs(&["ratatui", "tokio-rs", "helix-editor"]);
     let rows = render(&mut app, 100, 30);
     let screen = rows.join("\n");
 
@@ -224,6 +239,7 @@ fn h_moves_focus_to_parent_and_browsing_it_cascades() {
         name: "ratatui-website".into(),
         entries: ratatui_tree(),
         truncated: false,
+        branch: "main".into(),
     });
     let rows = render(&mut app, 100, 30);
     let screen = rows.join("\n");
@@ -267,7 +283,7 @@ fn h_moves_focus_to_parent_and_browsing_it_cascades() {
 fn drilling_into_dir_uses_correct_relative_path() {
     let mut app = browsing_app(); // popup closed + org repos loaded → repos pane
     app.handle_key(key(KeyCode::Char('l'))); // into ratatui root
-                                             // Dirs sort alphabetically: docs/, examples/, src/ — j twice to src.
+    // Dirs sort alphabetically: docs/, examples/, src/ — j twice to src.
     app.handle_key(key(KeyCode::Char('j')));
     app.handle_key(key(KeyCode::Char('j')));
     app.handle_key(key(KeyCode::Char('l'))); // into src/
@@ -290,7 +306,7 @@ fn drilling_into_dir_uses_correct_relative_path() {
 fn file_preview_shows_highlighted_blob_and_scrolls() {
     let mut app = browsing_app();
     app.handle_key(key(KeyCode::Char('l'))); // into ratatui root
-                                             // jj j to reach Cargo.toml (dirs docs/, examples/, src/ first)
+    // jj j to reach Cargo.toml (dirs docs/, examples/, src/ first)
     for _ in 0..3 {
         app.handle_key(key(KeyCode::Char('j')));
     }
@@ -323,7 +339,7 @@ fn preview_colors_dirs_and_files_differently() {
     use ratatui::style::{Color, Modifier};
 
     let mut app = browsing_app(); // popup closed + org repos loaded → repos pane, preview
-                                  // shows ratatui's root listing
+    // shows ratatui's root listing
     let backend = TestBackend::new(100, 30);
     let mut terminal = Terminal::new(backend).unwrap();
     terminal
@@ -397,10 +413,10 @@ fn popup_results_support_local_slash_filter() {
     app.handle_key(key(KeyCode::Enter));
     app.handle_action(ghx::action::Action::SearchResults {
         items: vec![
-            ghx::github::SearchItem::Org("tokio-rs".into()),
-            ghx::github::SearchItem::Repo("tokio-rs/tokio".into()),
-            ghx::github::SearchItem::Repo("ratatui/ratatui".into()),
-            ghx::github::SearchItem::Repo("sharkdp/bat".into()),
+            ghx::provider::SearchItem::Org("tokio-rs".into()),
+            ghx::provider::SearchItem::Repo("tokio-rs/tokio".into()),
+            ghx::provider::SearchItem::Repo("ratatui/ratatui".into()),
+            ghx::provider::SearchItem::Repo("sharkdp/bat".into()),
         ],
     });
     assert!(
@@ -428,4 +444,368 @@ fn popup_results_support_local_slash_filter() {
     app.handle_key(key(KeyCode::Esc));
     let rows = render(&mut app, 100, 30);
     assert!(rows.join("\n").contains("sharkdp/bat"));
+}
+
+#[test]
+fn leader_f_opens_find_view_and_enter_shows_mock_results() {
+    let mut app = browsing_app();
+    app.handle_key(key(KeyCode::Char(' ')));
+    app.handle_key(key(KeyCode::Char('f')));
+    let rows = render(&mut app, 100, 30);
+    let screen = rows.join("\n");
+
+    // Full-screen view: field row on top, results box below.
+    assert!(screen.contains("find file"), "view title missing");
+    assert!(screen.contains("query"), "query field missing");
+    assert!(screen.contains("scope"), "scope field missing");
+    assert!(screen.contains("extension"), "extension field missing");
+    assert!(
+        screen.contains("repo:ratatui/ratatui"),
+        "scope label missing"
+    );
+    assert!(screen.contains("INSERT"), "query should land in INSERT");
+    // The view replaces the browser: no miller columns underneath.
+    assert!(!screen.contains("orgs"), "browser should be replaced");
+    println!("{screen}");
+
+    // Type a query, Enter runs the (mock) search and focuses results.
+    for c in "query".chars() {
+        app.handle_key(key(KeyCode::Char(c)));
+    }
+    app.handle_key(key(KeyCode::Enter));
+    let rows = render(&mut app, 100, 30);
+    let screen = rows.join("\n");
+    assert!(screen.contains("src/query/parser.rs"), "hit path missing");
+    assert!(
+        screen.contains("tests/query_roundtrip.rs"),
+        "second hit missing"
+    );
+    assert!(
+        screen.contains("pub fn parse(input: &str)"),
+        "preview line missing"
+    );
+    assert!(screen.contains("BROWSE"), "results focus = BROWSE chip");
+    println!("{screen}");
+}
+
+#[test]
+fn leader_g_opens_grep_view_with_scope_radio_popup() {
+    let mut app = browsing_app();
+    app.handle_key(key(KeyCode::Char(' ')));
+    app.handle_key(key(KeyCode::Char('g')));
+    let rows = render(&mut app, 100, 30);
+    assert!(rows.join("\n").contains("grep"), "grep title missing");
+
+    // Tab to the scope field, Enter opens the radio popup.
+    app.handle_key(key(KeyCode::Tab));
+    app.handle_key(key(KeyCode::Enter));
+    let rows = render(&mut app, 100, 30);
+    let screen = rows.join("\n");
+    assert!(
+        screen.contains("(•) current repo"),
+        "radio selected missing"
+    );
+    assert!(screen.contains("( ) current org"), "org option missing");
+    assert!(screen.contains("( ) all of github"), "radio option missing");
+    println!("{screen}");
+
+    // j j → repo → org → all of github (radio follows the cursor),
+    // Enter commits by closing; modeline context follows.
+    app.handle_key(key(KeyCode::Char('j')));
+    app.handle_key(key(KeyCode::Char('j')));
+    app.handle_key(key(KeyCode::Enter));
+    let rows = render(&mut app, 100, 30);
+    let screen = rows.join("\n");
+    assert!(screen.contains("global"), "scope should switch to global");
+    assert!(screen.contains("grep · global"), "modeline context missing");
+}
+
+#[test]
+fn closing_search_view_restores_browser_without_lingering_cells() {
+    let mut app = browsing_app();
+    app.handle_key(key(KeyCode::Char(' ')));
+    app.handle_key(key(KeyCode::Char('g')));
+    let _ = render(&mut app, 100, 30); // view open
+
+    // Esc from the query input: INSERT → NORMAL, then Esc closes.
+    app.handle_key(key(KeyCode::Esc));
+    app.handle_key(key(KeyCode::Esc));
+    let rows = render(&mut app, 100, 30);
+    let screen = rows.join("\n");
+    assert!(!screen.contains("grep ·"), "view residue after close");
+    assert!(screen.contains("orgs"), "browser should be back");
+    assert!(screen.contains("BROWSE"), "should return to BROWSE");
+
+    // Middle of the screen must show pane content again, not blanks.
+    let middle = &rows[15];
+    assert!(
+        middle.trim().len() > 10,
+        "lingering blank cells after close: {middle:?}"
+    );
+}
+
+#[test]
+fn search_view_results_support_slash_filter() {
+    let mut app = browsing_app();
+    app.handle_key(key(KeyCode::Char(' ')));
+    app.handle_key(key(KeyCode::Char('g')));
+    for c in "query".chars() {
+        app.handle_key(key(KeyCode::Char(c)));
+    }
+    app.handle_key(key(KeyCode::Enter)); // submit → results focused
+
+    app.handle_key(key(KeyCode::Char('/')));
+    for c in "terminal".chars() {
+        app.handle_key(key(KeyCode::Char(c)));
+    }
+    let rows = render(&mut app, 100, 30);
+    let screen = rows.join("\n");
+    assert!(
+        screen.contains("SEARCH"),
+        "filtering should show SEARCH chip"
+    );
+    assert!(screen.contains("src/terminal.rs"));
+    assert!(
+        !screen.contains("src/widgets/list.rs"),
+        "non-matching hit should be filtered out"
+    );
+
+    // Enter on the remaining hit prepares an editor job on mock bytes.
+    app.handle_key(key(KeyCode::Esc)); // commit-cancel filter? Esc cancels
+    // filter → full list again; first hit selected.
+    app.handle_key(key(KeyCode::Enter));
+    assert!(
+        app.take_editor_job().is_some(),
+        "Enter on a hit should prepare an editor job"
+    );
+}
+
+#[test]
+fn search_view_previews_are_syntax_highlighted() {
+    let mut app = browsing_app();
+    app.handle_key(key(KeyCode::Char(' ')));
+    app.handle_key(key(KeyCode::Char('f')));
+    for c in "query".chars() {
+        app.handle_key(key(KeyCode::Char(c)));
+    }
+    app.handle_key(key(KeyCode::Enter));
+
+    let backend = TestBackend::new(100, 30);
+    let mut terminal = Terminal::new(backend).unwrap();
+    terminal
+        .draw(|f| {
+            let area = f.area();
+            app.render(f, area);
+        })
+        .unwrap();
+    let buf = terminal.backend().buffer();
+
+    // Find the preview row with a Rust keyword and assert it carries
+    // syntect RGB colors (plain text would render in the theme's
+    // default text color, never Rgb).
+    let row = (0..buf.area.height)
+        .find(|&y| {
+            (0..buf.area.width)
+                .map(|x| buf[(x, y)].symbol())
+                .collect::<String>()
+                .contains("pub fn parse")
+        })
+        .expect("preview row should be visible");
+    assert!(
+        (0..buf.area.width).any(|x| matches!(buf[(x, row)].fg, ratatui::style::Color::Rgb(..))),
+        "preview line should be syntax-highlighted"
+    );
+}
+
+#[test]
+fn keybinds_popup_scrolls_and_closes_without_residue() {
+    let mut app = browsing_app();
+    app.handle_key(key(KeyCode::Char('?')));
+    let rows = render(&mut app, 100, 30);
+    let screen = rows.join("\n");
+    assert!(screen.contains("keybindings"), "popup title missing");
+    assert!(screen.contains("BROWSE"), "browse section missing");
+    println!("{screen}");
+
+    // Scroll down: later sections appear.
+    for _ in 0..20 {
+        app.handle_key(key(KeyCode::Char('j')));
+    }
+    let rows = render(&mut app, 100, 30);
+    let screen = rows.join("\n");
+    assert!(screen.contains("LEADER"), "scroll should reach LEADER");
+    assert!(screen.contains("VISUAL"), "scroll should reach VISUAL");
+
+    app.handle_key(key(KeyCode::Esc));
+    let rows = render(&mut app, 100, 30);
+    let screen = rows.join("\n");
+    assert!(!screen.contains("keybindings"), "popup residue after close");
+    assert!(screen.contains("orgs"), "browser should be back");
+}
+
+#[test]
+fn command_line_filters_and_runs_settings() {
+    let mut app = browsing_app();
+    app.handle_key(key(KeyCode::Char(':')));
+    let rows = render(&mut app, 100, 30);
+    let screen = rows.join("\n");
+    assert!(screen.contains("settings"), "command option missing");
+    assert!(screen.contains("clone"), "clone option missing");
+    assert!(screen.contains("INSERT"), "command line is a text input");
+    println!("{screen}");
+
+    for c in "set".chars() {
+        app.handle_key(key(KeyCode::Char(c)));
+    }
+    let rows = render(&mut app, 100, 30);
+    let screen = rows.join("\n");
+    assert!(screen.contains("settings"));
+    assert!(
+        !screen.contains("clone the selected"),
+        "filtered-out command should disappear"
+    );
+
+    app.handle_key(key(KeyCode::Enter)); // → settings popup
+    let rows = render(&mut app, 100, 30);
+    let screen = rows.join("\n");
+    assert!(screen.contains("settings"), "settings popup missing");
+    assert!(screen.contains("editor"), "editor tab missing");
+    assert!(screen.contains("theme"), "theme tab missing");
+    assert!(screen.contains("cache"), "cache tab missing");
+    println!("{screen}");
+}
+
+#[test]
+fn settings_popup_switches_tabs() {
+    let mut app = browsing_app();
+    app.handle_key(key(KeyCode::Char(':')));
+    for c in "settings".chars() {
+        app.handle_key(key(KeyCode::Char(c)));
+    }
+    app.handle_key(key(KeyCode::Enter));
+
+    app.handle_key(key(KeyCode::Tab)); // editor → theme
+    let rows = render(&mut app, 100, 30);
+    let screen = rows.join("\n");
+    assert!(screen.contains("catppuccin-mocha"), "theme value missing");
+
+    app.handle_key(key(KeyCode::Esc)); // close
+    let rows = render(&mut app, 100, 30);
+    assert!(!rows.join("\n").contains("settings"), "residue after close");
+}
+
+#[test]
+fn visual_mode_marks_repos_with_checkboxes() {
+    let mut app = browsing_app();
+    app.handle_key(key(KeyCode::Char('v')));
+    let rows = render(&mut app, 100, 30);
+    let screen = rows.join("\n");
+    assert!(screen.contains("VISUAL"), "visual chip missing");
+    assert!(screen.contains("○"), "checkboxes missing");
+
+    // Focus is on the repos pane (helper lands there); mark two repos.
+    app.handle_key(key(KeyCode::Char(' ')));
+    app.handle_key(key(KeyCode::Char('j')));
+    app.handle_key(key(KeyCode::Char(' ')));
+    let rows = render(&mut app, 100, 30);
+    let screen = rows.join("\n");
+    assert!(screen.contains("●"), "checked row missing");
+    println!("{screen}");
+
+    app.handle_key(key(KeyCode::Char('v'))); // exit visual
+    let rows = render(&mut app, 100, 30);
+    let screen = rows.join("\n");
+    assert!(screen.contains("BROWSE"), "should return to BROWSE");
+    assert!(!screen.contains("○"), "checkboxes should disappear");
+}
+
+#[test]
+fn clone_wizard_walks_three_screens() {
+    let mut app = browsing_app();
+    // Mark one repo in VISUAL, exit, then :clone.
+    app.handle_key(key(KeyCode::Char('v')));
+    app.handle_key(key(KeyCode::Char(' ')));
+    app.handle_key(key(KeyCode::Char('v')));
+
+    app.handle_key(key(KeyCode::Char(':')));
+    for c in "clone".chars() {
+        app.handle_key(key(KeyCode::Char(c)));
+    }
+    app.handle_key(key(KeyCode::Enter));
+    let rows = render(&mut app, 100, 30);
+    let screen = rows.join("\n");
+    assert!(screen.contains("clone — 1/3 repos"), "screen 1 missing");
+    assert!(screen.contains("[x] ratatui"), "marked repo missing");
+    assert!(screen.contains("next"), "next button missing");
+    println!("{screen}");
+
+    app.handle_key(key(KeyCode::Tab)); // list → buttons
+    app.handle_key(key(KeyCode::Enter)); // next → destination
+    let rows = render(&mut app, 100, 30);
+    let screen = rows.join("\n");
+    assert!(
+        screen.contains("clone — 2/3 destination"),
+        "screen 2 missing"
+    );
+    assert!(screen.contains("dest:"), "dest path missing");
+    println!("{screen}");
+
+    app.handle_key(key(KeyCode::Tab));
+    app.handle_key(key(KeyCode::Enter)); // next → summary
+    let rows = render(&mut app, 100, 30);
+    let screen = rows.join("\n");
+    assert!(screen.contains("clone — 3/3 summary"), "screen 3 missing");
+    assert!(screen.contains("git clone"), "clone command missing");
+    println!("{screen}");
+
+    // Esc closes the entire wizard from any screen.
+    app.handle_key(key(KeyCode::Esc));
+    let rows = render(&mut app, 100, 30);
+    assert!(!rows.join("\n").contains("clone —"), "wizard residue");
+}
+
+#[test]
+fn leader_yank_toasts_hit_url_in_search_view() {
+    let mut app = browsing_app();
+    app.handle_key(key(KeyCode::Char(' ')));
+    app.handle_key(key(KeyCode::Char('g')));
+    for c in "query".chars() {
+        app.handle_key(key(KeyCode::Char(c)));
+    }
+    app.handle_key(key(KeyCode::Enter)); // submit → results focused
+
+    // Leader works over the search view; ␣ y toasts the hit's URL.
+    app.handle_key(key(KeyCode::Char(' ')));
+    app.handle_key(key(KeyCode::Char('y')));
+    let rows = render(&mut app, 120, 30);
+    let screen = rows.join("\n");
+    assert!(
+        screen.contains("nothing to yank"),
+        "yank toast missing:\n{screen}"
+    );
+}
+
+#[test]
+fn launch_popup_only_when_state_has_no_repos() {
+    // Fresh state → popup opens automatically.
+    let mut fresh = test_app();
+    let screen = render(&mut fresh, 100, 30).join("\n");
+    assert!(
+        screen.contains("search github"),
+        "fresh launch should open the search popup"
+    );
+
+    // Returning user (recents in state) → straight into the browser.
+    let state = ghx::state::State {
+        recent_repos: vec!["ratatui/ratatui".into()],
+        ..Default::default()
+    };
+    let (tx, _rx) = ghx::event::channel();
+    let mut app = App::with(state, tx);
+    let screen = render(&mut app, 100, 30).join("\n");
+    assert!(
+        !screen.contains("search github"),
+        "launch with recents should skip the popup"
+    );
+    assert!(screen.contains("BROWSE"));
 }

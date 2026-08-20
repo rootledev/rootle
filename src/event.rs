@@ -1,16 +1,16 @@
 //! App events from background workers (GitHub API calls run on worker
 //! threads; results return over this channel into the event loop).
 
-use crate::github::SearchItem;
+use crate::provider::SearchItem;
 
 #[derive(Debug)]
 pub enum AppEvent {
     SearchResults {
-        gen: u64,
+        gen_id: u64,
         items: Vec<SearchItem>,
     },
     SearchFailed {
-        gen: u64,
+        gen_id: u64,
         message: String,
     },
     OrgReposLoaded {
@@ -24,8 +24,9 @@ pub enum AppEvent {
     TreeLoaded {
         owner: String,
         name: String,
-        entries: Vec<crate::github::types::TreeNode>,
+        entries: Vec<crate::provider::TreeNode>,
         truncated: bool,
+        branch: String,
     },
     TreeFailed {
         owner: String,
@@ -40,6 +41,20 @@ pub enum AppEvent {
     BlobFailed {
         sha: String,
         message: String,
+    },
+    /// Global search view results (plans/0002 §4): raw hits from the
+    /// worker, styled on the UI thread.
+    GlobalSearchResults {
+        gen_id: u64,
+        hits: Vec<crate::components::global_search::RawHit>,
+    },
+    GlobalSearchFailed {
+        gen_id: u64,
+        message: String,
+    },
+    CloneDone {
+        ok: Vec<String>,
+        failed: Vec<(String, String)>,
     },
 }
 

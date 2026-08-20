@@ -19,6 +19,10 @@ pub struct State {
     pub last_path: Option<String>,
     pub recent_repos: Vec<String>,
     pub recent_orgs: Vec<String>,
+    /// Global search view (plans/0002 §6): last-used scope
+    /// ("repo"/"org"/"global") and extension filter.
+    pub search_scope: Option<String>,
+    pub search_extension: Option<String>,
 }
 
 impl State {

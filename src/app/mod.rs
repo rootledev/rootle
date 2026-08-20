@@ -7,36 +7,53 @@
 
 use crate::action::Action;
 use crate::components::browser::Browser;
+use crate::components::clone_wizard::CloneWizard;
+use crate::components::command_line::CommandLine;
+use crate::components::global_search::{GlobalSearch, SearchKind};
+use crate::components::keybinds_popup::KeybindsPopup;
 use crate::components::modeline::Modeline;
 use crate::components::pane::EntryKind;
 use crate::components::search_popup::SearchPopup;
+use crate::components::settings_popup::SettingsPopup;
 use crate::components::vim_input::Outcome;
 use crate::config::Config;
 use crate::event::{AppEvent, AppTx};
-use crate::github::Client;
 use crate::highlight::Highlighter;
 use crate::keymap;
 use crate::mode::Mode;
+use crate::provider::{self, Provider};
 use crate::state::State;
 use crate::theme::Theme;
+use ratatui::Frame;
 use ratatui::crossterm::event::KeyEvent;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::Frame;
 use std::sync::Arc;
+
+mod workers;
 
 pub struct App {
     mode: Mode,
     browser: Browser,
     popup: Option<SearchPopup>,
+    /// Full-screen global search view (␣ f / ␣ g); replaces the
+    /// browser while open (plans/0002-v0.2).
+    search_view: Option<GlobalSearch>,
+    /// Overlays (plans/0003/0004): at most one at a time.
+    help: Option<KeybindsPopup>,
+    command_line: Option<CommandLine>,
+    settings: Option<SettingsPopup>,
+    wizard: Option<CloneWizard>,
     modeline: Modeline,
     theme: Theme,
     config: Config,
     state: State,
     tx: AppTx,
-    client: Arc<Client>,
+    provider: Arc<dyn Provider>,
     highlighter: Highlighter,
     /// Generation counter on search submissions; stale results dropped.
     search_gen: u64,
+    /// Same for the global search view (find/grep workers).
+    view_gen: u64,
     /// One-line status shown in the modeline (searching/loading/error).
     status: Option<String>,
     /// Offline apps (tests) never spawn workers.
@@ -48,16 +65,17 @@ pub struct App {
     /// A prepared editor invocation; the main loop runs it while the
     /// terminal is suspended, then forces a full redraw.
     pending_editor: Option<crate::editor::EditorJob>,
+    /// Queued yank (␣ y): the main loop writes it to the clipboard
+    /// outside the draw path (plans/0003 §1).
+    pending_clipboard: Option<String>,
 }
 
 impl App {
     pub fn new(tx: AppTx, config: Config, theme: Theme) -> Self {
-        let mut app = Self::build(State::load(), tx, Client::new(), false, config, theme);
-        // Cache hardening (PLAN.md §8): orphan sweep + LRU eviction,
-        // off the UI thread — never blocks startup.
-        {
-            let max_bytes = app.config.cache.max_mb * 1024 * 1024;
-            std::thread::spawn(move || crate::cache::harden(max_bytes));
+        let (provider, warning) = provider::build(&config);
+        let mut app = Self::build(State::load(), tx, provider, false, config, theme);
+        if let Some(warning) = warning {
+            app.status = Some(warning);
         }
         // Warm the repos level for the initially selected org.
         if let Some(org) = app.browser.selected_org() {
@@ -71,7 +89,7 @@ impl App {
         Self::build(
             state,
             tx,
-            Client::anonymous(),
+            provider::offline(),
             true,
             Config::default(),
             Theme::catppuccin_mocha(),
@@ -81,35 +99,60 @@ impl App {
     fn build(
         state: State,
         tx: AppTx,
-        client: Client,
+        provider: Arc<dyn Provider>,
         offline: bool,
         config: Config,
         theme: Theme,
     ) -> Self {
-        // Resume flow: prefill the search with the last repo — one
-        // Enter re-runs the query and returns to where the user was.
-        let popup = SearchPopup::with_prefill(state.last_repo.as_deref());
+        // Launch flow: the repo search popup opens automatically only
+        // for a fresh install (no repos in state yet). With recents,
+        // the browser opens directly; ␣ s still offers resume via the
+        // prefilled last repo.
+        let popup = if state.recent_repos.is_empty() && state.last_repo.is_none() {
+            Some(SearchPopup::with_prefill(state.last_repo.as_deref()))
+        } else {
+            None
+        };
         App {
             mode: Mode::Browse,
-            browser: Browser::new(&state.recent_orgs),
-            popup: Some(popup), // launch flow opens on search
+            browser: Browser::new(&state.recent_orgs, &provider.default_orgs()),
+            popup, // opens on launch only for a fresh state
+            search_view: None,
+            help: None,
+            command_line: None,
+            settings: None,
+            wizard: None,
             modeline: Modeline::new(),
             theme,
             config,
             state,
             tx,
-            client: Arc::new(client),
+            provider,
             highlighter: Highlighter::new(),
             search_gen: 0,
+            view_gen: 0,
             status: None,
             offline,
             should_quit: false,
             force_redraw: false,
             pending_editor: None,
+            pending_clipboard: None,
         }
     }
 
     fn effective_mode(&self) -> Mode {
+        if self.command_line.is_some() {
+            return Mode::Insert;
+        }
+        if let Some(settings) = &self.settings {
+            return settings.effective_mode();
+        }
+        if self.help.is_some() || self.wizard.is_some() {
+            return Mode::Browse;
+        }
+        if let Some(view) = &self.search_view {
+            return view.effective_mode();
+        }
         match &self.popup {
             Some(popup) => popup.effective_mode(),
             None => self.mode,
@@ -124,8 +167,8 @@ impl App {
     /// Worker outcomes from the event channel.
     pub fn handle_app_event(&mut self, event: AppEvent) {
         match event {
-            AppEvent::SearchResults { gen, items } => {
-                if gen != self.search_gen {
+            AppEvent::SearchResults { gen_id, items } => {
+                if gen_id != self.search_gen {
                     return; // stale submission
                 }
                 self.status = None;
@@ -133,8 +176,8 @@ impl App {
                     popup.update(&Action::SearchResults { items });
                 }
             }
-            AppEvent::SearchFailed { gen, message } => {
-                if gen != self.search_gen {
+            AppEvent::SearchFailed { gen_id, message } => {
+                if gen_id != self.search_gen {
                     return;
                 }
                 self.status = None;
@@ -154,12 +197,14 @@ impl App {
                 name,
                 entries,
                 truncated,
+                branch,
             } => {
                 self.handle_action(Action::TreeLoaded {
                     owner,
                     name,
                     entries,
                     truncated,
+                    branch,
                 });
             }
             AppEvent::BlobLoaded { sha, name, bytes } => {
@@ -179,15 +224,79 @@ impl App {
                     message,
                 });
             }
+            AppEvent::GlobalSearchResults { gen_id, hits } => {
+                if gen_id != self.view_gen {
+                    return; // stale submission
+                }
+                self.status = None;
+                let Some(view) = &self.search_view else {
+                    return;
+                };
+                let (kind, query) = (view.kind(), view.query.value());
+                let hits = hits
+                    .into_iter()
+                    .map(crate::components::global_search::SearchHit::from_raw)
+                    .collect();
+                let hits = self.finish_hits(hits, kind, &query);
+                if let Some(view) = &mut self.search_view {
+                    view.update(&Action::GlobalSearchResults { hits });
+                }
+            }
+            AppEvent::GlobalSearchFailed { gen_id, message } => {
+                if gen_id != self.view_gen {
+                    return;
+                }
+                self.status = None;
+                if let Some(view) = &mut self.search_view {
+                    view.update(&Action::GlobalSearchFailed { message });
+                }
+            }
+            AppEvent::CloneDone { ok, failed } => {
+                let mut status = format!(
+                    "cloned {} repo{}",
+                    ok.len(),
+                    if ok.len() == 1 { "" } else { "s" }
+                );
+                if !failed.is_empty() {
+                    status.push_str(&format!(
+                        ", {} failed ({} …)",
+                        failed.len(),
+                        failed[0].1.chars().take(40).collect::<String>()
+                    ));
+                }
+                self.status = Some(status);
+            }
         }
     }
 
     fn dispatch(&mut self, key: KeyEvent) -> Action {
+        // Overlays capture keys, topmost first.
+        if let Some(wizard) = &mut self.wizard {
+            return wizard.handle_key(key);
+        }
+        if let Some(settings) = &mut self.settings {
+            return settings.handle_key(key);
+        }
+        if let Some(help) = &mut self.help {
+            return help.handle_key(key);
+        }
+        if let Some(command_line) = &mut self.command_line {
+            return command_line.handle_key(key);
+        }
+        if let Some(view) = &mut self.search_view {
+            // While the leader layer is up, it owns the keys — the
+            // view regains them on the action that follows.
+            if self.mode == Mode::Leader {
+                return keymap::leader(key.code);
+            }
+            return view.handle_key(key);
+        }
         if let Some(popup) = &mut self.popup {
             return popup.handle_key(key);
         }
         match self.mode {
             Mode::Browse => keymap::browsing(key.code),
+            Mode::Visual => keymap::visual(key.code),
             Mode::Search => match self.browser.filter_input.handle_key(key) {
                 Outcome::Changed => Action::Noop, // filter applied below
                 Outcome::Submitted => Action::CommitFilter,
@@ -208,6 +317,14 @@ impl App {
             }
             Action::ClosePopup => {
                 trace("ClosePopup");
+                // Topmost overlay first; the search popup last.
+                if self.wizard.take().is_some()
+                    || self.settings.take().is_some()
+                    || self.help.take().is_some()
+                    || self.command_line.take().is_some()
+                {
+                    return;
+                }
                 self.popup = None;
                 self.mode = Mode::Browse;
             }
@@ -270,9 +387,11 @@ impl App {
                 name,
                 entries,
                 truncated,
+                branch,
             } => {
                 self.status = None;
-                self.browser.tree_loaded(&owner, &name, entries, truncated);
+                self.browser
+                    .tree_loaded(&owner, &name, entries, truncated, branch);
             }
             Action::TreeFailed {
                 owner,
@@ -301,9 +420,233 @@ impl App {
                 self.browser.blob_failed(&sha, &message);
             }
             Action::Leader => self.mode = Mode::Leader,
-            Action::LeaderSearch => {
-                self.popup = Some(SearchPopup::new());
+            Action::KeybindsPopup => self.help = Some(KeybindsPopup::new()),
+            Action::CommandLine => self.command_line = Some(CommandLine::new()),
+            Action::RunCommand(name) => {
+                self.command_line = None;
+                match name.as_str() {
+                    "settings" => self.settings = Some(SettingsPopup::new(&self.config)),
+                    "clone" => {
+                        let repos = self.clone_candidates();
+                        let cwd = std::env::current_dir().unwrap_or_default();
+                        self.wizard = Some(CloneWizard::new(repos, cwd));
+                    }
+                    other => self.status = Some(format!("unknown command: {other}")),
+                }
+            }
+            Action::Visual => {
+                self.mode = Mode::Visual;
+                self.browser.enter_visual();
+            }
+            Action::ExitVisual => {
                 self.mode = Mode::Browse;
+                self.browser.exit_visual();
+            }
+            Action::ToggleSelect => self.browser.toggle_selected(),
+            Action::LeaderReload => {
+                self.mode = Mode::Browse;
+                if let Some((owner, name)) = self.browser.repo_coords() {
+                    // Conditional refetch: cheap when the ref ETag is
+                    // still fresh (304), fresh tree when it moved.
+                    self.handle_action(Action::LoadRepoTree { owner, name });
+                    self.status = Some("reloading tree…".into());
+                } else if let Some(org) = self.browser.selected_org() {
+                    self.handle_action(Action::LoadOrgRepos(org));
+                    self.status = Some("reloading org repos…".into());
+                } else {
+                    self.status = Some("nothing to reload".into());
+                }
+            }
+            Action::ClearMarks => {
+                self.mode = Mode::Browse;
+                self.browser.clear_marks();
+                self.status = Some("marks cleared".into());
+            }
+            Action::LeaderYank => {
+                // Mock stage (plans/0003 §1): toast the URL that would
+                // be yanked; clipboard (OSC 52) wires up later.
+                self.mode = Mode::Browse;
+                // URLs come from the provider — no GitHub grammar
+                // outside the GitHub impl (plans/0005).
+                let url = if let Some(view) = &self.search_view {
+                    view.selected_hit().and_then(|h| {
+                        self.provider
+                            .web_url(&h.repo, &h.path, &h.branch, Some(h.line))
+                            .ok()
+                    })
+                } else if let Some((owner, repo)) = self.browser.repo_coords() {
+                    let path = self.browser.dir_path();
+                    let branch = self.browser.branch().unwrap_or("");
+                    self.provider
+                        .web_url(&format!("{owner}/{repo}"), &path, branch, None)
+                        .ok()
+                } else {
+                    self.browser
+                        .selected_org()
+                        .and_then(|org| self.provider.org_url(&org).ok())
+                };
+                match url {
+                    Some(u) => {
+                        self.pending_clipboard = Some(u.clone());
+                        self.status = Some(format!("yanked {u}"));
+                    }
+                    None => self.status = Some("nothing to yank".into()),
+                }
+            }
+            Action::LeaderSearch => {
+                // Resume: prefill with the last repo — one Enter
+                // re-runs the query back to where the user was.
+                self.popup = Some(SearchPopup::with_prefill(self.state.last_repo.as_deref()));
+                self.mode = Mode::Browse;
+            }
+            Action::LeaderFileFind | Action::LeaderGrep => {
+                let kind = if action == Action::LeaderFileFind {
+                    SearchKind::FileFind
+                } else {
+                    SearchKind::Grep
+                };
+                let repo = self
+                    .browser
+                    .repo_coords()
+                    .map(|(owner, name)| format!("{owner}/{name}"));
+                let org = self.browser.selected_org();
+                let persisted_scope = self
+                    .state
+                    .search_scope
+                    .as_deref()
+                    .and_then(crate::components::global_search::Scope::from_stored);
+                self.search_view = Some(GlobalSearch::new(
+                    kind,
+                    repo,
+                    org,
+                    persisted_scope,
+                    self.state.search_extension.clone(),
+                ));
+                self.mode = Mode::Browse;
+            }
+            Action::CloseSearchView => {
+                self.search_view = None;
+                self.mode = Mode::Browse;
+            }
+            Action::GlobalSearchSubmitted {
+                ref kind,
+                ref query,
+                ref scope,
+                ref extension,
+            } => {
+                // Persist last-used scope/extension (plans/0002 §6.4).
+                if let Some(view) = &self.search_view {
+                    self.state.search_scope = Some(view.scope().stored().to_string());
+                    self.state.search_extension = Some(view.extension_value());
+                    self.state.save();
+                }
+                self.view_gen += 1;
+                if let Some(view) = &mut self.search_view {
+                    view.update(&action);
+                }
+                if self.offline {
+                    // Tests: inject the mock producer, same Action flow.
+                    let hits =
+                        crate::components::global_search::mock::hits(*kind, query, extension);
+                    let hits = self.finish_hits(hits, *kind, query);
+                    if let Some(view) = &mut self.search_view {
+                        view.update(&Action::GlobalSearchResults { hits });
+                    }
+                    self.status = None;
+                } else {
+                    self.status = Some("searching code…".into());
+                    self.spawn_view_search(
+                        self.view_gen,
+                        *kind,
+                        query.clone(),
+                        scope.clone(),
+                        extension.clone(),
+                    );
+                }
+            }
+            Action::GlobalSearchResults { .. } | Action::GlobalSearchFailed { .. } => {
+                if let Some(view) = &mut self.search_view {
+                    view.update(&action);
+                }
+                self.status = None;
+            }
+            Action::OpenSearchHit(hit) => {
+                if !hit.sha.is_empty() {
+                    // Real hit: materialize the blob like the browser
+                    // does (cache-first; the UI is about to suspend).
+                    if hit.repo.contains('/') {
+                        match crate::editor::prepare(
+                            &self.config,
+                            self.provider.as_ref(),
+                            &hit.repo,
+                            &hit.path,
+                            &hit.sha,
+                        ) {
+                            Ok(job) => self.pending_editor = Some(job),
+                            Err(message) => {
+                                self.status = Some(format!("editor: {message}"));
+                            }
+                        }
+                    }
+                } else {
+                    // Mock hits: materialize the stand-in body.
+                    let slug = self
+                        .search_view
+                        .as_ref()
+                        .map(|v| v.kind().slug())
+                        .unwrap_or("hit");
+                    match crate::editor::resolve_program(&self.config) {
+                        Some(program) => {
+                            match crate::editor::materialize(
+                                "mock",
+                                slug,
+                                &hit.path,
+                                hit.body.as_bytes(),
+                            ) {
+                                Ok(file) => {
+                                    let mut args =
+                                        crate::editor::build_args(&program, &self.config);
+                                    args.push(file.to_string_lossy().into_owned());
+                                    self.pending_editor =
+                                        Some(crate::editor::EditorJob { program, args });
+                                }
+                                Err(e) => self.status = Some(format!("editor: {e}")),
+                            }
+                        }
+                        None => {
+                            self.status =
+                                Some("no editor found — set [editor].program or $EDITOR".into());
+                        }
+                    }
+                }
+            }
+            Action::RunClone { repos, dest } => {
+                if repos.is_empty() {
+                    self.status = Some("nothing selected to clone".into());
+                    self.wizard = None;
+                } else {
+                    let count = repos.len();
+                    self.status = Some(format!("cloning {count} repos…"));
+                    self.wizard = None;
+                    if !self.offline {
+                        self.spawn_clones(repos, dest);
+                    }
+                }
+            }
+            Action::ApplySettings(config) => {
+                self.settings = None; // close the popup
+                let theme_changed = config.theme != self.config.theme;
+                self.config = config;
+                // Hot reload: rebuild the palette; every component
+                // reads Theme per render, so the repaint is automatic.
+                if theme_changed {
+                    let name = self.config.theme.name.clone();
+                    self.theme = Theme::load(&name);
+                }
+                match self.config.save() {
+                    Ok(()) => self.status = Some("settings saved".into()),
+                    Err(e) => self.status = Some(format!("settings: {e} (applied live)")),
+                }
             }
             Action::EnterSearch => {
                 self.browser.filter_input.submode = crate::components::vim_input::SubMode::Insert;
@@ -334,9 +677,8 @@ impl App {
                         {
                             match crate::editor::prepare(
                                 &self.config,
-                                &self.client,
-                                &owner,
-                                &repo,
+                                self.provider.as_ref(),
+                                &format!("{owner}/{repo}"),
                                 &path,
                                 &sha,
                             ) {
@@ -373,101 +715,28 @@ impl App {
         }
     }
 
-    fn spawn_blob(&self, sha: String, name: String) {
-        let Some((owner, repo)) = self.browser.repo_coords() else {
-            return;
-        };
-        let client = self.client.clone();
-        let tx = self.tx.clone();
-        std::thread::spawn(move || {
-            trace(&format!("blob start {sha}"));
-            let event = match client.fetch_blob(&owner, &repo, &sha) {
-                Ok(bytes) => {
-                    trace(&format!("blob ok {sha} {} bytes", bytes.len()));
-                    AppEvent::BlobLoaded { sha, name, bytes }
-                }
-                Err(message) => {
-                    trace(&format!("blob ERR {sha} {message}"));
-                    AppEvent::BlobFailed { sha, message }
-                }
-            };
-            let _ = tx.send(event);
-        });
-    }
-
-    fn spawn_search(&self, gen: u64) {
-        let Some(popup) = &self.popup else { return };
-        let query = popup.input.value();
-        let client = self.client.clone();
-        let tx = self.tx.clone();
-        std::thread::spawn(move || {
-            trace(&format!("search start gen={gen} q={query:?}"));
-            let event = match client.search(&query) {
-                Ok(items) => {
-                    trace(&format!("search ok gen={gen} items={}", items.len()));
-                    AppEvent::SearchResults { gen, items }
-                }
-                Err(message) => {
-                    trace(&format!("search ERR gen={gen} {message}"));
-                    AppEvent::SearchFailed { gen, message }
-                }
-            };
-            let _ = tx.send(event);
-            trace(&format!("search sent gen={gen}"));
-        });
-    }
-
-    fn spawn_org_repos(&self, org: String) {
-        let client = self.client.clone();
-        let tx = self.tx.clone();
-        std::thread::spawn(move || {
-            let event = match client.org_repos(&org) {
-                Ok(repos) => AppEvent::OrgReposLoaded { org, repos },
-                Err(message) => AppEvent::OrgReposFailed { org, message },
-            };
-            let _ = tx.send(event);
-        });
-    }
-
-    fn spawn_tree(&self, owner: String, name: String) {
-        let client = self.client.clone();
-        let tx = self.tx.clone();
-        std::thread::spawn(move || {
-            trace(&format!("tree start {owner}/{name}"));
-            let event = match client.fetch_tree(&owner, &name) {
-                Ok((tree, truncated)) => {
-                    trace(&format!(
-                        "tree ok {owner}/{name} entries={} truncated={truncated}",
-                        tree.tree.len()
-                    ));
-                    AppEvent::TreeLoaded {
-                        owner,
-                        name,
-                        entries: tree.tree.iter().map(Into::into).collect(),
-                        truncated,
-                    }
-                }
-                Err(message) => {
-                    trace(&format!("tree ERR {owner}/{name} {message}"));
-                    AppEvent::TreeFailed {
-                        owner,
-                        name,
-                        message,
-                    }
-                }
-            };
-            let _ = tx.send(event);
-        });
-    }
-
     /// Hand the prepared editor job to the main loop (which owns the
     /// terminal and performs the suspend/resume dance).
     pub fn take_editor_job(&mut self) -> Option<crate::editor::EditorJob> {
         self.pending_editor.take()
     }
 
+    /// Queued yank text, drained by the main loop once per iteration.
+    pub fn take_clipboard(&mut self) -> Option<String> {
+        self.pending_clipboard.take()
+    }
+
     /// Desired terminal cursor shape, if any text input is focused.
     pub fn cursor_style(&self) -> Option<ratatui::crossterm::cursor::SetCursorStyle> {
+        if let Some(cl) = &self.command_line {
+            return cl.cursor_style();
+        }
+        if let Some(settings) = &self.settings {
+            return settings.cursor_style();
+        }
+        if let Some(view) = &self.search_view {
+            return view.cursor_style();
+        }
         self.popup.as_ref().and_then(|p| p.cursor_style())
     }
 
@@ -477,14 +746,33 @@ impl App {
             .constraints([Constraint::Min(1), Constraint::Length(1)])
             .split(area);
 
-        self.browser.render(frame, rows[0], &self.theme);
-        self.modeline.context = self.browser.context();
+        if let Some(view) = &mut self.search_view {
+            view.render(frame, rows[0], &self.theme);
+            self.modeline.context = view.context();
+        } else {
+            self.browser.render(frame, rows[0], &self.theme);
+            self.modeline.context = self.browser.context();
+        }
         self.modeline.status = self.status.clone();
         self.modeline
             .render(frame, rows[1], self.effective_mode(), &self.theme);
 
         if let Some(popup) = &mut self.popup {
             popup.render(frame, rows[0], &self.theme);
+        }
+        // v0.3/v0.4 overlays, above the base view.
+        if let Some(help) = &mut self.help {
+            help.render(frame, rows[0], &self.theme);
+        }
+        if let Some(settings) = &mut self.settings {
+            settings.render(frame, rows[0], &self.theme);
+        }
+        if let Some(wizard) = &mut self.wizard {
+            wizard.render(frame, rows[0], &self.theme);
+        }
+        // Command strip sits on the modeline's doorstep, last.
+        if let Some(command_line) = &mut self.command_line {
+            command_line.render(frame, rows[0], &self.theme);
         }
     }
 }

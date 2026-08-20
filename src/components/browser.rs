@@ -9,11 +9,11 @@ use super::pane::{Entry, EntryKind, Pane};
 use super::preview::Preview;
 use super::vim_input::VimInput;
 use crate::action::Action;
-use crate::github::TreeNode;
+use crate::provider::TreeNode;
 use crate::theme::Theme;
+use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::text::Line;
-use ratatui::Frame;
 use std::collections::{HashMap, HashSet};
 
 /// A repo's full recursive tree, paths relative to the repo root.
@@ -21,6 +21,8 @@ pub struct RepoTree {
     pub owner: String,
     pub name: String,
     pub truncated: bool,
+    /// Default branch (yank URLs, blob links).
+    pub branch: String,
     entries: Vec<TreeNode>,
 }
 
@@ -86,18 +88,22 @@ pub struct Browser {
     pub preview: Preview,
     /// `/` filter input, owned here, active in SEARCH mode.
     pub filter_input: VimInput,
+    /// VISUAL mode (plans/0004 §1): marked entries, keyed
+    /// `"<pane title>/<entry name>"` so marks survive cascades.
+    visual: bool,
+    marks: std::collections::HashSet<String>,
 }
 
 impl Default for Browser {
     fn default() -> Self {
-        Self::new(&[])
+        Self::new(&[], &[])
     }
 }
 
 impl Browser {
-    pub fn new(recent_orgs: &[String]) -> Self {
+    pub fn new(recent_orgs: &[String], defaults: &[String]) -> Self {
         let mut names: Vec<String> = recent_orgs.to_vec();
-        for d in ["ratatui", "tokio-rs", "helix-editor"] {
+        for d in defaults {
             if !names.iter().any(|n| n == d) {
                 names.push(d.to_string());
             }
@@ -117,6 +123,8 @@ impl Browser {
             blob_request: None,
             preview: Preview::new(),
             filter_input: VimInput::transient(),
+            visual: false,
+            marks: std::collections::HashSet::new(),
         };
         browser.sync();
         browser
@@ -125,6 +133,65 @@ impl Browser {
     /// Selected org at the top level, if any.
     pub fn selected_org(&self) -> Option<String> {
         self.levels[0].selected_entry().map(|e| e.name.clone())
+    }
+
+    /// Default branch of the open repo, if a tree is loaded.
+    pub fn branch(&self) -> Option<&str> {
+        self.tree.as_ref().map(|t| t.branch.as_str())
+    }
+
+    /// Repo-level entries as full names (`org/repo`), if loaded.
+    pub fn org_repo_full_names(&self) -> Vec<String> {
+        let Some(org) = self.selected_org() else {
+            return vec![];
+        };
+        let Some(repos) = self.levels.get(1) else {
+            return vec![];
+        };
+        repos
+            .entries
+            .iter()
+            .filter(|e| e.kind == EntryKind::Repo)
+            .map(|e| format!("{org}/{}", e.name))
+            .collect()
+    }
+
+    /// VISUAL mode on: checkboxes appear on every pane.
+    pub fn enter_visual(&mut self) {
+        self.visual = true;
+        self.sync();
+    }
+
+    /// VISUAL off; marks are kept (a following `:clone` consumes them).
+    pub fn exit_visual(&mut self) {
+        self.visual = false;
+        self.sync();
+    }
+
+    /// Toggle the mark on the focused pane's selected entry.
+    pub fn toggle_selected(&mut self) {
+        let pane = &self.levels[self.focus];
+        let Some(entry) = pane.selected_entry() else {
+            return;
+        };
+        let key = format!("{}/{}", pane.title, entry.name);
+        if !self.marks.remove(&key) {
+            self.marks.insert(key);
+        }
+        self.sync();
+    }
+
+    /// Drop every VISUAL mark (␣ c).
+    pub fn clear_marks(&mut self) {
+        self.marks.clear();
+        self.sync();
+    }
+
+    /// Marked entries as `"<pane title>/<name>"` keys.
+    pub fn visual_marks(&self) -> Vec<String> {
+        let mut marks: Vec<String> = self.marks.iter().cloned().collect();
+        marks.sort();
+        marks
     }
 
     /// Ensure `org` exists in the orgs level and select it.
@@ -169,6 +236,7 @@ impl Browser {
         name: &str,
         entries: Vec<TreeNode>,
         truncated: bool,
+        branch: String,
     ) {
         if self.levels.get(1).map(|p| p.title.as_str()) != Some(owner) {
             return;
@@ -181,6 +249,7 @@ impl Browser {
             owner: owner.to_string(),
             name: name.to_string(),
             truncated,
+            branch,
             entries,
         });
         // Rebuild from the repos level: all dir columns were mock/empty.
@@ -204,6 +273,18 @@ impl Browser {
     fn sync(&mut self) {
         for (i, pane) in self.levels.iter_mut().enumerate() {
             pane.focused = i == self.focus;
+            // VISUAL checkboxes: this pane's marked entry names.
+            pane.checkboxes = if self.visual {
+                let prefix = format!("{}/", pane.title);
+                Some(
+                    self.marks
+                        .iter()
+                        .filter_map(|k| k.strip_prefix(&prefix).map(str::to_string))
+                        .collect(),
+                )
+            } else {
+                None
+            };
         }
         self.refresh_preview();
     }

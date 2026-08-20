@@ -1,9 +1,8 @@
 //! Thin blocking client. One instance, shared across worker threads
 //! via Arc (reqwest::blocking::Client is Sync).
 
-use super::types::{
-    OrgRepoItem, RepoMeta, SearchItem, SearchReposResponse, SearchUsersResponse, TreeResponse,
-};
+use super::types::{OrgRepoItem, RepoMeta, SearchReposResponse, SearchUsersResponse, TreeResponse};
+use crate::provider::SearchItem;
 use std::process::Command;
 
 const API: &str = "https://api.github.com";
@@ -65,6 +64,7 @@ impl Client {
     }
 
     /// Repo search + org search, merged: orgs first, then repos.
+    /// Returns provider-level items (the trait boundary type).
     pub fn search(&self, query: &str) -> Result<Vec<SearchItem>, String> {
         let q = urlencoding(query);
         let mut out = Vec::new();
@@ -91,41 +91,117 @@ impl Client {
         Ok(repos.into_iter().map(|r| r.name).collect())
     }
 
+    /// Code search (plans/0002 §4). Requires auth — anonymous clients
+    /// get a clear error. `q` is the full query string including
+    /// qualifiers (`repo:`, `org:`, `extension:`, `path:`); text-match
+    /// fragments are requested for previews.
+    pub fn search_code(&self, q: &str) -> Result<Vec<super::types::CodeItem>, String> {
+        if self.is_anonymous() {
+            return Err("code search needs a token — set GHX_TOKEN or log in with `gh`".into());
+        }
+        let url = format!("{API}/search/code?q={}&per_page=25", urlencoding(q));
+        let resp: super::types::SearchCodeResponse =
+            self.get_accept(&url, "application/vnd.github.text-match+json")?;
+        Ok(resp.items)
+    }
+
+    /// GET with an explicit Accept header (text-match fragments).
+    fn get_accept<T: serde::de::DeserializeOwned>(
+        &self,
+        url: &str,
+        accept: &str,
+    ) -> Result<T, String> {
+        let mut req = self.http.get(url).header("Accept", accept);
+        if let Some(token) = &self.token {
+            req = req.bearer_auth(token);
+        }
+        let resp = req.send().map_err(|e| e.to_string())?;
+        let status = resp.status();
+        if !status.is_success() {
+            return Err(format!("HTTP {status}"));
+        }
+        resp.json::<T>().map_err(|e| e.to_string())
+    }
+
     /// Fetch a repo's full recursive tree with the sha-keyed cache
     /// (PLAN.md §8): revalidate the branch ref with If-None-Match
     /// (304 = free, tree unchanged), cache tree bodies by their sha.
+    /// Also returns the default branch (URL building, yank).
     pub fn fetch_tree(
         &self,
         owner: &str,
         repo: &str,
-    ) -> Result<(TreeResponse, /*truncated*/ bool), String> {
-        let meta: RepoMeta = self.get(&format!("{API}/repos/{owner}/{repo}"))?;
-        let branch = meta.default_branch;
-        let cached_ref = crate::cache::read_ref(owner, repo, &branch);
+    ) -> Result<
+        (
+            TreeResponse,
+            /*truncated*/ bool,
+            /*branch*/ String,
+        ),
+        String,
+    > {
+        // Cache-first branch resolution: a repo we've opened before
+        // costs zero extra calls here (no GET /repos/{o}/{r}).
+        let cached_branch = super::cache::cached_branch(owner, repo);
+        let branch = match &cached_branch {
+            Some(b) => {
+                crate::app::trace(&format!("tree branch cached {owner}/{repo} {b}"));
+                b.clone()
+            }
+            None => {
+                crate::app::trace(&format!("tree branch meta-fetch {owner}/{repo}"));
+                let meta: RepoMeta = self.get(&format!("{API}/repos/{owner}/{repo}"))?;
+                meta.default_branch
+            }
+        };
+        match self.fetch_tree_on(owner, repo, &branch) {
+            // The default branch was renamed since we cached it:
+            // resolve fresh and try once more.
+            Err(e) if cached_branch.is_some() && e.contains("404") => {
+                let meta: RepoMeta = self.get(&format!("{API}/repos/{owner}/{repo}"))?;
+                self.fetch_tree_on(owner, repo, &meta.default_branch)
+            }
+            other => other,
+        }
+    }
+
+    fn fetch_tree_on(
+        &self,
+        owner: &str,
+        repo: &str,
+        branch: &str,
+    ) -> Result<
+        (
+            TreeResponse,
+            /*truncated*/ bool,
+            /*branch*/ String,
+        ),
+        String,
+    > {
+        let cached_ref = super::cache::read_ref(owner, repo, branch);
         let url = format!("{API}/repos/{owner}/{repo}/git/trees/{branch}?recursive=1");
 
         let etag = cached_ref.as_ref().and_then(|r| r.etag.clone());
         match self.get_conditional::<TreeResponse>(&url, etag.as_deref())? {
             Conditional::NotModified => {
                 let sha = cached_ref.expect("304 without a cached ref").tree_sha;
-                let tree = crate::cache::read_tree(&sha)
+                let tree = super::cache::read_tree(&sha)
                     .ok_or_else(|| format!("304 but tree {sha} missing from cache"))?;
-                Ok((tree.clone(), tree.truncated))
+                Ok((tree.clone(), tree.truncated, branch.to_string()))
             }
             Conditional::Fresh { body, etag } => {
-                crate::cache::write_tree(&body).map_err(|e| e.to_string())?;
-                crate::cache::write_ref(
+                super::cache::write_tree(&body).map_err(|e| e.to_string())?;
+                super::cache::write_ref(
                     owner,
                     repo,
-                    &branch,
-                    &crate::cache::RefCache {
+                    branch,
+                    &super::cache::RefCache {
                         tree_sha: body.sha.clone(),
                         etag,
                     },
                 )
                 .map_err(|e| e.to_string())?;
                 let truncated = body.truncated;
-                Ok((body, truncated))
+                Ok((body, truncated, branch.to_string()))
             }
         }
     }
@@ -133,7 +209,7 @@ impl Client {
     /// Fetch a blob by git sha, cache-first (blobs are immutable).
     /// Files over 1 MiB are rejected — too heavy for a preview pane.
     pub fn fetch_blob(&self, owner: &str, repo: &str, sha: &str) -> Result<Vec<u8>, String> {
-        if let Some(bytes) = crate::cache::read_blob(sha) {
+        if let Some(bytes) = super::cache::read_blob(sha) {
             return Ok(bytes);
         }
         #[derive(serde::Deserialize)]
@@ -155,7 +231,7 @@ impl Client {
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(clean)
             .map_err(|e| e.to_string())?;
-        let _ = crate::cache::write_blob(sha, &bytes);
+        let _ = super::cache::write_blob(sha, &bytes);
         Ok(bytes)
     }
 

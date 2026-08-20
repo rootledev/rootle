@@ -7,16 +7,16 @@
 use super::pane::{Entry, EntryKind, Pane};
 use super::vim_input::{Outcome, SubMode, VimInput};
 use crate::action::Action;
-use crate::github::SearchItem;
 use crate::mode::Mode;
+use crate::provider::SearchItem;
 use crate::theme::Theme;
+use ratatui::Frame;
 use ratatui::crossterm::cursor::SetCursorStyle;
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph};
-use ratatui::Frame;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Focus {
@@ -217,7 +217,7 @@ impl SearchPopup {
 
     pub fn render(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
         let sem = &theme.semantic;
-        let popup = centered(area, 60, 60);
+        let popup = super::centered(area, 60, 60);
 
         // Clear first: reset cells beneath so nothing lingers (PLAN.md §9).
         frame.render_widget(Clear, popup);
@@ -287,25 +287,6 @@ impl SearchPopup {
         self.results.focused = self.focus == Focus::Results;
         self.results.render(frame, rows[1], theme);
     }
-}
-
-fn centered(area: Rect, pct_x: u16, pct_y: u16) -> Rect {
-    let vertical = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage((100 - pct_y) / 2),
-            Constraint::Percentage(pct_y),
-            Constraint::Percentage((100 - pct_y) / 2),
-        ])
-        .split(area);
-    Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage((100 - pct_x) / 2),
-            Constraint::Percentage(pct_x),
-            Constraint::Percentage((100 - pct_x) / 2),
-        ])
-        .split(vertical[1])[1]
 }
 
 fn split_repo(full: &str) -> (String, String) {
