@@ -138,3 +138,7 @@ For backends that should live in the binary, implement `trait Provider`
 `clone_url`, `web_url`, `org_url`, plus optional `default_orgs` for
 cold-start suggestions), then register it in `provider::build`. The
 same content-id and opaque-repo rules apply.
+
+Scaffolding: `skills/ghx-provider/SKILL.md` (in this repo) walks
+through building a provider — capability questionnaire, adapter
+skeleton, and a conformance test suite that gates integration.
