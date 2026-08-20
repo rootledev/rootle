@@ -162,6 +162,8 @@ state and config are separate files.
 
 - [provider-protocol.md](provider-protocol.md) — run ghx against your
   own backend via a stdio provider.
+- [settings.md](settings.md) — every config key, theme role, env
+  variable, and CLI flag.
 - [development.md](development.md) — architecture, dev workflow, and
   the test harness, for contributors.
 - [house-style.md](house-style.md) — the component contract.
