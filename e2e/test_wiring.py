@@ -192,7 +192,7 @@ def test_yank_file_yields_blob_url(tmp_path: Path) -> None:
         tui.send("y")
         screen = tui.expect("yanked")
         assert "src/main.rs" in screen  # the FILE, not its dir
-        assert clip.read_text().endswith("/alpha/src/main.rs")
+        assert clip.read_text().endswith("/alpha/src/main.rs#L1")  # preview line cursor
     finally:
         tui.stop()
 

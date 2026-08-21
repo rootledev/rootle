@@ -142,6 +142,7 @@ impl Provider for GitHubProvider {
                     .iter()
                     .flat_map(|tm| tm.matches.iter().map(|m| m.text.clone()))
                     .collect(),
+                located: true,
             })
             .collect())
     }

@@ -199,6 +199,9 @@ def main() -> None:
             req = json.loads(line)
         except json.JSONDecodeError:
             continue
+        if not isinstance(req.get("id"), int):
+            # Notification (e.g. $/cancelRequest) — never reply.
+            continue
         try:
             result = handle(root, req.get("method", ""), req.get("params") or {})
             reply = {"jsonrpc": "2.0", "id": req.get("id"), "result": result}

@@ -10,8 +10,8 @@ pub enum Action {
     MoveDown,
     DrillIn,
     DrillOut,
-    PreviewScrollUp,
-    PreviewScrollDown,
+    PreviewLineUp,
+    PreviewLineDown,
 
     // Pane filter (SEARCHING mode)
     EnterSearch,
@@ -64,6 +64,20 @@ pub enum Action {
     },
     GlobalSearchFailed {
         message: String,
+    },
+    /// Cursor landed on a hit without preview lines but with a sha —
+    /// fetch its blob and locate the context lazily (plans/0006 §1).
+    LoadHitContext {
+        hit: Box<crate::components::global_search::SearchHit>,
+        query: String,
+    },
+    HitContextLoaded {
+        repo: String,
+        path: String,
+        sha: String,
+        line: u32,
+        preview: Vec<(u32, ratatui::text::Line<'static>)>,
+        match_count: u32,
     },
     OpenSearchHit(crate::components::global_search::SearchHit),
 
