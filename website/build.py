@@ -67,12 +67,17 @@ LOGO_VARS = {
 }
 
 
-def themed_logo() -> str:
-    """doc/logo.svg with palette hexes swapped for site CSS vars."""
-    svg = (ROOT / "doc" / "logo.svg").read_text()
+def themed_svg(path: Path) -> str:
+    """An SVG with palette hexes swapped for site CSS vars — inline it so
+    the palette picker re-themes it (an <img> can't inherit page CSS)."""
+    svg = path.read_text()
     for hex_color, var in LOGO_VARS.items():
         svg = svg.replace(hex_color, var)
     return svg.strip()
+
+
+def themed_logo() -> str:
+    return themed_svg(ROOT / "doc" / "logo.svg")
 
 
 RAIL_LINKS = [("index.html", "home")] + [
@@ -194,6 +199,24 @@ def build_docs() -> None:
             text, extensions=["fenced_code", "tables", "toc", "sane_lists"]
         )
         body = rewrite(body, slugs)
+        # Inline + theme doc-local SVG diagrams (they live behind <img>
+        # otherwise, which can't inherit the page's palette vars).
+        for name in DOC_ASSETS:
+            if name.endswith(".svg"):
+
+                def inline_svg(m: re.Match, name: str = name) -> str:
+                    alt = re.search(r'alt="([^"]*)"', m.group(0))
+                    label = alt.group(1) if alt else name
+                    return (
+                        f'<div class="diagram" role="img" aria-label="{label}">'
+                        f"{themed_svg(ROOT / 'doc' / name)}</div>"
+                    )
+
+                body = re.sub(
+                    rf'<img [^>]*src="\.\./assets/{re.escape(name)}"[^>]*>',
+                    inline_svg,
+                    body,
+                )
         title = re.match(r"# (.+)", text).group(1).strip()
         toc = extract_toc(body)
         dst = OUT / "docs" / f"{slug}.html"

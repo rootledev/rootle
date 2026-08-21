@@ -174,6 +174,13 @@ article.md img {
   border: 1px solid var(--border); border-radius: 10px;
   background: var(--card);
 }
+/* inlined SVG diagrams (architecture.svg) — themed via palette vars */
+article.md .diagram {
+  margin: 18px auto; border: 1px solid var(--border);
+  border-radius: 10px; overflow: hidden; max-width: 720px;
+}
+article.md .diagram svg { width: 100%; height: auto; display: block; }
+article.md .diagram svg * { transition: fill 0.25s ease, stroke 0.25s ease; }
 article.md table {
   width: 100%; border-collapse: collapse; margin: 16px 0;
   font-size: 14px; display: block; overflow-x: auto;
