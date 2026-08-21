@@ -4,14 +4,19 @@
 
 **ghx — browse remote source-control systems from your terminal**
 
+**status: alpha** — features, keys, and config may still shift between
+releases; pin a version if it matters to you.
+
+[![ci](https://github.com/tknawara/ghx/actions/workflows/ci.yml/badge.svg)](https://github.com/tknawara/ghx/actions/workflows/ci.yml)
+[![release](https://github.com/tknawara/ghx/actions/workflows/release.yml/badge.svg)](https://github.com/tknawara/ghx/actions/workflows/release.yml)
+[![audit](https://github.com/tknawara/ghx/actions/workflows/audit.yml/badge.svg)](https://github.com/tknawara/ghx/actions/workflows/audit.yml)
+[![version](https://img.shields.io/github/v/release/tknawara/ghx?display_name=tag&sort=semver)](https://github.com/tknawara/ghx/releases/latest)
+[![status](https://img.shields.io/badge/status-alpha-orange)](https://github.com/tknawara/ghx/milestones)
+
 A modal TUI (ratatui) with a yazi-style miller-column browser,
 syntax-highlighted previews, Zed-style global search, and a pluggable
 provider seam — GitHub ships in-tree, anything else wraps in via a
 small stdio script.
-
-![demo](doc/demo.gif)
-
-[Quick start](#quick-start) · [Docs](#documentation) · [Providers](#providers) · [Development](#development)
 
 </div>
 
