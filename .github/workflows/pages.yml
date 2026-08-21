@@ -1,14 +1,16 @@
 name: pages
 
-# Project website at tknawara.github.io/rootle — a single static page
-# assembled from website/ plus the rendered doc artifacts, so the demo
-# GIF and screenshots on the site are always the current ones.
+# Project website at tknawara.github.io/rootle — assembled by
+# website/build.py: the landing page from website/, the docs pages
+# converted from doc/*.md, and the rendered demo artifacts. Editing a
+# doc in the repo is all it takes to update the site.
 on:
   workflow_dispatch:
   push:
     branches: [main]
     paths:
       - "website/**"
+      - "doc/*.md"
       - "doc/logo.svg"
       - "doc/demo.gif"
       - "doc/img/**"
@@ -31,20 +33,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Assemble site
-        run: |
-          mkdir -p public/assets/img
-          cp website/index.html public/
-          cp website/assets/icon.svg website/assets/favicon.svg public/assets/
-          cp doc/logo.svg public/assets/
-          cp doc/demo.gif public/assets/
-          cp doc/img/*.png public/assets/img/
+      - uses: astral-sh/setup-uv@v7
 
-      - uses: actions/configure-pages@v6
+      - name: Build site
+        run: uv run --with markdown python website/build.py
 
-      - uses: actions/upload-pages-artifact@v5
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
         with:
           path: public
 
       - id: deploy
-        uses: actions/deploy-pages@v5
+        uses: actions/deploy-pages@v4
