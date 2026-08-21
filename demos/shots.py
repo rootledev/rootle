@@ -19,8 +19,19 @@ from conftest import FS_PROVIDER, make_fs_root, open_fs_repo
 from tui import ROOT, Tui, build
 
 IMG = ROOT / "doc" / "img"
-FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
-FONT_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf"
+# Presentation font: vendored JetBrains Mono (demos/fonts/, OFL) —
+# deterministic everywhere; DejaVu is the fallback for machines that
+# render the docs without the vendored copy.
+_FONTS = ROOT / "demos" / "fonts"
+
+
+def _font(name: str, fallback: str) -> str:
+    vendored = _FONTS / name
+    return str(vendored) if vendored.exists() else fallback
+
+
+FONT = _font("JetBrainsMono-Regular.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf")
+FONT_BOLD = _font("JetBrainsMono-Bold.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf")
 # Fallback for glyphs missing from the Mono faces (▌ ⋮ ● ○ ␣ ▸ …).
 FONT_FALLBACK = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 FONT_FALLBACK_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"

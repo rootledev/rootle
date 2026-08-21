@@ -73,6 +73,18 @@ record the answer — the scaffold and the tests encode them.
 17. Multiplexing: is this one backend or a fan-out over several (e.g.
     tool A for search, tool B for repos)? rootle supports exactly one
     provider process; fan-out lives inside the adapter.
+18. Staleness (v1.1): can you tell when a `search/code` hit's placement
+    is unverified (index older than the blob it claims)? If yes, emit
+    `located: false` on that item — rootle shows a `stale` chip until
+    client-side locating heals it. Default (absent) means verified.
+19. Error kinds (v1.1): map backend failures to `error.data.kind` —
+    `auth`, `rate_limited` (with optional `retry_after_s`),
+    `not_found`, `network`, `timeout`, `provider`. Open enum; unknown
+    kinds degrade to the message toast. Optional but cheap.
+20. Cancellation (v1.1): does a call burn quota or run long? rootle
+    sends advisory `$/cancelRequest` notifications for superseded work.
+    Ignoring them is legal (they are notifications — never reply); a
+    provider that can abort SHOULD.
 
 If any answer is "unknown", scaffold with that capability DISABLED
 (capability flag false / method returns an error) and leave a TODO —
@@ -137,7 +149,7 @@ def repo_blob(params):  # -> {"bytes_b64": ...}
     raise TODO
 
 
-def search_code(params):  # -> {"items": [{"repo","path","sha","branch","matches":[..]}]}
+def search_code(params):  # -> {"items": [{"repo","path","sha","branch","matches":[..],"located"?}]}
     raise TODO
 
 
@@ -173,6 +185,11 @@ def main() -> None:
             continue
         try:
             req = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(req.get("id"), int):
+            continue  # notification (e.g. $/cancelRequest) — never reply
+        try:
             reply = {"jsonrpc": "2.0", "id": req.get("id"),
                      "result": METHODS[req["method"]](req.get("params") or {})}
         except Exception as e:  # noqa: BLE001 — surfaced in the TUI
@@ -321,6 +338,31 @@ def test_urls_shape(rpc):
         )
 
 
+def test_notifications_tolerated(rpc):
+    """v1.1: notifications (e.g. $/cancelRequest) get NO reply and must
+    not crash or desync the provider."""
+    import select
+    rpc.p.stdin.write(json.dumps(
+        {"jsonrpc": "2.0", "method": "$/cancelRequest",
+         "params": {"id": 12345}}) + "\n")
+    rpc.p.stdin.flush()
+    ready, _, _ = select.select([rpc.p.stdout], [], [], 0.3)
+    assert not ready, "notifications must not get a reply"
+    # And the provider still answers afterwards.
+    r = rpc.call("initialize", {"protocol": 1})
+    assert r["protocol"] == 1
+
+
+def test_located_optional_bool(rpc):
+    """v1.1: search/code items MAY carry `located` (bool, default true)."""
+    try:
+        r = rpc.call("search/code", {"q": "<a fixture query>"})
+    except AssertionError as e:
+        pytest.skip(f"no code search: {e}")
+    for it in r["items"]:
+        assert "located" not in it or isinstance(it["located"], bool)
+
+
 def test_error_shape(rpc):
     rpc.p.stdin.write(json.dumps(
         {"jsonrpc": "2.0", "id": 999, "method": "repo/tree",
@@ -341,7 +383,9 @@ wrong names — the TUI shows empty data, not an error):
 - blob: `bytes_b64` (raw base64, no headers/whitespace)
 - search/code: `matches` is a list of STRING match texts
 - optional fields rootle defaults: `truncated:false`, `branch:"main"`,
-  `sha:""`, `matches:[]`, `items:[]`, `repos:[]`
+  `sha:""`, `matches:[]`, `items:[]`, `repos:[]`, `located:true`
+- notifications (no numeric top-level `id`) get NO reply — replying
+  with `"id": null` confuses rootle's id matching
 
 ### test_e2e.py — the real TUI against the provider
 
@@ -367,6 +411,7 @@ Required e2e assertions (with the rootle repo's e2e harness):
       disabled capabilities)
 - [ ] content-id contract test green (`CHANGE_CMD` provided)
 - [ ] e2e against the real binary green
+- [ ] `test_notifications_tolerated` green (v1.1 cancel readiness)
 - [ ] `provider.toml` committed; README shows the run command
 - [ ] credentials documented by NAME only (where they live), never
       values, never logged
