@@ -40,7 +40,7 @@ jobs:
           cp doc/demo.gif public/assets/
           cp doc/img/*.png public/assets/img/
 
-      - uses: actions/configure-pages@v5
+      - uses: actions/configure-pages@v6
 
       - uses: actions/upload-pages-artifact@v5
         with:
