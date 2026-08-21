@@ -8,7 +8,9 @@ Output doc/demo.gif
 
 Set Shell "bash"
 Set FontSize 14
-Set FontFile "/vhs/demos/fonts/JetBrainsMono-Regular.ttf"
+# Font: vendored JetBrains Mono, installed into the container by the
+# caller (demo workflow mounts /vhs; fc-cache picks it up).
+Set FontFamily "JetBrains Mono"
 Set Width 1280
 Set Height 760
 Set TypingSpeed 10ms
