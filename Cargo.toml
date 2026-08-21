@@ -24,7 +24,7 @@ reqwest = { version = "0.13.4", default-features = false, features = ["blocking"
 syntect = { version = "5.3.0", default-features = false, features = ["default-fancy", "default-syntaxes"] }
 base64 = "0.23.1"
 sha2 = "0.11"
-signal-hook = "0.3"
+signal-hook = "0.4"
 filetime = "0.2.29"
 clap = { version = "4.6.6", features = ["derive"] }
 
