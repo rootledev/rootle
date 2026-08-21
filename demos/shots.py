@@ -88,7 +88,7 @@ def color(value: str, default: tuple) -> tuple:
 
 
 class Renderer:
-    def __init__(self, cols: int, rows: int, cell_px: int = 18) -> None:
+    def __init__(self, cols: int, rows: int, cell_px: int = 24) -> None:
         self.font = ImageFont.truetype(FONT, cell_px)
         self.font_bold = ImageFont.truetype(FONT_BOLD, cell_px)
         self.fallback = ImageFont.truetype(FONT_FALLBACK, cell_px)
