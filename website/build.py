@@ -4,15 +4,15 @@
 Single source of truth: the landing page is website/index.html, and the
 docs pages are converted from doc/*.md at build time — editing a doc in
 the repo is all it takes to update the site (pages.yml redeploys on
-doc/** changes). Docs pages get a left sidebar: site navigation plus an
-on-this-page TOC generated from the headings.
+doc/** changes). Every page shares one chrome: a left rail (brand, site
+nav, on-this-page TOC on docs) and a content column — the same markup
+website/index.html carries by hand.
 
     uv run --with markdown python website/build.py    # → public/
 """
 
 from __future__ import annotations
 
-import html as html_mod
 import re
 import shutil
 from pathlib import Path
@@ -43,33 +43,31 @@ GITHUB_LINKS: dict[str, str] = {
 # Doc-local images that are not screenshots: copied alongside img/.
 DOC_ASSETS = {"architecture.svg"}
 
-
-def slugify(text: str) -> str:
-    """Match python-markdown's toc slugify (lower, strip punctuation,
-    spaces to dashes)."""
-    slug = re.sub(r"[^\w\s-]", "", text.lower()).strip()
-    return re.sub(r"[-\s]+", "-", slug)
+RAIL_LINKS = [("index.html", "home")] + [
+    (f"docs/{slug}.html", label) for slug, (_, label) in PAGES.items()
+]
 
 
-def sidebar(active: str, toc: list[tuple[str, str]]) -> str:
-    links = []
-    for slug, (_, label) in PAGES.items():
-        cls = ' class="active"' if f"docs/{slug}.html" == active else ""
-        links.append(f'      <a{cls} href="./{slug}.html">{label}</a>')
-    toc_html = "".join(
-        f'      <a href="#{anchor}">{html_mod.escape(label)}</a>\n' for label, anchor in toc
+def rail(active: str, toc: list[tuple[str, str]]) -> str:
+    links = "".join(
+        f'    <a{" class=\"active\"" if href == active else ""} href="../{href}">{label}</a>\n'
+        for href, label in RAIL_LINKS
     )
-    toc_block = f"""
-    <div class="side-toc">
-      <span class="side-head">on this page</span>
-{toc_html}    </div>""" if toc_html else ""
-    return f"""
-  <aside class="side">
-    <div class="side-pages">
-      <span class="side-head">rootle</span>
-{chr(10).join(links)}
-    </div>{toc_block}
-  </aside>"""
+    toc_html = "".join(f'    <a href="#{anchor}">{label}</a>\n' for label, anchor in toc)
+    toc_block = (
+        f'  <span class="rail-head">on this page</span>\n  <div class="rail-toc">\n{toc_html}  </div>\n'
+        if toc_html
+        else ""
+    )
+    return f"""<aside class="rail">
+  <a class="brand" href="../index.html">
+    <img src="../assets/icon.svg" alt="rootle icon"><span class="wordmark">rootle</span>
+  </a>
+  <span class="rail-head">menu</span>
+  <nav>
+{links}    <a class="gh" href="{REPO}">github ↗</a>
+  </nav>
+{toc_block}</aside>"""
 
 
 def page(title: str, body: str, active: str, toc: list[tuple[str, str]]) -> str:
@@ -84,26 +82,19 @@ def page(title: str, body: str, active: str, toc: list[tuple[str, str]]) -> str:
 <link rel="stylesheet" href="../assets/site.css">
 </head>
 <body class="docs">
-<div class="wrap">
-<header>
-  <nav>
-    <img class="icon" src="../assets/icon.svg" alt="rootle icon">
-    <span class="wordmark">rootle</span>
-    <span class="spacer"></span>
-    <a class="github" href="{REPO}">github ↗</a>
-  </nav>
-</header>
-<div class="layout">{sidebar(active, toc)}
-  <article class="md">
+<div class="shell">
+{rail(active, toc)}
+<main class="content">
+<article class="md">
 {body}
-  </article>
-</div>
+</article>
 <footer>
   <span>MIT license</span>
   <a href="{REPO}">source</a>
   <a href="../index.html">home</a>
   <span style="margin-left:auto">a ratatui TUI · Catppuccin Mocha</span>
 </footer>
+</main>
 </div>
 </body>
 </html>
@@ -111,7 +102,8 @@ def page(title: str, body: str, active: str, toc: list[tuple[str, str]]) -> str:
 
 
 def extract_toc(md_body: str) -> list[tuple[str, str]]:
-    """(label, anchor) for every h2 the toc extension stamped with an id."""
+    """(label, anchor) for every h2 the toc extension stamped with an id.
+    Labels keep their HTML entities — they are inserted as HTML."""
     toc = []
     for m in re.finditer(r'<h2 id="([^"]+)">(.*?)</h2>', md_body):
         label = re.sub(r"<[^>]+>", "", m.group(2))

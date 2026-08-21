@@ -8,23 +8,24 @@
 <link rel="icon" href="./assets/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="./assets/site.css">
 </head>
-<body>
-<div class="wrap">
+<body class="home">
+<div class="shell">
 
-<header>
+<aside class="rail">
+  <a class="brand" href="./index.html">
+    <img src="./assets/icon.svg" alt="rootle icon"><span class="wordmark">rootle</span>
+  </a>
+  <span class="rail-head">menu</span>
   <nav>
-    <img class="icon" src="./assets/icon.svg" alt="rootle icon">
-    <span class="wordmark">rootle</span>
-    <span class="links">
-      <a class="active" href="./index.html">home</a>
-      <a href="./docs/getting-started.html">getting started</a>
-      <a href="./docs/settings.html">settings</a>
-      <a href="./docs/provider-protocol.html">providers</a>
-    </span>
-    <span class="spacer"></span>
-    <a class="github" href="https://github.com/tknawara/rootle">github ↗</a>
+    <a class="active" href="./index.html">home</a>
+    <a href="./docs/getting-started.html">getting started</a>
+    <a href="./docs/settings.html">settings</a>
+    <a href="./docs/provider-protocol.html">providers</a>
+    <a class="gh" href="https://github.com/tknawara/rootle">github ↗</a>
   </nav>
-</header>
+</aside>
+
+<main class="content">
 
 <section class="hero">
   <img class="logo" src="./assets/logo.svg" alt="rootle — terminal card with miller columns and the rootle mole">
@@ -107,9 +108,8 @@
   <div class="card">
     <p>rootle talks to backends through a small protocol, not to GitHub
     directly. <code>[provider] kind = "stdio"</code> spawns your adapter as
-    a child process — see the
-    <a href="./docs/provider-protocol.html">provider
-    protocol</a> and the
+    a child process — see how the pieces fit in
+    <a href="./docs/provider-protocol.html">providers</a>, or the
     <a href="https://github.com/tknawara/rootle/tree/main/skills/rootle-provider">scaffolding
     skill</a> for wrapping your own backend.</p>
   </div>
@@ -122,6 +122,7 @@
   <span style="margin-left:auto">a ratatui TUI · Catppuccin Mocha</span>
 </footer>
 
+</main>
 </div>
 </body>
 </html>
