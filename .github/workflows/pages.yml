@@ -10,6 +10,7 @@ on:
     branches: [main]
     paths:
       - "website/**"
+      - "install.sh"
       - "doc/*.md"
       - "doc/logo.svg"
       - "doc/demo.gif"

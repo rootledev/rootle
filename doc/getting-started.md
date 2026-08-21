@@ -8,14 +8,22 @@ keys that do everything. Every knob lives in
 
 ## Install
 
-Grab the static musl binary from
-[github.com/tknawara/rootle/releases](https://github.com/tknawara/rootle/releases)
-(each release ships `rootle-linux-x86_64-musl` plus a `.sha256`), or:
+```
+curl -fsSL https://tknawara.github.io/rootle/install.sh | sh
+```
+
+The installer drops the static musl binary into `~/.local/bin`
+(linux x86_64; override with `ROOTLE_INSTALL_DIR`). To update, run the
+same command again — it always installs the latest release unless you
+pin `ROOTLE_VERSION`. Other platforms, and anyone who prefers cargo:
 
 ```
 cargo install rootle                      # from crates.io (Rust 1.88+)
-docker compose run --build --rm release   # → ./dist/rootle-linux-x86_64-musl
 ```
+
+Each release ships `rootle-<version>-x86_64-unknown-linux-musl.tar.gz`
+plus a `.sha256` on
+[github.com/tknawara/rootle/releases](https://github.com/tknawara/rootle/releases).
 
 ## First launch
 
