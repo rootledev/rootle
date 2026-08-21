@@ -80,6 +80,7 @@ def page(title: str, body: str, active: str, toc: list[tuple[str, str]]) -> str:
 <meta name="description" content="rootle — a modal terminal UI for browsing remote source-control systems.">
 <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="../assets/site.css">
+<script src="../assets/site.js" defer></script>
 </head>
 <body class="docs">
 <div class="shell">
@@ -92,7 +93,7 @@ def page(title: str, body: str, active: str, toc: list[tuple[str, str]]) -> str:
   <span>MIT license</span>
   <a href="{REPO}">source</a>
   <a href="../index.html">home</a>
-  <span style="margin-left:auto">a ratatui TUI · Catppuccin Mocha</span>
+  <span style="margin-left:auto">a ratatui TUI · seven palettes</span>
 </footer>
 </main>
 </div>
@@ -159,7 +160,7 @@ def assemble() -> None:
     shutil.copy(ROOT / "website" / "index.html", OUT / "index.html")
     # Served at tknawara.github.io/rootle/install.sh — the curl-pipe-sh installer.
     shutil.copy(ROOT / "install.sh", OUT / "install.sh")
-    for name in ("icon.svg", "favicon.svg", "site.css"):
+    for name in ("icon.svg", "favicon.svg", "site.css", "site.js"):
         shutil.copy(ROOT / "website" / "assets" / name, OUT / "assets" / name)
     shutil.copy(ROOT / "doc" / "logo.svg", OUT / "assets" / "logo.svg")
     shutil.copy(ROOT / "doc" / "demo.gif", OUT / "assets" / "demo.gif")
