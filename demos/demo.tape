@@ -8,6 +8,7 @@ Output doc/demo.gif
 
 Set Shell "bash"
 Set FontSize 14
+Set FontFile "/vhs/demos/fonts/JetBrainsMono-Regular.ttf"
 Set Width 1280
 Set Height 760
 Set TypingSpeed 10ms
