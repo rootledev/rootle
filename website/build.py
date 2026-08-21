@@ -80,6 +80,19 @@ RAIL_LINKS = [("index.html", "home")] + [
 ]
 
 
+# Palette dots in the docs rail: name + accent color (border_focused),
+# mirroring the landing's picker so themes are switchable from any page.
+PALETTE_DOTS = [
+    ("catppuccin-mocha", "#89b4fa"),
+    ("dracula", "#bd93f9"),
+    ("gruvbox-dark", "#83a598"),
+    ("nord", "#88c0d0"),
+    ("one-dark", "#61afef"),
+    ("solarized-dark", "#268bd2"),
+    ("tokyo-night", "#7aa2f7"),
+]
+
+
 def rail(active: str, toc: list[tuple[str, str]]) -> str:
     links = "".join(
         f'    <a{" class=\"active\"" if href == active else ""} href="../{href}">{label}</a>\n'
@@ -91,6 +104,11 @@ def rail(active: str, toc: list[tuple[str, str]]) -> str:
         if toc_html
         else ""
     )
+    dots = "".join(
+        f'    <button data-set-palette="{name}" title="{name}" '
+        f'style="--sw:{color}" aria-label="{name}"></button>\n'
+        for name, color in PALETTE_DOTS
+    )
     return f"""<aside class="rail">
   <a class="brand" href="../index.html">
     <img src="../assets/icon.svg" alt="rootle icon"><span class="wordmark">rootle</span>
@@ -99,7 +117,10 @@ def rail(active: str, toc: list[tuple[str, str]]) -> str:
   <nav>
 {links}    <a class="gh" href="{REPO}">github ↗</a>
   </nav>
-{toc_block}</aside>"""
+{toc_block}  <span class="rail-head">theme</span>
+  <div class="rail-palettes">
+{dots}  </div>
+</aside>"""
 
 
 def page(title: str, body: str, active: str, toc: list[tuple[str, str]]) -> str:

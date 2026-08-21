@@ -13,7 +13,8 @@
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
 body {
-  margin: 0; background: var(--bg); color: var(--text);
+  margin: 0; color: var(--text);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--card) 45%, var(--bg)) 0%, var(--bg) 320px), var(--bg);
   font-family: var(--sans); line-height: 1.6; font-size: 16px;
 }
 a { color: var(--blue); text-decoration: none; }
@@ -31,6 +32,21 @@ code {
   max-width: 1240px;
   margin-inline: auto;
 }
+/* home: no rail — top bar + centered single column */
+body.home .shell { display: block; max-width: none; }
+body.home .content { max-width: 1080px; }
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  max-width: 1080px; margin-inline: auto; padding: 18px 32px 0;
+  font-family: var(--mono);
+}
+.topbar .brand { display: flex; align-items: center; gap: 10px; }
+.topbar .brand img { width: 28px; height: 28px; }
+.topbar .brand .wordmark { font-weight: 700; font-size: 17px; color: var(--text); }
+.topbar .brand:hover { text-decoration: none; }
+.topbar nav { display: flex; gap: 6px; }
+.topbar nav a { font-size: 13.5px; color: var(--dim); padding: 5px 12px; border-radius: 8px; }
+.topbar nav a:hover { background: var(--card); color: var(--text); text-decoration: none; }
 .rail {
   position: sticky; top: 0; height: 100vh; overflow-y: auto;
   border-right: 1px solid var(--border);
@@ -90,7 +106,6 @@ footer {
 }
 
 /* ---- home ---- */
-body.home { background: linear-gradient(180deg, color-mix(in srgb, var(--card) 45%, var(--bg)) 0%, var(--bg) 320px); }
 .hero { text-align: center; padding: 40px 0 0; }
 .hero .logo { width: min(340px, 100%); margin-inline: auto; }
 .hero .logo svg { width: 100%; height: auto; display: block; }
@@ -183,6 +198,7 @@ article.md blockquote {
 /* ---- narrow screens: rail collapses to a top bar ---- */
 @media (max-width: 880px) {
   .shell { display: block; }
+  .topbar { padding: 14px 20px 0; flex-wrap: wrap; gap: 10px; }
   .rail {
     position: static; height: auto; overflow: visible;
     border-right: none; border-bottom: 1px solid var(--border);
@@ -194,8 +210,18 @@ article.md blockquote {
   .rail nav a { font-size: 13px; padding: 5px 12px; background: var(--card); }
   .rail nav a.gh { margin-top: 0; }
   .rail-toc { display: none; }
+  .rail-palettes { margin-top: 12px; padding: 0; }
   .content { padding: 0 20px; }
 }
+
+/* docs rail: compact palette dots (switch themes from any page) */
+.rail-palettes { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 26px; padding: 0 12px; }
+.rail-palettes button {
+  width: 15px; height: 15px; border-radius: 50%; padding: 0;
+  background: var(--sw); border: 2px solid transparent; cursor: pointer;
+}
+.rail-palettes button:hover { transform: scale(1.15); }
+.rail-palettes button.active { border-color: var(--text); }
 
 /* ---- hero install box + chips ---- */
 .chips { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin: 10px 0 14px; }
