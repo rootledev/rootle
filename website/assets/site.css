@@ -89,7 +89,7 @@ footer {
 }
 
 /* ---- home ---- */
-body.home { background: linear-gradient(180deg, #15151f 0%, var(--bg) 320px); }
+body.home { background: linear-gradient(180deg, color-mix(in srgb, var(--card) 45%, var(--bg)) 0%, var(--bg) 320px); }
 .hero { text-align: center; padding: 40px 0 0; }
 .hero img.logo { width: min(460px, 100%); height: auto; }
 .hero p.tagline { font-size: 19px; color: var(--dim); margin: 8px 0 4px; }
@@ -104,7 +104,7 @@ body.home { background: linear-gradient(180deg, #15151f 0%, var(--bg) 320px); }
   font-family: var(--mono); font-size: 15px; padding: 10px 22px;
   border-radius: 10px; border: 1px solid var(--border);
 }
-.cta a.primary { background: var(--blue); color: #1e1e2e; border-color: var(--blue); font-weight: 700; }
+.cta a.primary { background: var(--blue); color: var(--card); border-color: var(--blue); font-weight: 700; }
 .cta a.primary:hover { text-decoration: none; filter: brightness(1.1); }
 .cta a.ghost { color: var(--text); }
 .cta a.ghost:hover { text-decoration: none; border-color: var(--blue); }
@@ -199,4 +199,110 @@ article.md blockquote {
   .rail nav a.gh { margin-top: 0; }
   .rail-toc { display: none; }
   .content { padding: 0 20px; }
+}
+
+/* ---- hero install box + chips ---- */
+.chips { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin: 10px 0 14px; }
+.chips .chip {
+  font-family: var(--mono); font-size: 12px; color: var(--dim);
+  border: 1px solid var(--border); border-radius: 999px;
+  padding: 2px 12px; background: var(--card);
+}
+.install {
+  display: flex; align-items: stretch; max-width: 620px; margin: 0 auto 10px;
+  border: 1px solid var(--border); border-radius: 12px;
+  background: var(--deep); overflow: hidden;
+}
+.install pre {
+  flex: 1; margin: 0; border: none; background: none; border-radius: 0;
+  padding: 13px 18px; font-size: 13.5px; white-space: nowrap; overflow-x: auto;
+  text-align: left;
+}
+.install .copy {
+  font-family: var(--mono); font-size: 13px; color: var(--blue);
+  background: var(--card); border: none; border-left: 1px solid var(--border);
+  padding: 0 16px; cursor: pointer;
+}
+.install .copy:hover { color: var(--text); background: var(--border); }
+.install .copy.ok { color: var(--green); }
+.hero p.alt { font-size: 13.5px; color: var(--faint); margin: 0 0 22px; }
+.hero p.alt code { border: none; padding: 0 2px; }
+
+/* ---- demo window chrome ---- */
+.window {
+  border: 1px solid var(--border); border-radius: 12px;
+  overflow: hidden; background: var(--card);
+}
+.window .titlebar {
+  display: flex; align-items: center; gap: 7px;
+  padding: 10px 14px; background: var(--deep);
+  border-bottom: 1px solid var(--border);
+}
+.window .dot { width: 11px; height: 11px; border-radius: 50%; }
+.window .dot:nth-child(1) { background: var(--peach); }
+.window .dot:nth-child(2) { background: var(--yellow); }
+.window .dot:nth-child(3) { background: var(--green); }
+.window .wtitle {
+  margin-left: 8px; font-family: var(--mono); font-size: 12.5px;
+  color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.window img { width: 100%; display: block; border: none; border-radius: 0; }
+
+/* ---- palette picker ---- */
+.palette-bar { display: flex; gap: 10px; flex-wrap: wrap; }
+.palette-bar button {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-family: var(--mono); font-size: 13px; color: var(--dim);
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 999px; padding: 6px 14px; cursor: pointer;
+}
+.palette-bar button:hover { border-color: var(--blue); color: var(--text); }
+.palette-bar button.active { border-color: var(--blue); color: var(--blue); }
+.palette-bar .sw { width: 11px; height: 11px; border-radius: 50%; background: var(--sw); }
+
+/* ---- compare table ---- */
+table.compare { width: 100%; border-collapse: collapse; font-size: 14px; }
+table.compare th, table.compare td { border-bottom: 1px solid var(--border); padding: 8px 10px; }
+table.compare th { font-family: var(--mono); font-size: 13px; color: var(--blue); text-align: center; }
+table.compare th:first-child { color: var(--faint); font-weight: 400; text-align: left; }
+table.compare td { color: var(--dim); text-align: center; }
+table.compare td:first-child { color: var(--text); text-align: left; }
+table.compare .yes { color: var(--green); }
+table.compare .no { color: var(--faint); }
+table.compare .part { color: var(--yellow); font-size: 13px; }
+
+/* ---- embedded palettes: same values as src/theme.rs, mapped onto the
+   site variables (crust→bg, mantle→deep, base→card, surface0→border,
+   text/subtext0/overlay0, border_focused→blue, mode_browse→green,
+   mode_search→yellow, mode_leader→peach). site.js sets data-palette on
+   <html>; no attribute = catppuccin-mocha (the :root defaults). ---- */
+html[data-palette="dracula"] {
+  --bg: #191a21; --deep: #21222c; --card: #282a36; --border: #44475a;
+  --text: #f8f8f2; --dim: #9aa2c7; --faint: #6272a4;
+  --blue: #bd93f9; --green: #50fa7b; --yellow: #f1fa8c; --peach: #ffb86c;
+}
+html[data-palette="gruvbox-dark"] {
+  --bg: #141618; --deep: #1d2021; --card: #282828; --border: #3c3836;
+  --text: #ebdbb2; --dim: #bdae93; --faint: #928374;
+  --blue: #83a598; --green: #b8bb26; --yellow: #fabd2f; --peach: #fe8019;
+}
+html[data-palette="nord"] {
+  --bg: #242933; --deep: #272c36; --card: #2e3440; --border: #434c5e;
+  --text: #d8dee9; --dim: #9aa4b8; --faint: #616e88;
+  --blue: #88c0d0; --green: #a3be8c; --yellow: #ebcb8b; --peach: #d08770;
+}
+html[data-palette="one-dark"] {
+  --bg: #1b1f27; --deep: #21252b; --card: #282c34; --border: #3e4451;
+  --text: #abb2bf; --dim: #828997; --faint: #5c6370;
+  --blue: #61afef; --green: #98c379; --yellow: #e5c07b; --peach: #d19a66;
+}
+html[data-palette="solarized-dark"] {
+  --bg: #001f27; --deep: #073642; --card: #002b36; --border: #073642;
+  --text: #93a1a1; --dim: #839496; --faint: #657b83;
+  --blue: #268bd2; --green: #859900; --yellow: #b58900; --peach: #cb4b16;
+}
+html[data-palette="tokyo-night"] {
+  --bg: #12131a; --deep: #16161e; --card: #1a1b26; --border: #292e42;
+  --text: #c0caf5; --dim: #a9b1d6; --faint: #565f89;
+  --blue: #7aa2f7; --green: #9ece6a; --yellow: #e0af68; --peach: #ff9e64;
 }
