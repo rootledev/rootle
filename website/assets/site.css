@@ -4,8 +4,9 @@
    website/build.py. Catppuccin Mocha. */
 :root {
   --bg: #11111b; --card: #1e1e2e; --deep: #181825;
-  --border: #313244; --text: #cdd6f4; --dim: #a6adc8; --faint: #6c7086;
+  --border: #313244; --border-strong: #585b70; --text: #cdd6f4; --dim: #a6adc8; --faint: #6c7086;
   --blue: #89b4fa; --green: #a6e3a1; --yellow: #f9e2af; --peach: #fab387;
+  --red: #f38ba8; --mauve: #cba6f7; --teal: #94e2d5;
   --mono: ui-monospace, "DejaVu Sans Mono", "JetBrains Mono", Menlo, Consolas, monospace;
   --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
 }
@@ -91,7 +92,9 @@ footer {
 /* ---- home ---- */
 body.home { background: linear-gradient(180deg, color-mix(in srgb, var(--card) 45%, var(--bg)) 0%, var(--bg) 320px); }
 .hero { text-align: center; padding: 40px 0 0; }
-.hero img.logo { width: min(340px, 100%); height: auto; }
+.hero .logo { width: min(340px, 100%); margin-inline: auto; }
+.hero .logo svg { width: 100%; height: auto; display: block; }
+.hero .logo svg * { transition: fill 0.25s ease, stroke 0.25s ease; }
 .hero p.tagline { font-size: 24px; color: var(--text); margin: 8px 0 4px; }
 .hero p.sub { font-size: 15px; color: var(--faint); margin: 0 0 24px; }
 .hero p.sub .chip {
@@ -268,36 +271,43 @@ table.compare .part { color: var(--yellow); font-size: 13px; }
 
 /* ---- embedded palettes: same values as src/theme.rs, mapped onto the
    site variables (crust→bg, mantle→deep, base→card, surface0→border,
-   text/subtext0/overlay0, border_focused→blue, mode_browse→green,
-   mode_search→yellow, mode_leader→peach). site.js sets data-palette on
-   <html>; no attribute = catppuccin-mocha (the :root defaults). ---- */
+   surface2→border-strong, text/subtext0/overlay0, border_focused→blue,
+   mode_browse→green, mode_search→yellow, mode_leader→peach,
+   error→red, mode_visual→mauve, mode_insert→teal). site.js sets
+   data-palette on <html>; no attribute = catppuccin-mocha (:root). ---- */
 html[data-palette="dracula"] {
   --bg: #191a21; --deep: #21222c; --card: #282a36; --border: #44475a;
   --text: #f8f8f2; --dim: #9aa2c7; --faint: #6272a4;
+  --red: #ff5555; --mauve: #ff79c6; --teal: #8be9fd; --border-strong: #6272a4;
   --blue: #bd93f9; --green: #50fa7b; --yellow: #f1fa8c; --peach: #ffb86c;
 }
 html[data-palette="gruvbox-dark"] {
   --bg: #141618; --deep: #1d2021; --card: #282828; --border: #3c3836;
   --text: #ebdbb2; --dim: #bdae93; --faint: #928374;
+  --red: #fb4934; --mauve: #d3869b; --teal: #8ec07c; --border-strong: #504945;
   --blue: #83a598; --green: #b8bb26; --yellow: #fabd2f; --peach: #fe8019;
 }
 html[data-palette="nord"] {
   --bg: #242933; --deep: #272c36; --card: #2e3440; --border: #434c5e;
   --text: #d8dee9; --dim: #9aa4b8; --faint: #616e88;
+  --red: #bf616a; --mauve: #b48ead; --teal: #8fbcbb; --border-strong: #4c566a;
   --blue: #88c0d0; --green: #a3be8c; --yellow: #ebcb8b; --peach: #d08770;
 }
 html[data-palette="one-dark"] {
   --bg: #1b1f27; --deep: #21252b; --card: #282c34; --border: #3e4451;
   --text: #abb2bf; --dim: #828997; --faint: #5c6370;
+  --red: #e06c75; --mauve: #c678dd; --teal: #56b6c2; --border-strong: #5c6370;
   --blue: #61afef; --green: #98c379; --yellow: #e5c07b; --peach: #d19a66;
 }
 html[data-palette="solarized-dark"] {
   --bg: #001f27; --deep: #073642; --card: #002b36; --border: #073642;
   --text: #93a1a1; --dim: #839496; --faint: #657b83;
+  --red: #dc322f; --mauve: #d33682; --teal: #2aa198; --border-strong: #586e75;
   --blue: #268bd2; --green: #859900; --yellow: #b58900; --peach: #cb4b16;
 }
 html[data-palette="tokyo-night"] {
   --bg: #12131a; --deep: #16161e; --card: #1a1b26; --border: #292e42;
   --text: #c0caf5; --dim: #a9b1d6; --faint: #565f89;
+  --red: #f7768e; --mauve: #bb9af7; --teal: #7dcfff; --border-strong: #3b4261;
   --blue: #7aa2f7; --green: #9ece6a; --yellow: #e0af68; --peach: #ff9e64;
 }
