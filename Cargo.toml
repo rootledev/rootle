@@ -3,6 +3,7 @@ name = "ghx"
 version = "0.2.2"
 edition = "2024"
 rust-version = "1.88"
+license = "MIT"
 
 [lib]
 path = "src/lib.rs"
