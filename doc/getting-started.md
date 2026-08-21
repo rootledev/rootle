@@ -3,8 +3,8 @@
 ## Install
 
 Grab the static musl binary from
-[github.com/tknawara/ghx/releases](https://github.com/tknawara/ghx/releases)
-(each release ships `ghx-linux-x86_64-musl` plus a `.sha256`), or build
+[github.com/tknawara/rootle/releases](https://github.com/tknawara/rootle/releases)
+(each release ships `rootle-linux-x86_64-musl` plus a `.sha256`), or build
 it in Docker — the release stage exports the same binary to `./dist/`:
 
 ```
@@ -14,22 +14,22 @@ docker compose run --build --rm release
 ## Auth (only code search needs it)
 
 Zero setup if your machine already talks to GitHub: `gh auth login`
-done once, or `GHX_TOKEN`/`GITHUB_TOKEN` exported — ghx picks it up.
+done once, or `ROOTLE_TOKEN`/`GITHUB_TOKEN` exported — rootle picks it up.
 Everything else works anonymously; only code search asks for a token,
 and it says so in the status line when it does.
 
 Using a stdio provider instead? Credentials live entirely inside your
-adapter — ghx never sees them.
+adapter — rootle never sees them.
 
 ## First run
 
 Launch with no arguments:
 
 ```
-ghx                # search popup on a fresh install
-ghx owner/repo     # skip the popup, open a repo directly
-ghx --theme NAME   # override the theme for this session
-ghx --config PATH  # use a different config file
+rootle                # search popup on a fresh install
+rootle owner/repo     # skip the popup, open a repo directly
+rootle --theme NAME   # override the theme for this session
+rootle --config PATH  # use a different config file
 ```
 
 The search popup appears only when state is fresh (no recent repos or
@@ -94,8 +94,8 @@ INSERT drops to NORMAL (`h/l/0/$/x`, `i/a/A` to re-enter INSERT).
 
 ## Open a file in your editor
 
-Move the cursor onto a file and press `Enter`. ghx materializes the
-cached blob under `~/.cache/ghx/edit/<owner>__<repo>/<path>`, suspends
+Move the cursor onto a file and press `Enter`. rootle materializes the
+cached blob under `~/.cache/rootle/edit/<owner>__<repo>/<path>`, suspends
 the terminal, and runs your editor on it. Edits are never written back.
 
 ![browsing with the preview pane](img/03-browse.png)
@@ -117,7 +117,7 @@ clipboard and confirms in the modeline ("yanked …"):
 ![yank toast](img/07-yank.png)
 
 Clipboard: OSC 52 first (works over SSH and tmux), then a local tool
-(`wl-copy`, `xclip`, `xsel`, `pbcopy`). `GHX_CLIPBOARD=<path>`
+(`wl-copy`, `xclip`, `xsel`, `pbcopy`). `ROOTLE_CLIPBOARD=<path>`
 redirects yanks to a file for scripts and CI.
 
 ## The command line (`:`)
@@ -164,22 +164,22 @@ Marks **persist after leaving VISUAL** (the ● stays) — they drive
 
 | Path | Contents |
 |---|---|
-| `~/.config/ghx/config.toml` | configuration |
-| `~/.config/ghx/themes/<name>.toml` | palette overrides (`[semantic]` role = hex) |
-| `~/.local/state/ghx/state.json` | recents, last org/repo/path, last search scope/extension |
-| `~/.cache/ghx/edit/` | files materialized for your editor |
-| `~/.cache/ghx/providers/<name>/` | per-provider content cache (safe to delete) |
+| `~/.config/rootle/config.toml` | configuration |
+| `~/.config/rootle/themes/<name>.toml` | palette overrides (`[semantic]` role = hex) |
+| `~/.local/state/rootle/state.json` | recents, last org/repo/path, last search scope/extension |
+| `~/.cache/rootle/edit/` | files materialized for your editor |
+| `~/.cache/rootle/providers/<name>/` | per-provider content cache (safe to delete) |
 
 Cache layout: `trees/<sha>.json` (immutable repo trees), `blobs/<ab>/<rest>`
 (blobs sharded by the first two sha chars), `index/refs/<owner>/<repo>/<branch>`
 (rev → tree sha + etag, revalidated on open), `edit/` (materialized files).
-At startup ghx sweeps orphans and evicts least-recently-used blobs past
-`[cache].max_mb` (default 512). Deleting `~/.cache/ghx` is always safe;
+At startup rootle sweeps orphans and evicts least-recently-used blobs past
+`[cache].max_mb` (default 512). Deleting `~/.cache/rootle` is always safe;
 state and config are separate files.
 
 ## Next
 
-- [provider-protocol.md](provider-protocol.md) — run ghx against your
+- [provider-protocol.md](provider-protocol.md) — run rootle against your
   own backend via a stdio provider.
 - [settings.md](settings.md) — every config key, theme role, env
   variable, and CLI flag.

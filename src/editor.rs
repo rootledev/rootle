@@ -45,7 +45,7 @@ fn find_in_path(program: &str) -> bool {
 }
 
 /// Read-only args for the vim family; helix & co. have no such flag —
-/// they edit the materialized cache copy, which is harmless (ghx never
+/// they edit the materialized cache copy, which is harmless (rootle never
 /// writes back; PLAN.md §12 read-only decision).
 pub fn build_args(program: &str, config: &Config) -> Vec<String> {
     let mut args = config.editor.args.clone();
@@ -58,7 +58,7 @@ pub fn build_args(program: &str, config: &Config) -> Vec<String> {
     args
 }
 
-/// Write the blob bytes to `~/.cache/ghx/edit/<owner>/<repo>/<sha>.<ext>`
+/// Write the blob bytes to `~/.cache/rootle/edit/<owner>/<repo>/<sha>.<ext>`
 /// — content-addressed like the rest of the cache, so the same path in
 /// two branches/repos never collides and the editor still gets a real
 /// extension for syntax detection. Traversal-safe: the sha must be hex
@@ -81,7 +81,7 @@ pub fn materialize(
         .and_then(|e| e.to_str())
         .filter(|e| e.chars().all(|c| c.is_ascii_alphanumeric()))
         .unwrap_or("");
-    let Some(root) = dirs::cache_dir().map(|d| d.join("ghx")) else {
+    let Some(root) = dirs::cache_dir().map(|d| d.join("rootle")) else {
         return Err(io::Error::new(io::ErrorKind::NotFound, "no cache dir"));
     };
     let name = if ext.is_empty() {

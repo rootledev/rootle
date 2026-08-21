@@ -86,7 +86,7 @@ impl KeybindsPopup {
             ))
             .title_top(
                 Line::from(Span::styled(
-                    format!(" ghx v{VERSION} "),
+                    format!(" rootle v{VERSION} "),
                     Style::default().fg(sem.hint),
                 ))
                 .right_aligned(),
@@ -244,7 +244,10 @@ mod tests {
         for mode in MODES {
             assert!(screen.contains(mode.chip()), "{} chip missing", mode.chip());
         }
-        assert!(screen.contains("ghx v"), "version missing from the title");
+        assert!(
+            screen.contains("rootle v"),
+            "version missing from the title"
+        );
         assert!(screen.contains("move"), "browse bindings missing");
         assert!(screen.contains("quit"), "browse bindings missing");
 

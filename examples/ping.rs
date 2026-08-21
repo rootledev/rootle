@@ -2,7 +2,7 @@
 //! Run: cargo run --example ping
 
 fn main() {
-    let client = ghx::github::Client::new();
+    let client = rootle::github::Client::new();
     println!("anonymous: {}", client.is_anonymous());
 
     let t0 = std::time::Instant::now();

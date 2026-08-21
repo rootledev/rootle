@@ -107,7 +107,7 @@ impl SettingsPopup {
             .map(|option| Row::Radio {
                 group: "name",
                 option,
-                desc: "palette: ~/.config/ghx/themes/<name>.toml — missing file falls back to embedded mocha",
+                desc: "palette: ~/.config/rootle/themes/<name>.toml — missing file falls back to embedded mocha",
             })
             .chain([Row::Text {
                 key: "path",
@@ -146,7 +146,7 @@ impl SettingsPopup {
                         key: "read_only",
                         label: "read_only",
                         value: config.editor.read_only,
-                        desc: "vim family opens with -R; others edit the cache copy — ghx never writes back",
+                        desc: "vim family opens with -R; others edit the cache copy — rootle never writes back",
                     },
                 ],
             },

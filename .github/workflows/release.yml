@@ -19,9 +19,9 @@ jobs:
       # Smoke: prove the artifact is static and runs headless.
       - name: Verify binary
         run: |
-          file dist/ghx-linux-x86_64-musl
-          ! ldd dist/ghx-linux-x86_64-musl 2>&1 | grep -q "=>"
-          ./dist/ghx-linux-x86_64-musl --version
+          file dist/rootle-linux-x86_64-musl
+          ! ldd dist/rootle-linux-x86_64-musl 2>&1 | grep -q "=>"
+          ./dist/rootle-linux-x86_64-musl --version
 
       # crates.io before the GitHub release: it is the irreversible
       # artifact. The guard fails a mistagged release instead of
@@ -43,5 +43,5 @@ jobs:
         run: |
           tag="${GITHUB_REF_NAME}"
           gh release create "$tag" dist/* \
-            --title "ghx $tag" \
+            --title "rootle $tag" \
             --generate-notes

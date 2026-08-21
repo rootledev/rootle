@@ -26,7 +26,7 @@ struct Io {
 }
 
 impl Drop for StdioProvider {
-    /// ghx owns the provider lifecycle: the child dies with the app
+    /// rootle owns the provider lifecycle: the child dies with the app
     /// (kill first — stdin EOF alone is timing-dependent).
     fn drop(&mut self) {
         if let Ok(io) = self.io.get_mut() {

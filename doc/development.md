@@ -1,6 +1,6 @@
 # Development guide
 
-How ghx is built, tested, and shipped. For using the app see
+How rootle is built, tested, and shipped. For using the app see
 [getting-started.md](getting-started.md); for the component contract
 see [house-style.md](house-style.md); for backend integration see
 [provider-protocol.md](provider-protocol.md).
@@ -19,7 +19,7 @@ app/
   workers.rs   provider calls → worker threads → AppEvents (mpsc)
 provider/
   mod.rs       trait Provider + shared types + build()/offline()
-  github.rs    GitHub impl (auth chain: GHX_TOKEN → GITHUB_TOKEN →
+  github.rs    GitHub impl (auth chain: ROOTLE_TOKEN → GITHUB_TOKEN →
                `gh auth token` → anonymous)
   stdio.rs     external providers: NDJSON-RPC child over stdio
 github/        GitHub-only internals: REST client, wire models, and
@@ -67,7 +67,7 @@ every push; tags build the release artifact via `release.yml`.
 Commits: small, theme-grouped, `feat:/fix:/test:/docs:` prefixes.
 Plans live in `plans/` per release; flip milestone status in the same
 PR that ships the work. PRs follow the
-[ghx-pr](../.agents/skills/ghx-pr/SKILL.md) skill (evidence required).
+[rootle-pr](../.agents/skills/rootle-pr/SKILL.md) skill (evidence required).
 
 ## The e2e harness (`e2e/`)
 
@@ -82,7 +82,7 @@ and reconstructs the screen with pyte — the live complement to
   repainting), which is both faster and more robust than fixed sleeps.
   `expect()`/`expect_gone()` poll with the screen dumped on timeout.
   Also records asciinema v2 casts (debugging only — see
-  [ghx-demo-capture](../.agents/skills/ghx-demo-capture/SKILL.md)
+  [rootle-demo-capture](../.agents/skills/rootle-demo-capture/SKILL.md)
   for why casts must not be rendered to GIF).
 - `conftest.py` — fixtures: `tui` (plain app), `provider_tui` (fs
   stdio provider over a temp root), helpers like `open_fs_repo`.
@@ -96,7 +96,7 @@ Gotchas that have bitten (all covered by the suite):
 
 - ESC bytes sent back-to-back merge into `Alt+<key>` in crossterm's
   parser — send ESC one call at a time.
-- A stdio provider's child must die with ghx (`StdioProvider::drop`
+- A stdio provider's child must die with rootle (`StdioProvider::drop`
   kills it); the lifecycle test enforces it.
 - `docker compose run` needs `--build` after source changes or it
   runs a stale image.
@@ -106,7 +106,7 @@ Gotchas that have bitten (all covered by the suite):
 `doc/demo.gif` renders from `demos/demo.tape` via the VHS docker image;
 `doc/img/*.png` render from `demos/shots.py` (pyte screen → PNG). Both
 carry gotcha lists in the
-[ghx-demo-capture](../.agents/skills/ghx-demo-capture/SKILL.md)
+[rootle-demo-capture](../.agents/skills/rootle-demo-capture/SKILL.md)
 skill; re-capture when any shown surface changes — or let the `demo`
 workflow (`.github/workflows/demo.yml`) do it: on pushes touching
 `src/`, `demos/`, or `e2e/` it rebuilds, re-renders, and commits
@@ -116,10 +116,10 @@ changed artifacts back to main (`[skip ci]`, idempotent).
 
 | Skill | When |
 |---|---|
-| ghx-component | adding any UI component |
-| ghx-tui-debug | verifying/debugging terminal behavior |
-| ghx-demo-capture | demo GIF + doc screenshots |
-| ghx-pr | authoring PRs (evidence contract) |
+| rootle-component | adding any UI component |
+| rootle-tui-debug | verifying/debugging terminal behavior |
+| rootle-demo-capture | demo GIF + doc screenshots |
+| rootle-pr | authoring PRs (evidence contract) |
 
-Public skill (`skills/ghx-provider`) scaffolds external providers with
+Public skill (`skills/rootle-provider`) scaffolds external providers with
 a conformance-test gate.

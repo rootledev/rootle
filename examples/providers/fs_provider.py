@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""ghx stdio provider over a local directory (plans/0005).
+"""rootle stdio provider over a local directory (plans/0005).
 
-Reference implementation of the ghx provider protocol: NDJSON-RPC 2.0
+Reference implementation of the rootle provider protocol: NDJSON-RPC 2.0
 on stdin/stdout. Serves <root>/<repo> as repos under the "local" org —
 useful as a template for wrapping internal systems, as an offline dev
 backend, and as documentation-by-example of the protocol.
 
     python3 fs_provider.py ~/code            # serve ~/code/* as repos
-    ghx --config provider.toml               # [provider] kind="stdio"
+    rootle --config provider.toml               # [provider] kind="stdio"
 
 Protocol v1 methods:
     initialize            -> {protocol, name, capabilities}
@@ -18,7 +18,7 @@ Protocol v1 methods:
     search/code   {q}     -> {items: [{repo, path, sha, branch, matches}]}
 
 Contract: blob shas are content hashes (sha256) — they change when
-content changes, which is what ghx's cache requires.
+content changes, which is what rootle's cache requires.
 """
 
 import base64
@@ -75,7 +75,7 @@ def blob_by_sha(root: str, repo: str, sha: str) -> bytes:
 
 
 def parse_query(q: str) -> tuple[str, str | None, str | None, str | None]:
-    """Split a ghx code query into (terms, repo, org, extension)."""
+    """Split a rootle code query into (terms, repo, org, extension)."""
     repo = org = ext = None
     terms = []
     for token in q.split():

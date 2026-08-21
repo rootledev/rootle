@@ -1,8 +1,8 @@
-# ghx — Plans
+# rootle — Plans
 
 A modal ratatui TUI for browsing remote GitHub repos with a yazi-like
 flow. No local clone required: the backend is the GitHub REST API, with
-a content-addressable disk cache under `~/.cache/ghx`.
+a content-addressable disk cache under `~/.cache/rootle`.
 
 Plans are numbered per release, oldest first:
 

@@ -3,7 +3,7 @@
 # fs stdio provider, plus the provider config. Idempotent.
 set -eu
 
-DEMO=/tmp/ghx-demo
+DEMO=/tmp/rootle-demo
 rm -rf "$DEMO"
 mkdir -p "$DEMO/code/alpha/src" "$DEMO/code/beta"
 
@@ -14,7 +14,7 @@ fn main() {
 }
 
 fn render() -> &'static str {
-    "ghx"
+    "rootle"
 }
 EOF
 cat > "$DEMO/code/alpha/src/render.rs" <<'EOF'
@@ -40,10 +40,10 @@ command = ["python3", "$PWD/examples/providers/fs_provider.py", "$DEMO/code"]
 EOF
 
 # The tape launches the release binary; fall back to a debug build.
-if [ ! -x dist/ghx-linux-x86_64-musl ]; then
+if [ ! -x dist/rootle-linux-x86_64-musl ]; then
     cargo build --quiet
     mkdir -p dist
-    cp target/debug/ghx dist/ghx-linux-x86_64-musl
+    cp target/debug/rootle dist/rootle-linux-x86_64-musl
 fi
 
 echo "demo fixture ready: $DEMO"

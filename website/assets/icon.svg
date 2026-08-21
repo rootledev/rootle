@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <!-- rootle icon: mini terminal window (chrome dots + miller panes)
+       with the mole peeking over the bottom edge. Square companion
+       mark to doc/logo.svg; also the site favicon. -->
+  <rect width="128" height="128" rx="28" fill="#11111b"/>
+  <rect x="20" y="16" width="88" height="64" rx="12" fill="#1e1e2e" stroke="#585b70" stroke-width="2.5"/>
+  <circle cx="34" cy="30" r="3.5" fill="#f38ba8"/>
+  <circle cx="46" cy="30" r="3.5" fill="#f9e2af"/>
+  <circle cx="58" cy="30" r="3.5" fill="#a6e3a1"/>
+  <rect x="32" y="40" width="24" height="30" rx="6" fill="none" stroke="#585b70" stroke-width="2"/>
+  <rect x="64" y="40" width="32" height="30" rx="6" fill="none" stroke="#89b4fa" stroke-width="3"/>
+  <rect x="69" y="50" width="14" height="6" rx="2" fill="#89b4fa"/>
+  <rect x="36" y="48" width="10" height="5" rx="2" fill="#585b70"/>
+  <rect x="36" y="58" width="12" height="5" rx="2" fill="#585b70"/>
+  <circle cx="50" cy="74" r="5.5" fill="#fab387"/>
+  <circle cx="78" cy="74" r="5.5" fill="#fab387"/>
+  <ellipse cx="64" cy="90" rx="21" ry="18" fill="#fab387"/>
+  <circle cx="57" cy="86" r="2.4" fill="#11111b"/>
+  <circle cx="71" cy="86" r="2.4" fill="#11111b"/>
+  <ellipse cx="64" cy="95" rx="8" ry="5.5" fill="#fbd3bb"/>
+  <ellipse cx="64" cy="93" rx="3" ry="2.2" fill="#f38ba8"/>
+  <rect x="49" y="75" width="10" height="9" rx="4.5" fill="#fab387"/>
+  <rect x="69" y="75" width="10" height="9" rx="4.5" fill="#fab387"/>
+</svg>

@@ -1,18 +1,19 @@
 <div align="center">
 
-<img src="doc/logo.svg" alt="ghx" width="480">
+<img src="doc/logo.svg" alt="rootle" width="480">
 
-**ghx — browse remote source-control systems from your terminal**
+**rootle — browse remote source-control systems from your terminal**
 
 **status: alpha** — features, keys, and config may still shift between
 releases; pin a version if it matters to you.
 
-[![ci](https://github.com/tknawara/ghx/actions/workflows/ci.yml/badge.svg)](https://github.com/tknawara/ghx/actions/workflows/ci.yml)
-[![release](https://github.com/tknawara/ghx/actions/workflows/release.yml/badge.svg)](https://github.com/tknawara/ghx/actions/workflows/release.yml)
-[![audit](https://github.com/tknawara/ghx/actions/workflows/audit.yml/badge.svg)](https://github.com/tknawara/ghx/actions/workflows/audit.yml)
-[![crates.io](https://img.shields.io/crates/v/ghx.svg)](https://crates.io/crates/ghx)
-[![version](https://img.shields.io/github/v/release/tknawara/ghx?display_name=tag&sort=semver)](https://github.com/tknawara/ghx/releases/latest)
-[![status](https://img.shields.io/badge/status-alpha-orange)](https://github.com/tknawara/ghx/milestones)
+[![ci](https://github.com/tknawara/rootle/actions/workflows/ci.yml/badge.svg)](https://github.com/tknawara/rootle/actions/workflows/ci.yml)
+[![release](https://github.com/tknawara/rootle/actions/workflows/release.yml/badge.svg)](https://github.com/tknawara/rootle/actions/workflows/release.yml)
+[![audit](https://github.com/tknawara/rootle/actions/workflows/audit.yml/badge.svg)](https://github.com/tknawara/rootle/actions/workflows/audit.yml)
+[![crates.io](https://img.shields.io/crates/v/rootle.svg)](https://crates.io/crates/rootle)
+[![version](https://img.shields.io/github/v/release/tknawara/rootle?display_name=tag&sort=semver)](https://github.com/tknawara/rootle/releases/latest)
+[![status](https://img.shields.io/badge/status-alpha-orange)](https://github.com/tknawara/rootle/milestones)
+[![website](https://img.shields.io/badge/website-tknawara.github.io%2Frootle-89b4fa)](https://tknawara.github.io/rootle/)
 
 A modal TUI (ratatui) with a yazi-style miller-column browser,
 syntax-highlighted previews, Zed-style global search, and a pluggable
@@ -47,16 +48,16 @@ small stdio script.
 ## Quick start
 
 ```bash
-cargo install ghx    # from crates.io (Rust 1.88+)
+cargo install rootle    # from crates.io (Rust 1.88+)
 # or download the static binary from a release, or build:
-docker compose run --build --rm release    # → ./dist/ghx-linux-x86_64-musl
+docker compose run --build --rm release    # → ./dist/rootle-linux-x86_64-musl
 
-ghx                # repo search on first run; browser after that
-ghx owner/repo     # jump straight into a repo
+rootle                # repo search on first run; browser after that
+rootle owner/repo     # jump straight into a repo
 ```
 
-Auth is zero-friction: if `gh auth login` or `GHX_TOKEN` is already
-set up, ghx just uses it; anonymous works everywhere except code
+Auth is zero-friction: if `gh auth login` or `ROOTLE_TOKEN` is already
+set up, rootle just uses it; anonymous works everywhere except code
 search (it says so in the status line when it matters).
 
 ## Documentation
@@ -68,15 +69,15 @@ search (it says so in the status line when it matters).
 | [provider protocol](doc/provider-protocol.md) | wrap your own backend (NDJSON-RPC over stdio) |
 | [development](doc/development.md) | architecture, dev workflow, e2e harness |
 | [house style](doc/house-style.md) | the component behavior contract |
-| [provider scaffolding](skills/ghx-provider/SKILL.md) | public skill: scaffold a provider + conformance gate |
+| [provider scaffolding](skills/rootle-provider/SKILL.md) | public skill: scaffold a provider + conformance gate |
 
 ## Providers
 
-ghx talks to backends through a small protocol, not to GitHub directly.
+rootle talks to backends through a small protocol, not to GitHub directly.
 `[provider] kind = "github"` is the default in-tree implementation;
 `kind = "stdio"` spawns your adapter as a child process — four methods
 make a minimal useful provider, and the conformance suite in
-[skills/ghx-provider](skills/ghx-provider/SKILL.md) gates correctness.
+[skills/rootle-provider](skills/rootle-provider/SKILL.md) gates correctness.
 More providers are planned and the protocol will evolve with them.
 
 ## Development

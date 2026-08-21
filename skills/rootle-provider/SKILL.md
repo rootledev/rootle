@@ -1,11 +1,11 @@
 ---
-name: ghx-provider
-description: Scaffold a ghx provider — an adapter that wraps any source-control backend (internal or public) behind ghx's stdio NDJSON-RPC protocol so the TUI can browse it. Grills the implementer on their backend first, then generates the adapter skeleton, config, and a conformance + e2e test suite that MUST pass before the provider integrates. Use when someone wants ghx to talk to a new backend.
+name: rootle-provider
+description: Scaffold a rootle provider — an adapter that wraps any source-control backend (internal or public) behind rootle's stdio NDJSON-RPC protocol so the TUI can browse it. Grills the implementer on their backend first, then generates the adapter skeleton, config, and a conformance + e2e test suite that MUST pass before the provider integrates. Use when someone wants rootle to talk to a new backend.
 ---
 
-# ghx provider scaffolding
+# rootle provider scaffolding
 
-A provider is a child process ghx spawns and talks to over
+A provider is a child process rootle spawns and talks to over
 newline-delimited JSON-RPC 2.0 on stdio (the LSP model). The TUI knows
 nothing about backends — it only speaks the protocol.
 
@@ -13,7 +13,7 @@ Ground truth (read before scaffolding, cite them to the user):
 
 - Protocol spec: `doc/provider-protocol.md`
 - Reference implementation: `examples/providers/fs_provider.py`
-- Rust side (what ghx parses): `src/provider/stdio.rs`
+- Rust side (what rootle parses): `src/provider/stdio.rs`
 - In-tree alternative (Rust only): `src/provider/mod.rs` (`trait Provider`)
 
 ## 1. Grill the implementer — STOP until every block is answered
@@ -23,13 +23,13 @@ record the answer — the scaffold and the tests encode them.
 
 **Backend shape**
 1. What is the backend? (HTTP API, CLI tool, database, git server, …)
-2. Language/runtime for the adapter, and why (must run wherever ghx
+2. Language/runtime for the adapter, and why (must run wherever rootle
    runs; stdlib-only is a virtue).
 3. Can it list repos? Under what grouping (org/team/project/none)?
    Map to `search/repos` + `org/repos`.
 
 **Identity & content ids (the contract that breaks caches if wrong)**
-4. Repo id scheme: ghx treats repos as opaque `"group/project"`
+4. Repo id scheme: rootle treats repos as opaque `"group/project"`
    strings. What is yours? (Must contain exactly one `/`.)
 5. **Content ids (`sha`)**: can you hash file content (sha256 of
    bytes)? REQUIRED: the id MUST change when content changes and MUST
@@ -48,7 +48,7 @@ record the answer — the scaffold and the tests encode them.
 **Blobs**
 10. Size limits on serving file bytes? (Suggest 1 MiB like GitHub;
     larger files are preview-rejected anyway.)
-11. Binary files: serve raw bytes; ghx detects binary and renders a
+11. Binary files: serve raw bytes; rootle detects binary and renders a
     placeholder. No base64 of huge files.
 
 **URLs (yank + clone go through the provider — no assumptions)**
@@ -60,18 +60,18 @@ record the answer — the scaffold and the tests encode them.
 
 **Auth & operations**
 14. Where does the adapter get credentials? (Env, config file,
-    keychain — ghx NEVER sees provider auth.) Never log them.
+    keychain — rootle NEVER sees provider auth.) Never log them.
 15. Rate limits/cost per call? Where does the adapter cache (it owns
-    its own caching; ghx caches nothing for stdio providers)? If you
-    cache on disk, use `~/.cache/ghx/providers/<name>/` — never the
+    its own caching; rootle caches nothing for stdio providers)? If you
+    cache on disk, use `~/.cache/rootle/providers/<name>/` — never the
     TUI's root. The GitHub provider's layout
-    (`~/.cache/ghx/providers/github/`) is the reference: sha-keyed
+    (`~/.cache/rootle/providers/github/`) is the reference: sha-keyed
     immutable blobs/trees, ETag-revalidated ref mappings, atomic
     writes, LRU eviction + orphan sweep. Copy that shape.
 16. Errors: map backend failures to short human messages — they land
     verbatim in the TUI status line.
 17. Multiplexing: is this one backend or a fan-out over several (e.g.
-    tool A for search, tool B for repos)? ghx supports exactly one
+    tool A for search, tool B for repos)? rootle supports exactly one
     provider process; fan-out lives inside the adapter.
 
 If any answer is "unknown", scaffold with that capability DISABLED
@@ -86,9 +86,9 @@ repo) with:
 ```
 <name>/
   provider.py          # the adapter skeleton (below)
-  provider.toml        # ghx config pointing at it
+  provider.toml        # rootle config pointing at it
   test_conformance.py  # protocol contract tests — the gate
-  test_e2e.py          # drives the real ghx binary against it
+  test_e2e.py          # drives the real rootle binary against it
   README.md            # the grill answers, one line each
 ```
 
@@ -99,7 +99,7 @@ conformance suite fails red and goes green method by method.
 
 ```python
 #!/usr/bin/env python3
-"""<name> — ghx stdio provider wrapping <backend>.
+"""<name> — rootle stdio provider wrapping <backend>.
 
 Answers (from the grill — keep updated):
   repo ids:      <e.g. "team/project">
@@ -194,17 +194,17 @@ kind = "stdio"
 command = ["python3", "/abs/path/to/<name>/provider.py", "<backend args>"]
 ```
 
-Run: `ghx --config provider.toml`.
+Run: `rootle --config provider.toml`.
 
 ### test_conformance.py — the integration gate
 
 Self-contained; only needs python3 + pytest. It speaks the protocol
-directly (no TUI) and encodes the EXACT contract ghx's serde parses —
+directly (no TUI) and encodes the EXACT contract rootle's serde parses —
 field names, types, defaults, and the content-id rule. All of it must
 pass before wiring the provider into anyone's config.
 
 ```python
-"""ghx provider conformance — every test must pass before integration.
+"""rootle provider conformance — every test must pass before integration.
 
 Run:  PROVIDER="python3 provider.py <fixture-root>" python3 -m pytest \
       test_conformance.py -v          # stdlib + pytest only
@@ -277,7 +277,7 @@ def test_search_repos_shape(rpc):
 def test_tree_shape_and_blob_roundtrip(rpc):
     # The scaffold's fixture must contain a known repo with a known
     # file — adjust REPO/FILE/TEXT for your fixture.
-    REPO, FILE, TEXT = "team/proj", "hello.txt", b"hello ghx\n"
+    REPO, FILE, TEXT = "team/proj", "hello.txt", b"hello rootle\n"
     r = rpc.call("repo/tree", {"repo": REPO})
     assert isinstance(r["entries"], list) and r["entries"]
     for e in r["entries"]:
@@ -334,31 +334,31 @@ def test_error_shape(rpc):
     rpc.i = 999  # resync the id counter
 ```
 
-Field-name gotchas that break ghx's serde silently (defaults absorb
+Field-name gotchas that break rootle's serde silently (defaults absorb
 wrong names — the TUI shows empty data, not an error):
 
 - tree entry: `type` (not `kind`), values exactly `"blob"`/`"tree"`
 - blob: `bytes_b64` (raw base64, no headers/whitespace)
 - search/code: `matches` is a list of STRING match texts
-- optional fields ghx defaults: `truncated:false`, `branch:"main"`,
+- optional fields rootle defaults: `truncated:false`, `branch:"main"`,
   `sha:""`, `matches:[]`, `items:[]`, `repos:[]`
 
 ### test_e2e.py — the real TUI against the provider
 
 Only after conformance is green. Copy the pattern from
-`e2e/test_provider.py` in the ghx repo (PTY harness, `--config`), or
+`e2e/test_provider.py` in the rootle repo (PTY harness, `--config`), or
 minimum bar without the harness:
 
 ```bash
-ghx --config provider.toml   # manual: search → open repo → preview
+rootle --config provider.toml   # manual: search → open repo → preview
 ```
 
-Required e2e assertions (with the ghx repo's e2e harness):
+Required e2e assertions (with the rootle repo's e2e harness):
 
 1. search finds the fixture repo; Enter opens it; tree pane lists
    `hello.txt`
 2. preview shows the blob content (repo/blob works end to end)
-3. provider process dies when ghx exits (lifecycle)
+3. provider process dies when rootle exits (lifecycle)
 
 ## 3. Definition of done
 

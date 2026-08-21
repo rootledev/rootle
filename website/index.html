@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>rootle</title>
+<meta name="description" content="rootle — a modal terminal UI for browsing remote source-control systems. GitHub in-tree, anything else via stdio providers.">
+<link rel="icon" href="./assets/favicon.svg" type="image/svg+xml">
+<style>
+  :root {
+    --bg: #11111b; --card: #1e1e2e; --deep: #181825;
+    --border: #313244; --text: #cdd6f4; --dim: #a6adc8; --faint: #6c7086;
+    --blue: #89b4fa; --green: #a6e3a1; --yellow: #f9e2af; --peach: #fab387;
+    --mono: ui-monospace, "DejaVu Sans Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: var(--sans); line-height: 1.6; font-size: 16px;
+  }
+  a { color: var(--blue); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 0 24px; }
+  header nav {
+    display: flex; align-items: center; gap: 12px; padding: 20px 0;
+  }
+  header nav img { width: 36px; height: 36px; }
+  header nav .wordmark {
+    font-family: var(--mono); font-weight: 700; font-size: 20px; color: var(--text);
+  }
+  header nav .spacer { flex: 1; }
+  header nav a.github { color: var(--dim); font-size: 14px; }
+  .hero { text-align: center; padding: 48px 0 8px; }
+  .hero img.logo { width: min(480px, 100%); height: auto; }
+  .hero p.tagline { font-size: 19px; color: var(--dim); margin: 8px 0 4px; }
+  .hero p.sub { font-size: 15px; color: var(--faint); margin: 0 0 24px; }
+  .hero p.sub .chip {
+    display: inline-block; font-family: var(--mono); font-size: 12px;
+    color: var(--yellow); border: 1px solid var(--border); border-radius: 999px;
+    padding: 1px 10px; margin-right: 8px; vertical-align: 1px;
+  }
+  .cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .cta a {
+    font-family: var(--mono); font-size: 15px; padding: 10px 22px;
+    border-radius: 10px; border: 1px solid var(--border);
+  }
+  .cta a.primary { background: var(--blue); color: #1e1e2e; border-color: var(--blue); font-weight: 700; }
+  .cta a.primary:hover { text-decoration: none; filter: brightness(1.1); }
+  .cta a.ghost { color: var(--text); }
+  .cta a.ghost:hover { text-decoration: none; border-color: var(--blue); }
+  section { padding: 40px 0 8px; }
+  h2 {
+    font-family: var(--mono); font-size: 15px; font-weight: 700;
+    color: var(--faint); text-transform: lowercase; letter-spacing: 1px;
+    margin: 0 0 20px;
+  }
+  h2::before { content: "## "; color: var(--blue); }
+  .demo img {
+    width: 100%; border: 1px solid var(--border); border-radius: 12px;
+    display: block; background: var(--card);
+  }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 18px 20px;
+  }
+  .card h3 { font-family: var(--mono); font-size: 16px; margin: 0 0 6px; color: var(--text); }
+  .card h3 .key {
+    display: inline-block; font-size: 12px; color: var(--blue);
+    background: var(--deep); border: 1px solid var(--border);
+    border-bottom: 2px solid var(--blue); border-radius: 5px;
+    padding: 0 7px; margin-left: 8px; vertical-align: 2px;
+  }
+  .card p { margin: 0; color: var(--dim); font-size: 14px; }
+  .card code, .note code {
+    font-family: var(--mono); font-size: 13px; color: var(--peach);
+  }
+  .shots { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+  .shots figure { margin: 0; }
+  .shots img {
+    width: 100%; display: block; border: 1px solid var(--border);
+    border-radius: 10px; background: var(--card);
+  }
+  .shots figcaption { font-size: 13px; color: var(--faint); padding-top: 6px; text-align: center; }
+  pre {
+    font-family: var(--mono); font-size: 14px; line-height: 1.7;
+    background: var(--deep); border: 1px solid var(--border); border-radius: 12px;
+    padding: 18px 22px; overflow-x: auto; margin: 0 0 14px;
+  }
+  pre .p { color: var(--green); }
+  pre .c { color: var(--faint); }
+  .note { color: var(--faint); font-size: 14px; margin: 14px 0 0; }
+  footer {
+    margin-top: 56px; border-top: 1px solid var(--border); padding: 24px 0 40px;
+    color: var(--faint); font-size: 14px; display: flex; gap: 18px; flex-wrap: wrap;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <nav>
+    <img src="./assets/icon.svg" alt="rootle icon">
+    <span class="wordmark">rootle</span>
+    <span class="spacer"></span>
+    <a class="github" href="https://github.com/tknawara/rootle">github ↗</a>
+  </nav>
+</header>
+
+<section class="hero">
+  <img class="logo" src="./assets/logo.svg" alt="rootle — terminal card with miller columns and the rootle mole">
+  <p class="tagline">browse remote source-control systems from your terminal</p>
+  <p class="sub"><span class="chip">status: alpha</span>orgs → repos → trees → files, no clone required</p>
+  <div class="cta">
+    <a class="primary" href="https://github.com/tknawara/rootle">GitHub ↗</a>
+    <a class="ghost" href="#quickstart">get started</a>
+  </div>
+</section>
+
+<section class="demo">
+  <h2>demo</h2>
+  <img src="./assets/demo.gif" alt="rootle demo: searching, browsing miller columns, grep, yanking a URL">
+</section>
+
+<section>
+  <h2>what it does</h2>
+  <div class="grid">
+    <div class="card">
+      <h3>browse</h3>
+      <p>Three miller columns — orgs → repos → trees — with a live syntax-highlighted preview pane. No local clone.</p>
+    </div>
+    <div class="card">
+      <h3>find &amp; grep<span class="key">␣ f</span><span class="key">␣ g</span></h3>
+      <p>Full-screen, Zed-style results: match chips, folded regions, per-file counts. Scope to a repo or search globally.</p>
+    </div>
+    <div class="card">
+      <h3>open &amp; yank<span class="key">↵</span><span class="key">␣ y</span></h3>
+      <p>Any file opens read-only in your editor. Yank the browser URL of anything you're looking at.</p>
+    </div>
+    <div class="card">
+      <h3>clone<span class="key">v</span><span class="key">:clone</span></h3>
+      <p>Mark repos, run the wizard. Org selections fan out; destinations land at <code>&lt;dest&gt;/&lt;org&gt;/&lt;repo&gt;</code>.</p>
+    </div>
+    <div class="card">
+      <h3>configure<span class="key">:settings</span></h3>
+      <p>In-app settings write <code>config.toml</code> and hot-reload themes. The <code>?</code> popup lists every keybinding.</p>
+    </div>
+    <div class="card">
+      <h3>providers</h3>
+      <p>GitHub ships in-tree. Anything else wraps in as a stdio child process speaking NDJSON-RPC — four methods make a provider.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>screenshots</h2>
+  <div class="shots">
+    <figure>
+      <img src="./assets/img/03-browse.png" alt="browsing orgs, repos, and a tree with a syntax-highlighted preview">
+      <figcaption>browsing with the preview pane</figcaption>
+    </figure>
+    <figure>
+      <img src="./assets/img/04-grep.png" alt="grep results with match chips and folded regions">
+      <figcaption>grep — match chips, folded regions</figcaption>
+    </figure>
+    <figure>
+      <img src="./assets/img/08-keybinds.png" alt="the keybindings popup">
+      <figcaption>every binding behind <span style="font-family:var(--mono)">?</span></figcaption>
+    </figure>
+  </div>
+</section>
+
+<section id="quickstart">
+  <h2>quick start</h2>
+  <pre><span class="p">$</span> cargo install rootle    <span class="c"># from crates.io (Rust 1.88+)</span></pre>
+  <pre><span class="p">$</span> rootle                  <span class="c"># repo search on first run; browser after that</span>
+<span class="p">$</span> rootle owner/repo       <span class="c"># jump straight into a repo</span></pre>
+  <p class="note">Or grab the static musl binary from the
+  <a href="https://github.com/tknawara/rootle/releases">releases</a> page.
+  Auth is zero-friction: <code>gh auth login</code> or <code>ROOTLE_TOKEN</code>
+  if already set up — everything else works anonymously.</p>
+</section>
+
+<section class="providers">
+  <h2>providers</h2>
+  <div class="card">
+    <p>rootle talks to backends through a small protocol, not to GitHub
+    directly. <code>[provider] kind = "stdio"</code> spawns your adapter as
+    a child process — see the
+    <a href="https://github.com/tknawara/rootle/blob/main/doc/provider-protocol.md">provider
+    protocol</a> and the
+    <a href="https://github.com/tknawara/rootle/tree/main/skills/rootle-provider">scaffolding
+    skill</a> for wrapping your own backend.</p>
+  </div>
+</section>
+
+<footer>
+  <span>MIT license</span>
+  <a href="https://github.com/tknawara/rootle">source</a>
+  <a href="https://github.com/tknawara/rootle/blob/main/doc/getting-started.md">docs</a>
+  <span style="margin-left:auto">a ratatui TUI · Catppuccin Mocha</span>
+</footer>
+
+</div>
+</body>
+</html>

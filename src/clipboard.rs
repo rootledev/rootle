@@ -1,13 +1,13 @@
 //! Clipboard (plans/0003 §1): OSC 52 first — works over SSH and tmux
 //! with zero deps — plus a best-effort local tool fallback (wayland/X/
-//! macOS). `GHX_CLIPBOARD=<path>` redirects to a file for e2e/CI
+//! macOS). `ROOTLE_CLIPBOARD=<path>` redirects to a file for e2e/CI
 //! (no clipboard exists there).
 
 use std::io::Write;
 
 /// Copy `text`. Never fails the caller: every path is best-effort.
 pub fn copy(text: &str) {
-    if let Ok(path) = std::env::var("GHX_CLIPBOARD") {
+    if let Ok(path) = std::env::var("ROOTLE_CLIPBOARD") {
         let _ = std::fs::write(path, text);
         return;
     }

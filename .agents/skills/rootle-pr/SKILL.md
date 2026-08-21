@@ -1,11 +1,11 @@
 ---
-name: ghx-pr
-description: Author a pull request for ghx — the what/why/how template, the evidence contract (text frames, screenshots, recordings), and the instrumentation steps the agent runs to capture proof of the change before opening the PR. Use when preparing a PR for any non-trivial change.
+name: rootle-pr
+description: Author a pull request for rootle — the what/why/how template, the evidence contract (text frames, screenshots, recordings), and the instrumentation steps the agent runs to capture proof of the change before opening the PR. Use when preparing a PR for any non-trivial change.
 ---
 
-# ghx PR authoring
+# rootle PR authoring
 
-A ghx PR is a small document with a claims section and an evidence
+A rootle PR is a small document with a claims section and an evidence
 section. If there is no evidence, there is no PR.
 
 ## 1. Before writing anything
@@ -88,7 +88,7 @@ Only commit PNGs when they double as documentation (getting-started);
 otherwise frames suffice. For doc-worthy changes:
 
 1. Add the state to `e2e/shots.py` (`shot("NN-name.png")` + the flow),
-   run it — see the [ghx-demo-capture] skill for renderer gotchas.
+   run it — see the [rootle-demo-capture] skill for renderer gotchas.
 2. Embed in `doc/getting-started.md` next to the feature text in the
    same PR.
 
@@ -103,13 +103,13 @@ bash e2e/demo_setup.sh
 docker run --rm -v "$PWD:/vhs" -w /vhs ghcr.io/charmbracelet/vhs /tmp/<tape>
 ```
 
-Tape rules ( pacing gotchas in [ghx-demo-capture]): 10ms typing for
+Tape rules ( pacing gotchas in [rootle-demo-capture]): 10ms typing for
 shell/launch lines, 60ms in-app, generous sleeps after provider
 round-trips.
 
-[ghx-demo-capture]: ../ghx-demo-capture/SKILL.md
-[ghx-tui-debug]: ../ghx-tui-debug/SKILL.md
-[ghx-provider]: ../../../skills/ghx-provider/SKILL.md
+[rootle-demo-capture]: ../rootle-demo-capture/SKILL.md
+[rootle-tui-debug]: ../rootle-tui-debug/SKILL.md
+[rootle-provider]: ../../../skills/rootle-provider/SKILL.md
 
 ## 4. Opening the PR
 
@@ -129,5 +129,5 @@ in honestly — every checkbox pre-verified, not aspirational.
 - [ ] No stray debug output, no `.cast`/frame artifacts committed
 - [ ] Keybindings changed? keybinds popup + hints derive automatically
       — show a frame of the `?` popup if the keymap table changed
-- [ ] Provider protocol touched? conformance suite (skills/ghx-provider)
+- [ ] Provider protocol touched? conformance suite (skills/rootle-provider)
       still green against the fs reference provider

@@ -679,26 +679,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ghx"
-version = "0.2.2"
-dependencies = [
- "base64 0.23.1",
- "clap",
- "crossterm 0.29.0",
- "dirs",
- "filetime",
- "ratatui",
- "reqwest",
- "serde",
- "serde_json",
- "sha2",
- "signal-hook 0.4.4",
- "syntect",
- "toml",
- "unicode-width 0.2.0",
-]
-
-[[package]]
 name = "hashbrown"
 version = "0.15.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1497,6 +1477,26 @@ dependencies = [
  "libc",
  "untrusted",
  "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "rootle"
+version = "0.2.2"
+dependencies = [
+ "base64 0.23.1",
+ "clap",
+ "crossterm 0.29.0",
+ "dirs",
+ "filetime",
+ "ratatui",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "signal-hook 0.4.4",
+ "syntect",
+ "toml",
+ "unicode-width 0.2.0",
 ]
 
 [[package]]

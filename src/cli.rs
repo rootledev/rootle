@@ -5,16 +5,16 @@ use std::path::PathBuf;
 
 /// Browse GitHub repos in your terminal — a yazi-like, modal TUI.
 #[derive(Debug, Parser)]
-#[command(name = "ghx", version, about)]
+#[command(name = "rootle", version, about)]
 pub struct Cli {
     /// Open this repo directly (owner/repo), skipping the search popup.
     pub repo: Option<String>,
 
-    /// Use this config file instead of ~/.config/ghx/config.toml.
+    /// Use this config file instead of ~/.config/rootle/config.toml.
     #[arg(long, value_name = "PATH")]
     pub config: Option<PathBuf>,
 
-    /// Theme name, resolved against ~/.config/ghx/themes/<name>.toml
+    /// Theme name, resolved against ~/.config/rootle/themes/<name>.toml
     /// (missing keys fall back to the embedded catppuccin-mocha).
     #[arg(long, value_name = "NAME")]
     pub theme: Option<String>,

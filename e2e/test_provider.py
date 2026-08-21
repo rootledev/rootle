@@ -11,7 +11,7 @@ from tui import Tui
 
 
 def provider_pids(tui: Tui) -> list[str]:
-    """fs provider children of THIS ghx instance — strays from other
+    """fs provider children of THIS rootle instance — strays from other
     sessions never pollute the assertion."""
     out = subprocess.run(
         ["pgrep", "-P", str(tui._proc.pid), "-f", "fs_provider.py"],
@@ -38,7 +38,7 @@ def test_fs_provider_search_to_tree_to_preview(provider_tui: Tui) -> None:
     tui.send("l")  # into src
     tui.expect("main.rs")
     screen = tui.expect("fn render")
-    assert "ghx" in screen
+    assert "rootle" in screen
 
 
 def test_fs_provider_grep_over_stdio(provider_tui: Tui) -> None:
@@ -66,6 +66,6 @@ def test_provider_process_is_spawned_and_child(provider_tui: Tui) -> None:
     tui.expect("search github")
     assert provider_pids(tui), "provider child should be running"
     tui.stop()
-    # ghx exits gracefully on SIGTERM → App drop kills the child
+    # rootle exits gracefully on SIGTERM → App drop kills the child
     # deterministically (kill + reap in StdioProvider::drop).
     assert not provider_pids(tui), "provider child should die with the app"

@@ -1,5 +1,5 @@
 //! Component contract (PLAN.md §6). Components own state, emit Actions,
-//! render into a caller-given Rect. See .agents/skills/ghx-component.
+//! render into a caller-given Rect. See .agents/skills/rootle-component.
 
 pub mod browser;
 pub mod clone_wizard;

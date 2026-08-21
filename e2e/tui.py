@@ -1,9 +1,9 @@
-"""Generic PTY harness for driving the ghx TUI end to end.
+"""Generic PTY harness for driving the rootle TUI end to end.
 
 Spawns the real binary on a pseudo-terminal, injects keystrokes,
 reconstructs the visible screen with pyte, and asserts on text —
 the live complement to the TestBackend snapshot tests (see
-.agents/skills/ghx-tui-debug).
+.agents/skills/rootle-tui-debug).
 
 Rules baked in from the skill:
 - The PTY window size is set before spawn (a 0x0 PTY draws nothing).
@@ -29,7 +29,7 @@ from pathlib import Path
 import pyte
 
 ROOT = Path(__file__).resolve().parent.parent
-BINARY = ROOT / "target" / "debug" / "ghx"
+BINARY = ROOT / "target" / "debug" / "rootle"
 
 KEYS: dict[str, bytes] = {
     "BACKSPACE": b"\x7f",
@@ -48,10 +48,10 @@ def build() -> Path:
     """Build the debug binary once per test session.
 
     Inside the docker `e2e` service the gate stage already compiled it
-    (GHX_E2E_IN_DOCKER) — reusing that artifact is the point of the
+    (ROOTLE_E2E_IN_DOCKER) — reusing that artifact is the point of the
     compose bootstrap; on the host we build with cargo as before.
     """
-    if os.environ.get("GHX_E2E_IN_DOCKER"):
+    if os.environ.get("ROOTLE_E2E_IN_DOCKER"):
         assert BINARY.exists(), f"gate stage should have built {BINARY}"
         return BINARY
     subprocess.run(["cargo", "build", "--quiet"], cwd=ROOT, check=True)
@@ -59,7 +59,7 @@ def build() -> Path:
 
 
 class Tui:
-    """One ghx instance on a PTY, screen reconstructed via pyte."""
+    """One rootle instance on a PTY, screen reconstructed via pyte."""
 
     def __init__(
         self,
@@ -78,7 +78,7 @@ class Tui:
         self._stream = pyte.ByteStream(self._screen)
         self._master: int | None = None
         self._proc: subprocess.Popen[bytes] | None = None
-        self._home = tempfile.TemporaryDirectory(prefix="ghx-e2e-")
+        self._home = tempfile.TemporaryDirectory(prefix="rootle-e2e-")
         # asciinema v2 recording (demo capture): header + [dt, "o", text].
         self._recording: list | None = None
         self._rec_clock: float | None = None
@@ -102,7 +102,7 @@ class Tui:
             VISUAL="true",
             EDITOR="true",
         )
-        env.pop("GHX_CONFIG", None)
+        env.pop("ROOTLE_CONFIG", None)
         env.update(self.env_extra)
         self._proc = subprocess.Popen(
             [str(self.binary), *self.args],

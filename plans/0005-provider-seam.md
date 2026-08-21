@@ -1,4 +1,4 @@
-# 0005 — Provider seam: ghx talks to backends through a trait, not GitHub
+# 0005 — Provider seam: rootle talks to backends through a trait, not GitHub
 
 The TUI must not depend on GitHub: internal source-control systems
 can't be reached through the GitHub REST API. The app speaks to
@@ -12,7 +12,7 @@ processes speaking NDJSON-RPC 2.0 over stdio (the LSP model).
   internal-only integration. GitHub ships as the default in-tree
   provider; others (GitLab, internal) live in separate repos.
 - **Stdio transport over local HTTP** — zero config (no ports/auth on
-  localhost), ghx owns the lifecycle (spawn at start, dies with the
+  localhost), rootle owns the lifecycle (spawn at start, dies with the
   app; verified by e2e). JSON-RPC 2.0 newline-delimited framing; the
   same envelope could ride HTTP later without protocol changes.
 - **One active provider at a time** — multiplexing across systems is

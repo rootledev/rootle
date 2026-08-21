@@ -1,4 +1,4 @@
-"""Demo capture: drives ghx through the golden path over the fs stdio
+"""Demo capture: drives rootle through the golden path over the fs stdio
 provider and records an asciinema v2 cast to dist/demo.cast.
 
     cd demos && uv run --project ../e2e python demo.py   # writes demos/demo.cast
@@ -25,7 +25,7 @@ DIST = ROOT / "e2e"
 
 def main() -> None:
     DIST.mkdir(exist_ok=True)
-    tmp = Path(tempfile.mkdtemp(prefix="ghx-demo-"))
+    tmp = Path(tempfile.mkdtemp(prefix="rootle-demo-"))
     root = make_fs_root(tmp)
     # A little more content so previews look real.
     (root / "alpha" / "src" / "render.rs").write_text(

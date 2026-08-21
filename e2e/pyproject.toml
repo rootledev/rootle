@@ -1,7 +1,7 @@
 [project]
-name = "ghx-e2e"
+name = "rootle-e2e"
 version = "0.1.0"
-description = "End-to-end PTY harness + tests for the ghx TUI"
+description = "End-to-end PTY harness + tests for the rootle TUI"
 requires-python = ">=3.10"
 dependencies = [
     "pyte>=0.8.2",

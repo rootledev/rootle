@@ -1,9 +1,9 @@
 ---
-name: ghx-component
-description: Scaffold a new ghx UI component following the project's Component trait contract, keymap-table registration, theming rules, and test requirements. Use when adding any new screen, popup, pane, or widget-level component to ghx.
+name: rootle-component
+description: Scaffold a new rootle UI component following the project's Component trait contract, keymap-table registration, theming rules, and test requirements. Use when adding any new screen, popup, pane, or widget-level component to rootle.
 ---
 
-# Scaffolding a ghx component
+# Scaffolding a rootle component
 
 All components live in `src/components/` and implement the shared
 contract from `src/components/mod.rs`:

@@ -1,4 +1,4 @@
-//! Serde models for the GitHub REST API (only what ghx consumes).
+//! Serde models for the GitHub REST API (only what rootle consumes).
 //! UI-facing types (`SearchItem`, `TreeNode`, …) live in
 //! `crate::provider` — the trait boundary; these are wire models.
 

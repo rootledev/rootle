@@ -52,7 +52,7 @@ fn mocha_syntect_theme() -> STheme {
 
     STheme {
         name: Some("catppuccin-mocha".into()),
-        author: Some("ghx".into()),
+        author: Some("rootle".into()),
         settings: ThemeSettings {
             foreground: Some(rgb(TEXT)),
             background: Some(rgb(BASE)),

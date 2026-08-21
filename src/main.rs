@@ -2,10 +2,6 @@
 //! before printing (PLAN.md §9: no stray output outside the draw path).
 
 use clap::Parser;
-use ghx::app::App;
-use ghx::cli::Cli;
-use ghx::config::Config;
-use ghx::theme::Theme;
 use ratatui::crossterm::{
     ExecutableCommand,
     cursor::SetCursorStyle,
@@ -13,6 +9,10 @@ use ratatui::crossterm::{
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
+use rootle::app::App;
+use rootle::cli::Cli;
+use rootle::config::Config;
+use rootle::theme::Theme;
 use std::io::{self, stdout};
 use std::time::Duration;
 
@@ -65,11 +65,11 @@ fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cli: Cli) -> io::R
         None => Config::load(),
     };
     let theme = Theme::load(cli.theme.as_deref().unwrap_or(&config.theme.name));
-    let (tx, rx) = ghx::event::channel();
+    let (tx, rx) = rootle::event::channel();
     let mut app = App::new(tx, config, theme);
-    // `ghx owner/repo`: skip search, go straight to browsing.
+    // `rootle owner/repo`: skip search, go straight to browsing.
     if let Some((owner, name)) = cli.repo_parts() {
-        app.handle_action(ghx::action::Action::RepoSelected { owner, name });
+        app.handle_action(rootle::action::Action::RepoSelected { owner, name });
     }
     let mut last_cursor_style: Option<SetCursorStyle> = None;
     loop {
@@ -126,7 +126,7 @@ fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cli: Cli) -> io::R
 
         // Yank: write to the clipboard outside the draw path.
         if let Some(text) = app.take_clipboard() {
-            ghx::clipboard::copy(&text);
+            rootle::clipboard::copy(&text);
         }
 
         // Editor: suspend the terminal, run the editor to completion,
@@ -144,7 +144,7 @@ fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cli: Cli) -> io::R
 
 fn run_editor(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-    job: ghx::editor::EditorJob,
+    job: rootle::editor::EditorJob,
 ) -> io::Result<()> {
     // Suspend: leave the alternate screen, raw mode off, cursor normal.
     disable_raw_mode()?;
@@ -154,7 +154,7 @@ fn run_editor(
     let status = std::process::Command::new(&job.program)
         .args(&job.args)
         .status();
-    ghx::app::trace(&format!(
+    rootle::app::trace(&format!(
         "editor {} exited: {}",
         job.program,
         status

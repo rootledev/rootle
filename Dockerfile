@@ -20,14 +20,14 @@ RUN cargo fmt --check \
 # Stripped static release binary.
 FROM builder AS release
 RUN cargo build --release --locked \
-    && strip target/release/ghx \
-    && ldd target/release/ghx 2>&1 | grep -q "Not a valid dynamic program\|not a dynamic executable" \
+    && strip target/release/rootle \
+    && ldd target/release/rootle 2>&1 | grep -q "Not a valid dynamic program\|not a dynamic executable" \
     && echo "static: ok"
 
 # Shipping image: just the binary.
 FROM scratch AS ship
-COPY --from=release /app/target/release/ghx /ghx
-ENTRYPOINT ["/ghx"]
+COPY --from=release /app/target/release/rootle /rootle
+ENTRYPOINT ["/rootle"]
 
 # e2e PTY suite (plans/0002-v0.2 §6, productionize). FROM test reuses
 # the gate's compiled target/ — no second artifact tree, and the gate
@@ -40,6 +40,6 @@ COPY e2e/pyproject.toml e2e/uv.lock ./e2e/
 RUN cargo build --locked && cd e2e && uv sync --locked
 COPY e2e ./e2e
 # Binary already compiled by the gate stage; harness must not rebuild.
-ENV GHX_E2E_IN_DOCKER=1
+ENV ROOTLE_E2E_IN_DOCKER=1
 WORKDIR /app/e2e
 CMD ["uv", "run", "--locked", "--no-sync", "pytest"]

@@ -20,7 +20,7 @@ def tui(binary):
 
 
 def dismiss_launch_popup(tui: Tui) -> None:
-    """ghx opens on the repo search popup; close it (INSERT→NORMAL→close).
+    """rootle opens on the repo search popup; close it (INSERT→NORMAL→close).
     ESCs go one call at a time — merged bytes parse as Alt+<key>."""
     tui.expect("search github")
     tui.key("ESC")
@@ -45,7 +45,7 @@ def make_fs_root(tmp: Path) -> Path:
         "}\n"
         "\n"
         "fn render() -> &'static str {\n"
-        "    \"ghx\"\n"
+        "    \"rootle\"\n"
         "}\n"
     )
     (alpha / "README.md").write_text("# alpha\nrender docs\n")
@@ -57,7 +57,7 @@ def make_fs_root(tmp: Path) -> Path:
 
 @pytest.fixture
 def provider_tui(tmp_path, binary):
-    """ghx on the fs stdio provider over a temp root, launch popup open."""
+    """rootle on the fs stdio provider over a temp root, launch popup open."""
     root = make_fs_root(tmp_path)
     config = tmp_path / "provider.toml"
     config.write_text(

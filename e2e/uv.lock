@@ -81,7 +81,7 @@ wheels = [
 ]
 
 [[package]]
-name = "ghx-e2e"
+name = "rootle-e2e"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

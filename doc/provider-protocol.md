@@ -1,6 +1,6 @@
-# The ghx provider protocol, v1
+# The rootle provider protocol, v1
 
-ghx talks to source-control backends through one seam (`trait
+rootle talks to source-control backends through one seam (`trait
 Provider`, `src/provider/mod.rs`). The built-in `github` provider is
 the reference implementation; any other system is wrapped as a child
 process speaking **NDJSON-RPC 2.0 over stdio** (the LSP model),
@@ -11,13 +11,13 @@ documentation-by-example.
 
 ## Transport
 
-- ghx spawns the provider once per app: `command[0]` is the program,
+- rootle spawns the provider once per app: `command[0]` is the program,
   the rest are arguments. stdin/stdout are pipes; **stderr is
-  discarded**. The child dies with ghx (the handle is held for Drop).
+  discarded**. The child dies with rootle (the handle is held for Drop).
 - Each message is one line of JSON on stdin/stdout. Requests carry
   `jsonrpc`, a numeric `id`, `method`, `params`. Replies echo the id
   and carry either `result` or `error`.
-- Requests are serialized under a mutex and matched by id; ghx skips
+- Requests are serialized under a mutex and matched by id; rootle skips
   non-JSON lines and replies whose id doesn't match (notifications are
   tolerated). A closed stdout fails every call ("provider closed its
   output"). There is no restart policy in v1 — a dead child surfaces
@@ -39,7 +39,7 @@ First request after spawn:
      "capabilities":{"orgs":true,"code_search":true}}}
 ```
 
-`protocol` must be `1` (anything else aborts stdio setup and ghx falls
+`protocol` must be `1` (anything else aborts stdio setup and rootle falls
 back to the GitHub provider with a warning). `name` is optional and is
 shown as `stdio:<name>`. `capabilities` is optional and defaults to
 everything enabled; the UI degrades on `false` (`orgs`, `code_search`).
@@ -86,8 +86,8 @@ Details:
 ## The content-id contract
 
 Every `sha` is an opaque **content id**: it MUST change when content
-changes. ghx's cache is content-keyed and immutable — trees live at
-`~/.cache/ghx/trees/<sha>.json`, blobs at `blobs/<ab>/<rest>`, and are
+changes. rootle's cache is content-keyed and immutable — trees live at
+`~/.cache/rootle/trees/<sha>.json`, blobs at `blobs/<ab>/<rest>`, and are
 never invalidated, only evicted. A provider that reuses a sha for
 different bytes will show stale content. `fs_provider.py` hashes blob
 bytes with sha256 (directories hash their path — they have no content).
@@ -107,7 +107,7 @@ handler exception this way.
 
 ## Configuration
 
-`~/.config/ghx/config.toml` (or a file passed to `ghx --config`):
+`~/.config/rootle/config.toml` (or a file passed to `rootle --config`):
 
 ```toml
 [provider]
@@ -123,7 +123,7 @@ Try the reference adapter against a directory of repos:
 
 ```
 python3 examples/providers/fs_provider.py ~/code   # serves ~/code/* under "local"
-ghx --config provider.toml                          # with the [provider] block above
+rootle --config provider.toml                          # with the [provider] block above
 ```
 
 The e2e suite drives the full TUI through this protocol against
@@ -139,22 +139,22 @@ For backends that should live in the binary, implement `trait Provider`
 cold-start suggestions), then register it in `provider::build`. The
 same content-id and opaque-repo rules apply.
 
-Scaffolding: `skills/ghx-provider/SKILL.md` (in this repo) walks
+Scaffolding: `skills/rootle-provider/SKILL.md` (in this repo) walks
 through building a provider — capability questionnaire, adapter
 skeleton, and a conformance test suite that gates integration.
 
 ## Provider disk caches
 
-Providers that cache on disk must not write into `~/.cache/ghx/`
+Providers that cache on disk must not write into `~/.cache/rootle/`
 directly — that root belongs to the TUI (`edit/` scratch). Use a
 provider-scoped subtree:
 
 ```
-~/.cache/ghx/providers/<name>/…
+~/.cache/rootle/providers/<name>/…
 ```
 
 The GitHub provider is the reference design
-(`~/.cache/ghx/providers/github/`): content-addressed blobs and trees
+(`~/.cache/rootle/providers/github/`): content-addressed blobs and trees
 (`blobs/<ab>/<rest>`, `trees/<sha>.json` — immutable, never
 invalidated, only evicted), mutable ref→sha mappings revalidated with
 ETag (`index/refs/<org>/<repo>/<branch>` — a `304` is free), atomic

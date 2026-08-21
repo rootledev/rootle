@@ -125,7 +125,7 @@ class Renderer:
 
 def main() -> None:
     IMG.mkdir(exist_ok=True)
-    tmp = Path(tempfile.mkdtemp(prefix="ghx-shots-"))
+    tmp = Path(tempfile.mkdtemp(prefix="rootle-shots-"))
     root = make_fs_root(tmp)
     # Extra content so the grep demo shows two regions + a markdown hit.
     (root / "alpha" / "src" / "render.rs").write_text(
@@ -145,7 +145,7 @@ def main() -> None:
     tui = Tui(build(), cols=100, rows=28, args=["--config", str(config)])
     # A second palette in the hermetic config dir, so the settings
     # theme section shows a real radio list.
-    themes = Path(tui._home.name) / "config" / "ghx" / "themes"
+    themes = Path(tui._home.name) / "config" / "rootle" / "themes"
     themes.mkdir(parents=True, exist_ok=True)
     (themes / "gruvbox-dark.toml").write_text(
         '[semantic]\n'

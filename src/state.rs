@@ -1,4 +1,4 @@
-//! Persisted app state: ~/.local/state/ghx/state.json (PLAN.md §10).
+//! Persisted app state: ~/.local/state/rootle/state.json (PLAN.md §10).
 //! Distinct from the cache — state survives cache eviction. Atomic
 //! tmp+rename writes on state transitions; corrupt/missing → defaults.
 
@@ -29,7 +29,7 @@ impl State {
     pub fn path() -> Option<PathBuf> {
         dirs::state_dir()
             .or_else(dirs::data_dir)
-            .map(|d| d.join("ghx").join("state.json"))
+            .map(|d| d.join("rootle").join("state.json"))
     }
 
     pub fn load() -> Self {
@@ -92,7 +92,7 @@ mod tests {
     use super::*;
 
     fn temp_path(tag: &str) -> PathBuf {
-        std::env::temp_dir().join(format!("ghx-state-{}-{tag}.json", std::process::id()))
+        std::env::temp_dir().join(format!("rootle-state-{}-{tag}.json", std::process::id()))
     }
 
     #[test]

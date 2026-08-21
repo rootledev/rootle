@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <!-- rootle favicon: the mole's face alone — the only element that
+       survives 16px. Full mark is assets/icon.svg. -->
+  <rect width="128" height="128" rx="28" fill="#11111b"/>
+  <circle cx="42" cy="42" r="9" fill="#fab387"/>
+  <circle cx="42" cy="42" r="4.5" fill="#eba0ac"/>
+  <circle cx="86" cy="42" r="9" fill="#fab387"/>
+  <circle cx="86" cy="42" r="4.5" fill="#eba0ac"/>
+  <ellipse cx="64" cy="72" rx="34" ry="30" fill="#fab387"/>
+  <circle cx="52" cy="62" r="4" fill="#11111b"/>
+  <circle cx="76" cy="62" r="4" fill="#11111b"/>
+  <ellipse cx="64" cy="82" rx="13" ry="9" fill="#fbd3bb"/>
+  <ellipse cx="64" cy="78" rx="5" ry="3.5" fill="#f38ba8"/>
+</svg>

@@ -1,0 +1,50 @@
+name: pages
+
+# Project website at tknawara.github.io/rootle — a single static page
+# assembled from website/ plus the rendered doc artifacts, so the demo
+# GIF and screenshots on the site are always the current ones.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "website/**"
+      - "doc/logo.svg"
+      - "doc/demo.gif"
+      - "doc/img/**"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Assemble site
+        run: |
+          mkdir -p public/assets/img
+          cp website/index.html public/
+          cp website/assets/icon.svg website/assets/favicon.svg public/assets/
+          cp doc/logo.svg public/assets/
+          cp doc/demo.gif public/assets/
+          cp doc/img/*.png public/assets/img/
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+      - id: deploy
+        uses: actions/deploy-pages@v4

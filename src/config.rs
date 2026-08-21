@@ -1,4 +1,4 @@
-//! ~/.config/ghx/config.toml — [editor] and [theme]. Settings view: later.
+//! ~/.config/rootle/config.toml — [editor] and [theme]. Settings view: later.
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -93,7 +93,7 @@ impl Default for CacheConfig {
 
 impl Config {
     pub fn path() -> Option<PathBuf> {
-        dirs::config_dir().map(|d| d.join("ghx").join("config.toml"))
+        dirs::config_dir().map(|d| d.join("rootle").join("config.toml"))
     }
 
     /// Load config; missing or malformed → defaults (never fail startup).

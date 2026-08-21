@@ -20,7 +20,7 @@ impl Default for Client {
 }
 impl Client {
     pub fn new() -> Self {
-        let token = std::env::var("GHX_TOKEN")
+        let token = std::env::var("ROOTLE_TOKEN")
             .ok()
             .or_else(|| std::env::var("GITHUB_TOKEN").ok())
             .filter(|t| !t.is_empty())
@@ -38,7 +38,7 @@ impl Client {
         // hung request can't block the UI — but without this the status
         // line would say "searching…" forever (PLAN.md §7).
         let http = reqwest::blocking::Client::builder()
-            .user_agent("ghx")
+            .user_agent("rootle")
             .timeout(std::time::Duration::from_secs(15))
             .connect_timeout(std::time::Duration::from_secs(5))
             .build()
@@ -97,7 +97,7 @@ impl Client {
     /// fragments are requested for previews.
     pub fn search_code(&self, q: &str) -> Result<Vec<super::types::CodeItem>, String> {
         if self.is_anonymous() {
-            return Err("code search needs a token — set GHX_TOKEN or log in with `gh`".into());
+            return Err("code search needs a token — set ROOTLE_TOKEN or log in with `gh`".into());
         }
         let url = format!("{API}/search/code?q={}&per_page=25", urlencoding(q));
         let resp: super::types::SearchCodeResponse =

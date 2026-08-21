@@ -1,4 +1,4 @@
-"""E2E for the v0.3/v0.4 wiring: yank to clipboard (GHX_CLIPBOARD file
+"""E2E for the v0.3/v0.4 wiring: yank to clipboard (ROOTLE_CLIPBOARD file
 override — no clipboard in CI), settings write-back, and the clone
 wizard running real `git clone` through a provider-supplied clone URL
 (the fs provider's repos are real git repos here)."""
@@ -48,7 +48,7 @@ def launch(tmp_path: Path, root: Path, env_extra: dict[str, str] | None = None) 
 def test_yank_writes_clipboard(tmp_path: Path) -> None:
     clip = tmp_path / "clip.txt"
     root = make_fs_root(tmp_path)
-    tui = launch(tmp_path, root, {"GHX_CLIPBOARD": str(clip)})
+    tui = launch(tmp_path, root, {"ROOTLE_CLIPBOARD": str(clip)})
     try:
         tui.type_query("alpha")
         tui.key("ENTER")
@@ -88,7 +88,7 @@ def test_settings_write_back_and_toast(tmp_path: Path) -> None:
         tui.expect("settings saved")
 
         # The hermetic XDG config got the written section.
-        config = Path(tui._home.name) / "config" / "ghx" / "config.toml"
+        config = Path(tui._home.name) / "config" / "rootle" / "config.toml"
         assert "max_mb = 128" in config.read_text()
     finally:
         tui.stop()
@@ -98,7 +98,7 @@ def test_settings_theme_radio_selects_and_saves(tmp_path: Path) -> None:
     root = make_fs_root(tmp_path)
     # A second theme in the hermetic XDG dir; save() also writes there.
     xdg = tmp_path / "xdg"
-    themes = xdg / "ghx" / "themes"
+    themes = xdg / "rootle" / "themes"
     themes.mkdir(parents=True)
     (themes / "gruvbox-dark.toml").write_text('[semantic]\nborder_focused = "#b8bb26"\n')
     tui = launch(tmp_path, root, env_extra={"XDG_CONFIG_HOME": str(xdg)})
@@ -121,7 +121,7 @@ def test_settings_theme_radio_selects_and_saves(tmp_path: Path) -> None:
 
         tui.key("ESC")  # dirty → ApplySettings
         tui.expect("settings saved")
-        assert 'name = "gruvbox-dark"' in (xdg / "ghx" / "config.toml").read_text()
+        assert 'name = "gruvbox-dark"' in (xdg / "rootle" / "config.toml").read_text()
     finally:
         tui.stop()
 
@@ -149,7 +149,7 @@ def test_clone_wizard_runs_git_clone(tmp_path: Path, git_root: Path) -> None:
         tui.key("TAB")  # → buttons (on next)
         tui.key("ENTER")  # → destination
         tui.expect("2/3 destination")
-        # Dest browser starts at ghx's cwd (the e2e dir); navigate to
+        # Dest browser starts at rootle's cwd (the e2e dir); navigate to
         # the tmp dir via .. then by name — simpler: type-free nav is
         # fragile; instead walk up to / and down. Use the fact that
         # dest starts at cwd: go up until /, impossible to assert.
@@ -178,7 +178,7 @@ def test_yank_file_yields_blob_url(tmp_path: Path) -> None:
     """A file under the cursor yanks the FILE (blob) URL, not the dir."""
     clip = tmp_path / "clip.txt"
     root = make_fs_root(tmp_path)
-    tui = launch(tmp_path, root, {"GHX_CLIPBOARD": str(clip)})
+    tui = launch(tmp_path, root, {"ROOTLE_CLIPBOARD": str(clip)})
     try:
         tui.type_query("alpha")
         tui.key("ENTER")

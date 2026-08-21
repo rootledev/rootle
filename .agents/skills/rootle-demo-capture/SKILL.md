@@ -1,9 +1,9 @@
 ---
-name: ghx-demo-capture
-description: Record the demo GIF and the per-feature screenshots for ghx docs — VHS tape for video, the pyte renderer for stills. Carries every gotcha hit while building this pipeline (frame collapse, color mapping, font fallback, PTY races). Use when regenerating doc/demo.gif or doc/img/*.
+name: rootle-demo-capture
+description: Record the demo GIF and the per-feature screenshots for rootle docs — VHS tape for video, the pyte renderer for stills. Carries every gotcha hit while building this pipeline (frame collapse, color mapping, font fallback, PTY races). Use when regenerating doc/demo.gif or doc/img/*.
 ---
 
-# ghx demo capture
+# rootle demo capture
 
 Two artifacts, two different tools — do NOT cross them:
 
@@ -15,7 +15,7 @@ Two artifacts, two different tools — do NOT cross them:
 ## 1. Demo GIF
 
 ```
-bash e2e/demo_setup.sh   # fixture: /tmp/ghx-demo (idempotent)
+bash e2e/demo_setup.sh   # fixture: /tmp/rootle-demo (idempotent)
 docker run --rm -v "$PWD:/vhs" -w /vhs ghcr.io/charmbracelet/vhs doc/demo.tape
 ```
 

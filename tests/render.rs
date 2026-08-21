@@ -1,12 +1,12 @@
 //! Frame-level verification with ratatui's TestBackend (see
-//! .agents/skills/ghx-tui-debug): renders the app to a Buffer and
+//! .agents/skills/rootle-tui-debug): renders the app to a Buffer and
 //! asserts on visible text — including that closing a popup leaves
 //! no lingering cells.
 
-use ghx::app::App;
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
+use rootle::app::App;
 
 fn key(code: KeyCode) -> KeyEvent {
     KeyEvent {
@@ -24,9 +24,9 @@ fn test_app() -> App {
 /// Offline app whose orgs pane is seeded (the offline provider ships
 /// no defaults — tests state them explicitly).
 fn app_with_orgs(orgs: &[&str]) -> App {
-    let (tx, _rx) = ghx::event::channel();
+    let (tx, _rx) = rootle::event::channel();
     App::with(
-        ghx::state::State {
+        rootle::state::State {
             recent_orgs: orgs.iter().map(|o| o.to_string()).collect(),
             ..Default::default()
         },
@@ -35,9 +35,9 @@ fn app_with_orgs(orgs: &[&str]) -> App {
 }
 
 /// Fake recursive tree for ratatui/ratatui (mirrors the old mock buckets).
-fn ratatui_tree() -> Vec<ghx::provider::TreeNode> {
-    fn node(path: &str, is_dir: bool) -> ghx::provider::TreeNode {
-        ghx::provider::TreeNode {
+fn ratatui_tree() -> Vec<rootle::provider::TreeNode> {
+    fn node(path: &str, is_dir: bool) -> rootle::provider::TreeNode {
+        rootle::provider::TreeNode {
             path: path.into(),
             is_dir,
             sha: "abc1234def5678".into(),
@@ -69,8 +69,8 @@ fn browsing_app() -> App {
     app.handle_key(key(KeyCode::Esc));
     // No seeded orgs with the offline provider — select explicitly so
     // the repos/tree injections below pass the selection gates.
-    app.handle_action(ghx::action::Action::OrgSelected("ratatui".into()));
-    app.handle_action(ghx::action::Action::OrgReposLoaded {
+    app.handle_action(rootle::action::Action::OrgSelected("ratatui".into()));
+    app.handle_action(rootle::action::Action::OrgReposLoaded {
         org: "ratatui".into(),
         repos: vec![
             "ratatui".into(),
@@ -79,7 +79,7 @@ fn browsing_app() -> App {
             "comfy-table".into(),
         ],
     });
-    app.handle_action(ghx::action::Action::TreeLoaded {
+    app.handle_action(rootle::action::Action::TreeLoaded {
         owner: "ratatui".into(),
         name: "ratatui".into(),
         entries: ratatui_tree(),
@@ -108,7 +108,7 @@ fn filter_commit_triggers_blob_load_of_selected_file() {
     );
     app.handle_key(key(KeyCode::Enter)); // commit filter
     // Blob fetch was requested; inject the response.
-    app.handle_action(ghx::action::Action::BlobLoaded {
+    app.handle_action(rootle::action::Action::BlobLoaded {
         sha: "abc1234def5678".into(),
         name: "Cargo.toml".into(),
         bytes: b"[package]\nname = \"ratatui\"\n".to_vec(),
@@ -143,7 +143,7 @@ fn renders_three_panes_modeline_and_popup() {
     // Seeded orgs behind the popup; the popup itself opened via ␣ s
     // (auto-open happens only on a fresh state).
     let mut app = app_with_orgs(&["ratatui", "tokio-rs", "helix-editor"]);
-    app.handle_action(ghx::action::Action::LeaderSearch);
+    app.handle_action(rootle::action::Action::LeaderSearch);
     let rows = render(&mut app, 100, 30);
     let screen = rows.join("\n");
 
@@ -237,7 +237,7 @@ fn h_moves_focus_to_parent_and_browsing_it_cascades() {
         !screen.contains("Cargo.toml"),
         "no child column before the tree arrives"
     );
-    app.handle_action(ghx::action::Action::TreeLoaded {
+    app.handle_action(rootle::action::Action::TreeLoaded {
         owner: "ratatui".into(),
         name: "ratatui-website".into(),
         entries: ratatui_tree(),
@@ -266,7 +266,7 @@ fn h_moves_focus_to_parent_and_browsing_it_cascades() {
 
     // l on an org triggers LoadOrgRepos; the response installs the
     // repos level — no stale ratatui entries.
-    app.handle_action(ghx::action::Action::OrgReposLoaded {
+    app.handle_action(rootle::action::Action::OrgReposLoaded {
         org: "tokio-rs".into(),
         repos: vec![
             "tokio".into(),
@@ -315,7 +315,7 @@ fn file_preview_shows_highlighted_blob_and_scrolls() {
     }
     // Selection is on Cargo.toml → meta preview; inject the blob.
     let sha = "abc1234def5678";
-    app.handle_action(ghx::action::Action::BlobLoaded {
+    app.handle_action(rootle::action::Action::BlobLoaded {
         sha: sha.into(),
         name: "Cargo.toml".into(),
         bytes: b"[package]\nname = \"ratatui\"\nversion = \"0.29.0\"\n\n\n\n\n\n\n\n".to_vec(),
@@ -414,12 +414,12 @@ fn popup_results_support_local_slash_filter() {
     // Submit a query (offline: no worker spawned) and inject the
     // response — what the worker thread would send over the channel.
     app.handle_key(key(KeyCode::Enter));
-    app.handle_action(ghx::action::Action::SearchResults {
+    app.handle_action(rootle::action::Action::SearchResults {
         items: vec![
-            ghx::provider::SearchItem::Org("tokio-rs".into()),
-            ghx::provider::SearchItem::Repo("tokio-rs/tokio".into()),
-            ghx::provider::SearchItem::Repo("ratatui/ratatui".into()),
-            ghx::provider::SearchItem::Repo("sharkdp/bat".into()),
+            rootle::provider::SearchItem::Org("tokio-rs".into()),
+            rootle::provider::SearchItem::Repo("tokio-rs/tokio".into()),
+            rootle::provider::SearchItem::Repo("ratatui/ratatui".into()),
+            rootle::provider::SearchItem::Repo("sharkdp/bat".into()),
         ],
     });
     assert!(
@@ -832,11 +832,11 @@ fn launch_popup_only_when_state_has_no_repos() {
     );
 
     // Returning user (repos OR orgs in state) → straight into the browser.
-    let state = ghx::state::State {
+    let state = rootle::state::State {
         recent_repos: vec!["ratatui/ratatui".into()],
         ..Default::default()
     };
-    let (tx, _rx) = ghx::event::channel();
+    let (tx, _rx) = rootle::event::channel();
     let mut app = App::with(state, tx);
     let screen = render(&mut app, 100, 30).join("\n");
     assert!(
@@ -845,9 +845,9 @@ fn launch_popup_only_when_state_has_no_repos() {
     );
     assert!(screen.contains("BROWSE"));
 
-    let (tx, _rx) = ghx::event::channel();
+    let (tx, _rx) = rootle::event::channel();
     let mut orgs_only = App::with(
-        ghx::state::State {
+        rootle::state::State {
             recent_orgs: vec!["ratatui".into()],
             ..Default::default()
         },

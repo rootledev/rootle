@@ -86,7 +86,7 @@ impl Theme {
     /// plus any `themes/<name>.toml` in the config dir. Settings list.
     pub fn available_names() -> Vec<String> {
         let mut names = vec!["catppuccin-mocha".to_string()];
-        if let Some(dir) = dirs::config_dir().map(|d| d.join("ghx").join("themes"))
+        if let Some(dir) = dirs::config_dir().map(|d| d.join("rootle").join("themes"))
             && let Ok(entries) = std::fs::read_dir(dir)
         {
             for entry in entries.flatten() {
@@ -103,7 +103,7 @@ impl Theme {
     }
 
     /// Load the named theme: embedded catppuccin-mocha defaults, merged
-    /// with `~/.config/ghx/themes/<name>.toml` overrides (missing file,
+    /// with `~/.config/rootle/themes/<name>.toml` overrides (missing file,
     /// malformed TOML, unknown roles, bad hex → silently keep defaults;
     /// theming must never crash the app).
     pub fn load(name: &str) -> Self {
@@ -111,7 +111,10 @@ impl Theme {
         let Some(dir) = dirs::config_dir() else {
             return theme;
         };
-        let path = dir.join("ghx").join("themes").join(format!("{name}.toml"));
+        let path = dir
+            .join("rootle")
+            .join("themes")
+            .join(format!("{name}.toml"));
         let Ok(text) = std::fs::read_to_string(&path) else {
             return theme;
         };

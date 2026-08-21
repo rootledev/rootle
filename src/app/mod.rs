@@ -853,10 +853,10 @@ impl App {
         }
     }
 }
-/// Worker debug tracing: enabled via GHX_TRACE=/path/log (kept minimal,
+/// Worker debug tracing: enabled via ROOTLE_TRACE=/path/log (kept minimal,
 /// no logging dependency; remove when the backend stabilizes).
 pub fn trace(msg: &str) {
-    if let Ok(path) = std::env::var("GHX_TRACE") {
+    if let Ok(path) = std::env::var("ROOTLE_TRACE") {
         use std::io::Write;
         if let Ok(mut f) = std::fs::OpenOptions::new()
             .create(true)

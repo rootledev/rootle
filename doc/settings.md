@@ -1,8 +1,8 @@
 # Settings reference
 
-Every ghx setting: key, acceptable values, meaning, default. Config
-lives at `~/.config/ghx/config.toml` (`$GHX_CONFIG` does not apply —
-use `ghx --config PATH` for an alternate file). Missing keys fall
+Every rootle setting: key, acceptable values, meaning, default. Config
+lives at `~/.config/rootle/config.toml` (`$ROOTLE_CONFIG` does not apply —
+use `rootle --config PATH` for an alternate file). Missing keys fall
 back to defaults; a malformed file never blocks startup (defaults are
 used silently). The `:settings` popup edits these in place and writes the same file —
 hot-reloads the theme on save. Sections live in a sidebar (Tab/h/l);
@@ -35,9 +35,9 @@ command = []            # list of strings (kind = "stdio")
 |---|---|---|---|
 | `program` | string, optional | unset | Editor binary. Unset → `$VISUAL` → `$EDITOR` → first of `hx`, `nvim`, `vim`, `vi` on PATH. |
 | `args` | list of strings | `[]` | Extra arguments inserted before the file path. |
-| `read_only` | boolean | `true` | With `true`, the vim family (`vim`, `nvim`, `vi`, `view`) opens with `-R`. Editors without a read-only flag (e.g. helix) edit the cache copy — ghx never writes back either way. |
+| `read_only` | boolean | `true` | With `true`, the vim family (`vim`, `nvim`, `vi`, `view`) opens with `-R`. Editors without a read-only flag (e.g. helix) edit the cache copy — rootle never writes back either way. |
 
-Files open from `~/.cache/ghx/edit/<owner>__<repo>/<path>`; ghx
+Files open from `~/.cache/rootle/edit/<owner>__<repo>/<path>`; rootle
 suspends the terminal while the editor runs and fully redraws on
 return.
 
@@ -45,7 +45,7 @@ return.
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `name` | string | `"catppuccin-mocha"` | Palette to load. Resolution: `~/.config/ghx/themes/<name>.toml` → `<config dir>/themes/<name>.toml` → embedded Catppuccin Mocha. Unknown name → embedded fallback. |
+| `name` | string | `"catppuccin-mocha"` | Palette to load. Resolution: `~/.config/rootle/themes/<name>.toml` → `<config dir>/themes/<name>.toml` → embedded Catppuccin Mocha. Unknown name → embedded fallback. |
 | `path` | string, optional | unset | Explicit palette file; wins over `name`. |
 
 `--theme NAME` (CLI) overrides `name` for one session.
@@ -97,9 +97,9 @@ palette change recolors previews automatically.
 Blobs/trees are content-addressed and immutable (never invalidated,
 only evicted); repo refs revalidate via ETag (a `304` is free).
 The GitHub provider's store lives at
-`~/.cache/ghx/providers/github/` (the TUI-level `edit/` scratch stays
-at `~/.cache/ghx/`); deleting either is always safe. stdio providers
-manage their own caches under `~/.cache/ghx/providers/<name>/`.
+`~/.cache/rootle/providers/github/` (the TUI-level `edit/` scratch stays
+at `~/.cache/rootle/`); deleting either is always safe. stdio providers
+manage their own caches under `~/.cache/rootle/providers/<name>/`.
 
 ## `[provider]` — backend selection
 
@@ -111,24 +111,24 @@ manage their own caches under `~/.cache/ghx/providers/<name>/`.
 Invalid/misfiring stdio configuration falls back to `github` with a
 warning in the status line — a provider misconfiguration never blocks
 startup. Scaffolding a provider:
-[skills/ghx-provider](../skills/ghx-provider/SKILL.md).
+[skills/rootle-provider](../skills/rootle-provider/SKILL.md).
 
 ## Environment variables
 
 | Variable | Meaning |
 |---|---|
-| `GHX_TOKEN`, `GITHUB_TOKEN` | GitHub token (GitHub provider only; `gh auth token` is tried after these). Code search requires a token. |
+| `ROOTLE_TOKEN`, `GITHUB_TOKEN` | GitHub token (GitHub provider only; `gh auth token` is tried after these). Code search requires a token. |
 | `VISUAL`, `EDITOR` | Editor fallbacks when `[editor].program` is unset. |
-| `GHX_CLIPBOARD` | Path to a file — yanks (`␣ y`) write there instead of the clipboard (scripts/CI). |
-| `GHX_TRACE` | Path to a log file — worker request tracing (debugging). |
+| `ROOTLE_CLIPBOARD` | Path to a file — yanks (`␣ y`) write there instead of the clipboard (scripts/CI). |
+| `ROOTLE_TRACE` | Path to a log file — worker request tracing (debugging). |
 | `NO_COLOR` | **Ignored** — a full-screen TUI's colors are semantic, like vim/helix. |
 
 ## Command line
 
 ```
-ghx                    # launch (search popup only on fresh state)
-ghx owner/repo         # skip the popup, open a repo
-ghx --config PATH      # alternate config file
-ghx --theme NAME       # override [theme].name for this session
-ghx --version | -V
+rootle                    # launch (search popup only on fresh state)
+rootle owner/repo         # skip the popup, open a repo
+rootle --config PATH      # alternate config file
+rootle --theme NAME       # override [theme].name for this session
+rootle --version | -V
 ```

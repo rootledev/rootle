@@ -1,9 +1,9 @@
 ---
-name: ghx-tui-debug
-description: End-to-end debugging and verification workflow for the ghx ratatui TUI — run it in a PTY, inject keystrokes, capture frames, and verify rendering integrity (no lingering cells, correct modes, sanitization). Use whenever verifying or debugging ghx's terminal behavior.
+name: rootle-tui-debug
+description: End-to-end debugging and verification workflow for the rootle ratatui TUI — run it in a PTY, inject keystrokes, capture frames, and verify rendering integrity (no lingering cells, correct modes, sanitization). Use whenever verifying or debugging rootle's terminal behavior.
 ---
 
-# ghx TUI end-to-end debugging
+# rootle TUI end-to-end debugging
 
 Three complementary verification paths. Use the first two for every
 behavioral change; hub PTY is for ad-hoc poking only:
@@ -38,17 +38,17 @@ hand-rolled PTY scripts — it's hermetic and repeatable:
 Hub PTY remains useful for quick manual checks:
 
 ```
-hub(op="start", name="ghx", application="cargo", args=["run", "--quiet"],
+hub(op="start", name="rootle", application="cargo", args=["run", "--quiet"],
 ```
 
-- Inject keys: `hub(op="send", name="ghx", text="jj")` for printable
+- Inject keys: `hub(op="send", name="rootle", text="jj")` for printable
   input; `keys=["ENTER"]` / `["ESCAPE"]` / `["TAB"]` for special keys.
   Send ESC **one call at a time** — back-to-back `\x1b` bytes can merge
   into `Alt+<key>` in crossterm's parser and look like a bug.
-- Read output: `hub(op="logs", name="ghx")`. Output contains raw ANSI —
+- Read output: `hub(op="logs", name="rootle")`. Output contains raw ANSI —
   reconstruct the visible screen via the harness/pyte instead of
   eyeballing escapes (see §3).
-- Stop: `hub(op="stop", name="ghx")` (or send `q`).
+- Stop: `hub(op="stop", name="rootle")` (or send `q`).
 
 The binary must never leave the terminal in raw mode or the alternate
 screen on exit — after `q`, the shell prompt must reappear normally.
@@ -96,7 +96,7 @@ ground-truth view, use the uv-managed harness in `e2e/` (pyte-backed):
   window size with `fcntl.ioctl(slave, termios.TIOCSWINSZ, …)` before
   spawn — a 0×0 PTY makes ratatui draw nothing at all (looks like a
   hang). Write keys with sleeps, read output with `select`.
-- Worker/backend events: set `GHX_TRACE=/tmp/ghx_trace.log` in the
+- Worker/backend events: set `ROOTLE_TRACE=/tmp/rootle_trace.log` in the
   child env — spawn/results/selection lines with timestamps.
 
 ## 4. Rendering-integrity checklist

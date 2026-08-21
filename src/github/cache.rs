@@ -1,6 +1,6 @@
 //! Content-addressable disk cache for the GitHub provider, under
-//! ~/.cache/ghx/providers/github (plans/0005: each provider owns its
-//! cache subtree; the TUI-level edit/ scratch stays at ~/.cache/ghx).
+//! ~/.cache/rootle/providers/github (plans/0005: each provider owns its
+//! cache subtree; the TUI-level edit/ scratch stays at ~/.cache/rootle).
 //! Trees are immutable (sha-keyed) — never invalidated, only evicted.
 //! Ref mappings (owner/repo/branch → tree_sha + etag) are mutable and
 //! revalidated with If-None-Match on every open.
@@ -18,13 +18,13 @@ pub struct RefCache {
 }
 
 /// The provider's cache subtree. Other providers must use their own
-/// (`~/.cache/ghx/providers/<name>`) — see doc/provider-protocol.md.
+/// (`~/.cache/rootle/providers/<name>`) — see doc/provider-protocol.md.
 #[cfg(test)]
 pub fn root() -> Option<PathBuf> {
-    dirs::cache_dir().map(|d| d.join("ghx").join("providers").join("github"))
+    dirs::cache_dir().map(|d| d.join("rootle").join("providers").join("github"))
 }
 
-/// One-time move from the pre-provider layout (~/.cache/ghx/{trees,
+/// One-time move from the pre-provider layout (~/.cache/rootle/{trees,
 /// blobs,index}) into this provider's subtree. Best-effort: partial
 /// moves just mean re-fetches.
 fn migrate_from_legacy(base: &Path) {
@@ -41,7 +41,7 @@ fn migrate_from_legacy(base: &Path) {
 
 /// Resolve the cache root, migrating the legacy layout once.
 fn root_or_migrate() -> Option<PathBuf> {
-    let base = dirs::cache_dir().map(|d| d.join("ghx"))?;
+    let base = dirs::cache_dir().map(|d| d.join("rootle"))?;
     migrate_from_legacy(&base);
     Some(base.join("providers").join("github"))
 }
@@ -264,7 +264,7 @@ mod tests {
     use super::*;
 
     fn temp_root(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("ghx-cache-{}-{tag}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("rootle-cache-{}-{tag}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
@@ -346,13 +346,13 @@ mod tests {
             return;
         }
         let tree = TreeResponse {
-            sha: "test-sha-ghx".into(),
+            sha: "test-sha-rootle".into(),
             truncated: false,
             tree: vec![],
         };
         write_tree(&tree).unwrap();
-        let loaded = read_tree("test-sha-ghx").unwrap();
-        assert_eq!(loaded.sha, "test-sha-ghx");
+        let loaded = read_tree("test-sha-rootle").unwrap();
+        assert_eq!(loaded.sha, "test-sha-rootle");
     }
 
     #[test]
@@ -361,12 +361,12 @@ mod tests {
             return;
         }
         // write_ref lands in index/refs/owner/repo/branch; cached_branch
-        // must find it back without any network. The ghx-test owner
+        // must find it back without any network. The rootle-test owner
         // keeps the real cache untouched, and cleanup removes only what
         // this test wrote — a whole-root wipe races parallel tests that
         // share the cache tree.
         write_ref(
-            "ghx-test",
+            "rootle-test",
             "cached-branch",
             "main",
             &RefCache {
@@ -376,12 +376,12 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            cached_branch("ghx-test", "cached-branch").as_deref(),
+            cached_branch("rootle-test", "cached-branch").as_deref(),
             Some("main")
         );
-        assert!(cached_branch("ghx-test", "never-opened").is_none());
+        assert!(cached_branch("rootle-test", "never-opened").is_none());
         if let Some(root) = root() {
-            let _ = std::fs::remove_dir_all(root.join("index/refs/ghx-test"));
+            let _ = std::fs::remove_dir_all(root.join("index/refs/rootle-test"));
         }
     }
 }
