@@ -658,7 +658,14 @@ impl App {
                         Some(program) => {
                             // Content-address the mock body like a real blob.
                             use sha2::{Digest, Sha256};
-                            let sha = format!("{:x}", Sha256::digest(hit.body.as_bytes()));
+                            // digest 0.11 dropped `LowerHex` on its output —
+                            // render the hex by hand.
+                            use std::fmt::Write as _;
+                            let digest = Sha256::digest(hit.body.as_bytes());
+                            let mut sha = String::with_capacity(digest.len() * 2);
+                            for byte in digest {
+                                let _ = write!(sha, "{byte:02x}");
+                            }
                             match crate::editor::materialize(
                                 "mock",
                                 slug,
