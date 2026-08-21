@@ -2,7 +2,7 @@
 //! Focus lands in INSERT; Esc → NORMAL with h/l, 0/$, x; i/a → INSERT.
 //! Enter (from INSERT) submits.
 
-use ratatui::crossterm::event::{KeyCode, KeyEvent};
+use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SubMode {
@@ -33,6 +33,9 @@ pub struct VimInput {
     /// Prefilled value (resume flow): the first edit replaces it, like
     /// a vim cmdline prefill. Enter submits it as-is.
     replace_on_edit: bool,
+    /// `d` pressed in NORMAL; the next motion (w/e/b) deletes, `d`
+    /// again clears the line, anything else cancels.
+    pending_delete: bool,
 }
 
 impl Default for VimInput {
@@ -49,6 +52,7 @@ impl VimInput {
             submode: SubMode::Insert,
             modal: true,
             replace_on_edit: false,
+            pending_delete: false,
         }
     }
 
@@ -94,18 +98,36 @@ impl VimInput {
 
     fn insert_key(&mut self, key: KeyEvent) -> Outcome {
         // Prefilled input: the first edit replaces the seed value.
-        if self.replace_on_edit
-            && matches!(
-                key.code,
-                KeyCode::Char(_) | KeyCode::Backspace | KeyCode::Delete
-            )
-        {
+        let is_edit = matches!(
+            (key.code, key.modifiers),
+            (KeyCode::Char(_), KeyModifiers::NONE | KeyModifiers::SHIFT)
+                | (KeyCode::Backspace, _)
+                | (KeyCode::Delete, _)
+                | (KeyCode::Char('w'), KeyModifiers::CONTROL)
+                | (KeyCode::Char('u'), KeyModifiers::CONTROL)
+        );
+        if self.replace_on_edit && is_edit {
             self.chars.clear();
             self.cursor = 0;
             self.replace_on_edit = false;
         }
         match key.code {
-            KeyCode::Char(c) => {
+            // Ctrl+W / Ctrl+U: word-back / line-start deletes (the
+            // line-editing conveniences people expect from vimish UIs).
+            KeyCode::Char('w') if key.modifiers == KeyModifiers::CONTROL => {
+                let from = word_start_back(&self.chars, self.cursor);
+                self.chars.drain(from..self.cursor);
+                self.cursor = from;
+                Outcome::Changed
+            }
+            KeyCode::Char('u') if key.modifiers == KeyModifiers::CONTROL => {
+                self.chars.drain(..self.cursor);
+                self.cursor = 0;
+                Outcome::Changed
+            }
+            KeyCode::Char(c)
+                if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT =>
+            {
                 self.chars.insert(self.cursor, c);
                 self.cursor += 1;
                 Outcome::Changed
@@ -156,6 +178,17 @@ impl VimInput {
 
     fn normal_key(&mut self, key: KeyEvent) -> Outcome {
         let len = self.chars.len();
+        let pending = std::mem::take(&mut self.pending_delete);
+        // A pending `d` resolves on w/e/b (arms below) or d (clear
+        // line); anything else cancels it silently, like vim.
+        if pending && key.code == KeyCode::Char('d') {
+            self.chars.clear();
+            self.cursor = 0;
+            return Outcome::Changed;
+        }
+        if pending && !matches!(key.code, KeyCode::Char('w' | 'e' | 'b')) {
+            return Outcome::Noop;
+        }
         match key.code {
             KeyCode::Char('h') | KeyCode::Left => {
                 self.cursor = self.cursor.saturating_sub(1);
@@ -176,6 +209,57 @@ impl VimInput {
                     self.cursor = len - 1;
                 }
                 Outcome::Noop
+            }
+            KeyCode::Char('d') => {
+                self.pending_delete = true; // next: w/e/b delete, dd clears
+                Outcome::Noop
+            }
+            KeyCode::Char('w') => {
+                if pending {
+                    // dw: through the next run start (or end of line).
+                    let to = word_start_fwd(&self.chars, self.cursor);
+                    self.chars.drain(self.cursor..to);
+                    self.clamp_cursor();
+                    Outcome::Changed
+                } else {
+                    let to = word_start_fwd(&self.chars, self.cursor);
+                    if len > 0 {
+                        self.cursor = to.min(len - 1);
+                    }
+                    Outcome::Noop
+                }
+            }
+            KeyCode::Char('e') => {
+                if pending {
+                    let to = word_end_fwd(&self.chars, self.cursor);
+                    self.chars
+                        .drain(self.cursor..=(to.min(len.saturating_sub(1))));
+                    self.clamp_cursor();
+                    Outcome::Changed
+                } else {
+                    self.cursor = word_end_fwd(&self.chars, self.cursor);
+                    Outcome::Noop
+                }
+            }
+            KeyCode::Char('b') => {
+                if pending {
+                    let from = word_start_back(&self.chars, self.cursor);
+                    self.chars.drain(from..self.cursor);
+                    self.cursor = from;
+                    Outcome::Changed
+                } else {
+                    self.cursor = word_start_back(&self.chars, self.cursor);
+                    Outcome::Noop
+                }
+            }
+            KeyCode::Char('I') => {
+                self.cursor = 0;
+                self.submode = SubMode::Insert;
+                Outcome::Noop
+            }
+            KeyCode::Char('D') => {
+                self.chars.truncate(self.cursor);
+                Outcome::Changed
             }
             KeyCode::Char('x') => {
                 if self.cursor < len {
@@ -204,6 +288,103 @@ impl VimInput {
             _ => Outcome::Noop,
         }
     }
+}
+
+impl VimInput {
+    /// After a destructive edit: Normal cursors sit ON a char.
+    fn clamp_cursor(&mut self) {
+        let len = self.chars.len();
+        if len == 0 {
+            self.cursor = 0;
+        } else if self.cursor >= len {
+            self.cursor = len - 1;
+        }
+    }
+}
+
+/// Word-motion classes: word chars (alnum + `_`), whitespace, and the
+/// punctuation runs between them (vim's `word`, not `WORD`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Class {
+    Word,
+    Space,
+    Punct,
+}
+
+fn class(c: char) -> Class {
+    if c.is_alphanumeric() || c == '_' {
+        Class::Word
+    } else if c.is_whitespace() {
+        Class::Space
+    } else {
+        Class::Punct
+    }
+}
+
+/// `w`: start of the run after index `i`.
+fn word_start_fwd(chars: &[char], i: usize) -> usize {
+    let n = chars.len();
+    if i >= n {
+        return n;
+    }
+    let mut j = i;
+    if class(chars[j]) != Class::Space {
+        let c = class(chars[j]);
+        while j < n && class(chars[j]) == c {
+            j += 1;
+        }
+    }
+    while j < n && class(chars[j]) == Class::Space {
+        j += 1;
+    }
+    j
+}
+
+/// `e`: end (last char index) of the run at/after `i`.
+fn word_end_fwd(chars: &[char], i: usize) -> usize {
+    let n = chars.len();
+    if n == 0 {
+        return 0;
+    }
+    let mut j = i.min(n - 1);
+    // Already at a run's end? Step to the next run first.
+    if class(chars[j]) != Class::Space && (j + 1 == n || class(chars[j + 1]) != class(chars[j])) {
+        j += 1;
+        while j < n && class(chars[j]) == Class::Space {
+            j += 1;
+        }
+        if j >= n {
+            return n - 1;
+        }
+    }
+    while j < n && class(chars[j]) == Class::Space {
+        j += 1;
+    }
+    let c = class(chars[j]);
+    while j + 1 < n && class(chars[j + 1]) == c {
+        j += 1;
+    }
+    j
+}
+
+/// `b` / Ctrl+W: start of the run before index `i`. When `i` sits in
+/// whitespace, only the whitespace tail is covered (shell-style).
+fn word_start_back(chars: &[char], i: usize) -> usize {
+    if i == 0 {
+        return 0;
+    }
+    let mut j = i - 1;
+    if class(chars[j]) == Class::Space {
+        while j > 0 && class(chars[j - 1]) == Class::Space {
+            j -= 1;
+        }
+        return j;
+    }
+    let c = class(chars[j]);
+    while j > 0 && class(chars[j - 1]) == c {
+        j -= 1;
+    }
+    j
 }
 
 #[cfg(test)]
@@ -276,5 +457,123 @@ mod tests {
         let mut input = VimInput::new();
         input.handle_key(key(KeyCode::Backspace));
         assert_eq!(input.value(), "");
+    }
+
+    fn ctrl(c: char) -> KeyEvent {
+        KeyEvent {
+            code: KeyCode::Char(c),
+            modifiers: KeyModifiers::CONTROL,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        }
+    }
+
+    /// Input with `value` typed, switched to NORMAL on the last char.
+    fn normal_at_end(value: &str) -> VimInput {
+        let mut input = VimInput::new();
+        input.set(value);
+        input.handle_key(key(KeyCode::Esc));
+        input
+    }
+
+    #[test]
+    fn w_e_b_walk_word_runs() {
+        let mut i = normal_at_end("foo bar-baz qux");
+        // NORMAL cursor starts on the last char; walk back first.
+        i.handle_key(key(KeyCode::Char('0')));
+        // "foo bar-baz qux"
+        //  0123456789…
+        i.handle_key(key(KeyCode::Char('w')));
+        assert_eq!(i.cursor(), 4, "w → next word");
+        i.handle_key(key(KeyCode::Char('w')));
+        assert_eq!(i.cursor(), 7, "w → punctuation run");
+        i.handle_key(key(KeyCode::Char('w')));
+        assert_eq!(i.cursor(), 8, "w → baz");
+        i.handle_key(key(KeyCode::Char('b')));
+        assert_eq!(i.cursor(), 7, "b → punctuation");
+        i.handle_key(key(KeyCode::Char('b')));
+        assert_eq!(i.cursor(), 4, "b → bar");
+        i.handle_key(key(KeyCode::Char('0')));
+        i.handle_key(key(KeyCode::Char('e')));
+        assert_eq!(i.cursor(), 2, "e → end of foo");
+        i.handle_key(key(KeyCode::Char('e')));
+        assert_eq!(i.cursor(), 6, "e → end of bar");
+    }
+
+    #[test]
+    fn d_word_deletes() {
+        let mut i = normal_at_end("foo bar baz");
+        i.handle_key(key(KeyCode::Char('0')));
+        i.handle_key(key(KeyCode::Char('d')));
+        i.handle_key(key(KeyCode::Char('w')));
+        assert_eq!(i.value(), "bar baz", "dw deletes word + spaces");
+        i.handle_key(key(KeyCode::Char('0')));
+        i.handle_key(key(KeyCode::Char('d')));
+        i.handle_key(key(KeyCode::Char('e')));
+        assert_eq!(i.value(), " baz", "de deletes through word end");
+        let mut i = normal_at_end("foo bar baz");
+        // NORMAL cursor is on the last char; db from there.
+        i.handle_key(key(KeyCode::Char('d')));
+        i.handle_key(key(KeyCode::Char('b')));
+        assert_eq!(i.value(), "foo bar z", "db deletes the previous word");
+        // d then a non-motion cancels silently.
+        let mut i = normal_at_end("keep me");
+        i.handle_key(key(KeyCode::Char('d')));
+        i.handle_key(key(KeyCode::Char('q')));
+        assert_eq!(i.value(), "keep me");
+    }
+
+    #[test]
+    fn dd_clears_and_shift_d_truncates() {
+        let mut i = normal_at_end("gone soon");
+        i.handle_key(key(KeyCode::Char('d')));
+        i.handle_key(key(KeyCode::Char('d')));
+        assert_eq!(i.value(), "", "dd clears the line");
+        assert_eq!(i.cursor(), 0);
+
+        let mut i = normal_at_end("keep drop");
+        i.handle_key(key(KeyCode::Char('0')));
+        i.handle_key(key(KeyCode::Char('w'))); // on 'd'
+        i.handle_key(key(KeyCode::Char('D')));
+        assert_eq!(i.value(), "keep ", "D deletes to end of line");
+    }
+
+    #[test]
+    fn ctrl_w_deletes_word_back_in_insert() {
+        let mut i = VimInput::new();
+        i.set("foo bar");
+        i.handle_key(ctrl('w'));
+        assert_eq!(i.value(), "foo ");
+        assert_eq!(i.cursor(), 4);
+        // Trailing whitespace goes first, one step at a time.
+        let mut i = VimInput::new();
+        i.set("foo   ");
+        i.handle_key(ctrl('w'));
+        assert_eq!(i.value(), "foo");
+        i.handle_key(ctrl('w'));
+        assert_eq!(i.value(), "");
+        // Ctrl+W does NOT type a literal w.
+        let mut i = VimInput::new();
+        i.handle_key(ctrl('w'));
+        assert_eq!(i.value(), "");
+    }
+
+    #[test]
+    fn ctrl_u_clears_to_line_start() {
+        let mut i = VimInput::new();
+        i.set("hello world");
+        i.handle_key(ctrl('u'));
+        assert_eq!(i.value(), "");
+        assert_eq!(i.cursor(), 0);
+    }
+
+    #[test]
+    fn shift_i_inserts_at_line_start() {
+        let mut i = normal_at_end("abc");
+        i.handle_key(key(KeyCode::Char('I')));
+        assert_eq!(i.cursor(), 0);
+        assert_eq!(i.submode, SubMode::Insert);
+        i.handle_key(key(KeyCode::Char('X')));
+        assert_eq!(i.value(), "Xabc");
     }
 }
