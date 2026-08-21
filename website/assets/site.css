@@ -91,8 +91,8 @@ footer {
 /* ---- home ---- */
 body.home { background: linear-gradient(180deg, color-mix(in srgb, var(--card) 45%, var(--bg)) 0%, var(--bg) 320px); }
 .hero { text-align: center; padding: 40px 0 0; }
-.hero img.logo { width: min(460px, 100%); height: auto; }
-.hero p.tagline { font-size: 19px; color: var(--dim); margin: 8px 0 4px; }
+.hero img.logo { width: min(340px, 100%); height: auto; }
+.hero p.tagline { font-size: 24px; color: var(--text); margin: 8px 0 4px; }
 .hero p.sub { font-size: 15px; color: var(--faint); margin: 0 0 24px; }
 .hero p.sub .chip {
   display: inline-block; font-family: var(--mono); font-size: 12px;
@@ -128,15 +128,8 @@ body.home { background: linear-gradient(180deg, color-mix(in srgb, var(--card) 4
 }
 .card p { margin: 0; color: var(--dim); font-size: 14px; }
 .card code { border: none; padding: 0 2px; }
-.shots { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
-.shots figure { margin: 0; }
-.shots img {
-  width: 100%; display: block; border: 1px solid var(--border);
-  border-radius: 10px; background: var(--card);
-  transition: border-color 0.15s ease;
-}
-.shots figure:hover img { border-color: var(--blue); }
-.shots figcaption { font-size: 13px; color: var(--faint); padding-top: 6px; text-align: center; }
+/* demo: palette bar sits directly above the window */
+.demo .palette-bar { margin: 0 0 14px; }
 
 /* ---- docs pages (built from doc/*.md) ---- */
 article.md { padding: 12px 0 24px; min-width: 0; }
@@ -225,8 +218,10 @@ article.md blockquote {
 }
 .install .copy:hover { color: var(--text); background: var(--border); }
 .install .copy.ok { color: var(--green); }
-.hero p.alt { font-size: 13.5px; color: var(--faint); margin: 0 0 22px; }
-.hero p.alt code { border: none; padding: 0 2px; }
+p.alt { font-size: 13.5px; color: var(--faint); margin: 0 0 22px; }
+p.alt code { border: none; padding: 0 2px; }
+.hero p.alt, .outro { text-align: center; }
+.outro .install { margin-top: 0; }
 
 /* ---- demo window chrome ---- */
 .window {

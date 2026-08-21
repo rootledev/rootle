@@ -19,6 +19,18 @@
         buttons[i].getAttribute("data-set-palette") === (name || DEFAULT)
       );
     }
+    // Swap the demo GIF to the palette's render (built per-theme by the
+    // demo workflow); fall back to the canonical GIF until they exist.
+    var demo = document.querySelector("[data-demo-img]");
+    if (demo) {
+      var canonical = "./assets/demo.gif";
+      var themed =
+        name && name !== DEFAULT ? "./assets/img/demo-" + name + ".gif" : canonical;
+      demo.onerror = function () {
+        if (demo.getAttribute("src") !== canonical) demo.src = canonical;
+      };
+      if (demo.getAttribute("src") !== themed) demo.src = themed;
+    }
   }
 
   var stored = null;

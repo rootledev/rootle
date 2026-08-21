@@ -26,7 +26,6 @@ REPO = "https://github.com/tknawara/rootle"
 
 # Docs mirrored onto the site: url-slug -> (source file, nav label).
 PAGES: dict[str, tuple[str, str]] = {
-    "getting-started": ("doc/getting-started.md", "getting started"),
     "settings": ("doc/settings.md", "settings"),
     "provider-protocol": ("doc/provider-protocol.md", "providers"),
 }
@@ -166,7 +165,9 @@ def assemble() -> None:
     shutil.copy(ROOT / "doc" / "demo.gif", OUT / "assets" / "demo.gif")
     for name in DOC_ASSETS:
         shutil.copy(ROOT / "doc" / name, OUT / "assets" / name)
-    for img in (ROOT / "doc" / "img").glob("*.png"):
+    for img in list((ROOT / "doc" / "img").glob("*.png")) + list(
+        (ROOT / "doc" / "img").glob("*.gif")
+    ):
         shutil.copy(img, OUT / "assets" / "img" / img.name)
     print(f"copied landing page + {len(list((ROOT / 'doc' / 'img').glob('*.png')))} screenshots")
 

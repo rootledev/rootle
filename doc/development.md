@@ -1,9 +1,9 @@
 # Development guide
 
-How rootle is built, tested, and shipped. For using the app see
-[getting-started.md](getting-started.md); for the component contract
-see [house-style.md](house-style.md); for backend integration see
-[provider-protocol.md](provider-protocol.md).
+How rootle is built, tested, and shipped. For using the app see the
+[README](../README.md) and [settings.md](settings.md); for the component
+contract see [house-style.md](house-style.md); for backend integration
+see [provider-protocol.md](provider-protocol.md).
 
 ## Architecture
 

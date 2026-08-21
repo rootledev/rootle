@@ -63,7 +63,6 @@ search (it says so in the status line when it matters).
 
 | Doc | Contents |
 |---|---|
-| [getting-started](doc/getting-started.md) | first run, every flow with screenshots, key map |
 | [settings](doc/settings.md) | every config key, theme role, env var, CLI flag |
 | [provider protocol](doc/provider-protocol.md) | wrap your own backend (NDJSON-RPC over stdio) |
 | [development](doc/development.md) | architecture, dev workflow, e2e harness |

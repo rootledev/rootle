@@ -19,7 +19,6 @@
   <span class="rail-head">menu</span>
   <nav>
     <a class="active" href="./index.html">home</a>
-    <a href="./docs/getting-started.html">getting started</a>
     <a href="./docs/settings.html">settings</a>
     <a href="./docs/provider-protocol.html">providers</a>
     <a class="gh" href="https://github.com/tknawara/rootle">github ↗</a>
@@ -30,31 +29,41 @@
 
 <section class="hero">
   <img class="logo" src="./assets/logo.svg" alt="rootle — terminal card with miller columns and the rootle mole">
-  <p class="tagline">browse remote source-control systems from your terminal</p>
+  <p class="tagline">browse remote source-control systems from your terminal. clone nothing.</p>
   <div class="chips">
     <span class="chip">github in-tree</span>
     <span class="chip">any forge via stdio providers</span>
     <span class="chip">rust</span>
     <span class="chip">MIT</span>
   </div>
-  <p class="sub"><span class="chip">status: alpha</span>orgs → repos → trees → files, no clone required</p>
   <div class="install">
     <pre><span class="p">$</span> curl -fsSL https://tknawara.github.io/rootle/install.sh | sh</pre>
     <button class="copy" data-copy="curl -fsSL https://tknawara.github.io/rootle/install.sh | sh">copy</button>
   </div>
-  <p class="alt">also: <code>cargo install rootle</code> · <code>mise use github:tknawara/rootle</code> · <a href="https://github.com/tknawara/rootle/releases">release tarballs</a></p>
+  <p class="alt">also: <code>cargo install rootle</code> · <code>mise use github:tknawara/rootle</code> · <a href="https://github.com/tknawara/rootle/releases">release tarballs</a> · <span class="chip">status: alpha</span></p>
   <div class="cta">
     <a class="primary" href="https://github.com/tknawara/rootle">GitHub ↗</a>
-    <a class="ghost" href="./docs/getting-started.html">get started</a>
   </div>
 </section>
 
 <section class="demo">
-  <h2 class="section">demo</h2>
+  <h2 class="section">demo — pick a palette</h2>
+  <div class="palette-bar">
+    <button data-set-palette="catppuccin-mocha" class="active"><span class="sw" style="--sw:#89b4fa"></span>catppuccin-mocha</button>
+    <button data-set-palette="dracula"><span class="sw" style="--sw:#bd93f9"></span>dracula</button>
+    <button data-set-palette="gruvbox-dark"><span class="sw" style="--sw:#83a598"></span>gruvbox-dark</button>
+    <button data-set-palette="nord"><span class="sw" style="--sw:#88c0d0"></span>nord</button>
+    <button data-set-palette="one-dark"><span class="sw" style="--sw:#61afef"></span>one-dark</button>
+    <button data-set-palette="solarized-dark"><span class="sw" style="--sw:#268bd2"></span>solarized-dark</button>
+    <button data-set-palette="tokyo-night"><span class="sw" style="--sw:#7aa2f7"></span>tokyo-night</button>
+  </div>
   <div class="window">
     <div class="titlebar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="wtitle">rootle · press ? for keybindings</span></div>
-    <img src="./assets/demo.gif" alt="rootle demo: searching, browsing miller columns, grep, yanking a URL">
+    <img data-demo-img src="./assets/demo.gif" alt="rootle demo: searching, browsing miller columns, grep, yanking a URL">
   </div>
+  <p class="note">The demo re-renders in your pick — the same seven palettes
+  <code>:settings</code> lists in the app. First launch opens repo search;
+  <code>rootle owner/repo</code> jumps straight into a repo.</p>
 </section>
 
 <section>
@@ -82,57 +91,9 @@
     </div>
     <div class="card">
       <h3>providers</h3>
-      <p>GitHub ships in-tree. Anything else wraps in as a stdio child process speaking NDJSON-RPC — four methods make a provider.</p>
+      <p>GitHub ships in-tree. Anything else wraps in as a stdio child speaking NDJSON-RPC — <a href="./docs/provider-protocol.html">the protocol</a> is four methods; the <a href="https://github.com/tknawara/rootle/tree/main/skills/rootle-provider">scaffolding skill</a> wraps your backend with you.</p>
     </div>
   </div>
-</section>
-
-<section>
-  <h2 class="section">screenshots</h2>
-  <div class="shots">
-    <figure>
-      <img src="./assets/img/03-browse.png" alt="browsing orgs, repos, and a tree with a syntax-highlighted preview">
-      <figcaption>browsing with the preview pane</figcaption>
-    </figure>
-    <figure>
-      <img src="./assets/img/04-grep.png" alt="grep results with match chips and folded regions">
-      <figcaption>grep — match chips, folded regions</figcaption>
-    </figure>
-    <figure>
-      <img src="./assets/img/08-keybinds.png" alt="the keybindings popup">
-      <figcaption>every binding behind <span style="font-family:var(--mono)">?</span></figcaption>
-    </figure>
-  </div>
-</section>
-
-<section id="quickstart">
-  <h2 class="section">quick start</h2>
-  <pre><span class="p">$</span> curl -fsSL https://tknawara.github.io/rootle/install.sh | sh  <span class="c"># linux x86_64</span></pre>
-  <pre><span class="p">$</span> cargo install rootle    <span class="c"># or from crates.io (Rust 1.88+)</span></pre>
-  <pre><span class="p">$</span> rootle                  <span class="c"># repo search on first run; browser after that</span>
-<span class="p">$</span> rootle owner/repo       <span class="c"># jump straight into a repo</span></pre>
-  <p class="note">Or grab the static musl binary from the
-  <a href="https://github.com/tknawara/rootle/releases">releases</a> page.
-  Auth is zero-friction: <code>gh auth login</code> or <code>ROOTLE_TOKEN</code>
-  if already set up — everything else works anonymously. Full walkthrough in
-  <a href="./docs/getting-started.html">getting started</a>; every knob in
-  <a href="./docs/settings.html">settings</a>.</p>
-</section>
-
-<section id="themes">
-  <h2 class="section">themes</h2>
-  <div class="palette-bar">
-    <button data-set-palette="catppuccin-mocha" class="active"><span class="sw" style="--sw:#89b4fa"></span>catppuccin-mocha</button>
-    <button data-set-palette="dracula"><span class="sw" style="--sw:#bd93f9"></span>dracula</button>
-    <button data-set-palette="gruvbox-dark"><span class="sw" style="--sw:#83a598"></span>gruvbox-dark</button>
-    <button data-set-palette="nord"><span class="sw" style="--sw:#88c0d0"></span>nord</button>
-    <button data-set-palette="one-dark"><span class="sw" style="--sw:#61afef"></span>one-dark</button>
-    <button data-set-palette="solarized-dark"><span class="sw" style="--sw:#268bd2"></span>solarized-dark</button>
-    <button data-set-palette="tokyo-night"><span class="sw" style="--sw:#7aa2f7"></span>tokyo-night</button>
-  </div>
-  <p class="note">Click to preview — the page remembers your pick across
-  docs too. These are the same seven palettes <code>:settings</code> lists
-  in the app.</p>
 </section>
 
 <section id="compare">
@@ -148,22 +109,21 @@
   </table>
 </section>
 
-<section class="providers">
-  <h2 class="section">providers</h2>
-  <div class="card">
-    <p>rootle talks to backends through a small protocol, not to GitHub
-    directly. <code>[provider] kind = "stdio"</code> spawns your adapter as
-    a child process — see how the pieces fit in
-    <a href="./docs/provider-protocol.html">providers</a>, or the
-    <a href="https://github.com/tknawara/rootle/tree/main/skills/rootle-provider">scaffolding
-    skill</a> for wrapping your own backend.</p>
+<section class="outro">
+  <h2 class="section">try it</h2>
+  <div class="install">
+    <pre><span class="p">$</span> curl -fsSL https://tknawara.github.io/rootle/install.sh | sh</pre>
+    <button class="copy" data-copy="curl -fsSL https://tknawara.github.io/rootle/install.sh | sh">copy</button>
   </div>
+  <p class="alt">auth is zero-friction: <code>gh auth login</code> or <code>ROOTLE_TOKEN</code>
+  if already set up — everything else works anonymously. Every knob in
+  <a href="./docs/settings.html">settings</a>.</p>
 </section>
 
 <footer>
   <span>MIT license</span>
   <a href="https://github.com/tknawara/rootle">source</a>
-  <a href="./docs/getting-started.html">docs</a>
+  <a href="./docs/settings.html">docs</a>
   <span style="margin-left:auto">a ratatui TUI · seven palettes</span>
 </footer>
 

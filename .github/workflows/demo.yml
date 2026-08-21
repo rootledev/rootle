@@ -36,12 +36,25 @@ jobs:
 
       # VHS resolves fonts via fontconfig: install the vendored
       # JetBrains Mono into the container first.
-      - name: Render demo.gif
+      # One render per embedded palette: catppuccin-mocha stays the
+      # canonical doc/demo.gif (README embeds it); the rest land in
+      # doc/img/demo-<theme>.gif for the site's palette picker. The tape
+      # is sed-parameterized per theme: Output path + --theme flag on
+      # the launch line.
+      - name: Render demo GIFs (per theme)
         run: |
-          docker run --rm -v "$PWD:/vhs" -w /vhs --entrypoint sh ghcr.io/charmbracelet/vhs -c \
-            "mkdir -p /usr/share/fonts/truetype/jbmono && \
-             cp /vhs/demos/fonts/JetBrainsMono-*.ttf /usr/share/fonts/truetype/jbmono/ && \
-             fc-cache -f >/dev/null 2>&1; exec vhs demos/demo.tape"
+          for theme in catppuccin-mocha dracula gruvbox-dark nord one-dark solarized-dark tokyo-night; do
+            out="doc/demo.gif"
+            [ "$theme" = "catppuccin-mocha" ] || out="doc/img/demo-$theme.gif"
+            sed -e "s|^Output .*|Output $out|" \
+                -e "s|--config /tmp/rootle-demo/provider.toml|--theme $theme --config /tmp/rootle-demo/provider.toml|" \
+                demos/demo.tape > "demos/.tape-$theme"
+            docker run --rm -v "$PWD:/vhs" -w /vhs --entrypoint sh ghcr.io/charmbracelet/vhs -c \
+              "mkdir -p /usr/share/fonts/truetype/jbmono && \
+               cp /vhs/demos/fonts/JetBrainsMono-*.ttf /usr/share/fonts/truetype/jbmono/ && \
+               fc-cache -f >/dev/null 2>&1; exec vhs /vhs/demos/.tape-$theme" \
+              && rm "demos/.tape-$theme"
+          done
 
       # Idempotent: an unchanged render commits nothing, so this never
       # loops. main is protected, so changed artifacts land as a PR on
