@@ -29,8 +29,10 @@ jobs:
       - name: Screenshots (doc/img)
         run: uv run --project e2e python demos/shots.py
 
+      # The release service requires VERSION; the demo only needs the
+      # binary inside the tarball (demo_setup.sh extracts it).
       - name: Build binary for the tape
-        run: docker compose run --build --rm release
+        run: docker compose run --build --rm -e VERSION=0.0.0-demo release
 
       # VHS resolves fonts via fontconfig: install the vendored
       # JetBrains Mono into the container first.
