@@ -1,188 +1,135 @@
 # Getting started
 
+Two minutes from install to browsing remote repos — no clone, no
+config file. This page is the ramp: install, launch, the handful of
+keys that do everything. Every knob lives in
+[settings.md](settings.md); wrapping your own backend in
+[provider-protocol.md](provider-protocol.md).
+
 ## Install
 
 Grab the static musl binary from
 [github.com/tknawara/rootle/releases](https://github.com/tknawara/rootle/releases)
-(each release ships `rootle-linux-x86_64-musl` plus a `.sha256`), or build
-it in Docker — the release stage exports the same binary to `./dist/`:
+(each release ships `rootle-linux-x86_64-musl` plus a `.sha256`), or:
 
 ```
-docker compose run --build --rm release
+cargo install rootle                      # from crates.io (Rust 1.88+)
+docker compose run --build --rm release   # → ./dist/rootle-linux-x86_64-musl
 ```
 
-## Auth (only code search needs it)
-
-Zero setup if your machine already talks to GitHub: `gh auth login`
-done once, or `ROOTLE_TOKEN`/`GITHUB_TOKEN` exported — rootle picks it up.
-Everything else works anonymously; only code search asks for a token,
-and it says so in the status line when it does.
-
-Using a stdio provider instead? Credentials live entirely inside your
-adapter — rootle never sees them.
-
-## First run
-
-Launch with no arguments:
+## First launch
 
 ```
 rootle                # search popup on a fresh install
 rootle owner/repo     # skip the popup, open a repo directly
-rootle --theme NAME   # override the theme for this session
-rootle --config PATH  # use a different config file
 ```
 
-The search popup appears only when state is fresh (no recent repos or
-orgs). Type a query and press Enter; results list orgs first, then
-repos. `j/k` move, Enter opens. On every later launch the browser opens
-directly with your recent orgs/repos; `␣ s` reopens the search popup,
-prefilled with the last repo — Enter alone resumes it.
+A fresh install opens on the search popup. Type a query, press Enter;
+results list orgs first, then repos — `j/k` move, Enter opens. Every
+later launch skips this and opens the browser straight away with your
+recent orgs/repos (`␣ s` reopens the popup, prefilled with the last
+repo — Enter alone resumes it).
 
 ![launch search popup](img/01-launch-search.png)
 
-![repo results](img/02-repo-results.png)
+## The browser
 
-## Key map essentials
-
-```
-j / k / h / l     move, focus out, drill in      J / K   scroll preview
-/                 filter the focused pane         Enter  open selection
-␣ s               repo/org search popup           ␣ f    find file
-␣ g               grep contents                   ␣ y    yank URL
-v                 VISUAL multi-select             ␣ c    clear marks
-:                 command line                    ?      keybinds popup
-q                 quit
-```
-
-Every key is listed in the `?` popup — the same tables that drive
-dispatch generate it, so the two cannot drift. Modes sit in a sidebar
-as their chips (with binding counts); Tab/h/l switch, j/k scroll,
-that mode's bindings show as keycaps.
-
-![keybinds popup](img/08-keybinds.png)
-
-## Find and grep (`␣ f` / `␣ g`)
-
-Full-screen search replaces the browser: a field row on top (query ·
-scope · extension), Zed-style result blocks below — path + match-count
-badge, syntax-highlighted preview lines with real line numbers, and
-matched text chipped in yellow. `Tab` cycles fields, `Enter` runs the
-search and focuses results, `j/k` move between blocks, `/` filters the
-results locally, `Enter` on a hit opens it in your editor. `␣` on the
-results raises the leader layer (yank, re-search) right from the view.
-
-File find (`␣ f`) matches like GitHub's *go to file*: needles match
-the whole path — directories included — contiguously or as an in-order
-subsequence (`urldef` finds `djangosite/urls/default.py`), with
-filename matches ranked above directory matches. Space separates
-several needles, all of which must match.
-
-![grep results](img/04-grep.png)
-
-![results filter](img/05-results-filter.png)
-
-Scope waterfalls from where you are — an open repo defaults to
-`repo:`, a selected org to `org:`, otherwise `global`. `j/k` on the
-scope field cycles directly; `Enter` opens the radio popup where the
-selection follows the cursor live (`Esc` reverts).
-
-![scope popup](img/06-scope-popup.png)
-
-In any popup or search view: `Tab` moves between fields, `Enter`
-submits, `Esc` steps back. Text inputs are modal like vim: Esc in
-INSERT drops to NORMAL (`h/l/0/$/x`, `i/a/A` to re-enter INSERT).
-
-## Open a file in your editor
-
-Move the cursor onto a file and press `Enter`. rootle materializes the
-cached blob under `~/.cache/rootle/edit/<owner>__<repo>/<path>`, suspends
-the terminal, and runs your editor on it. Edits are never written back.
+Three miller columns — orgs → repos → tree — plus a live
+syntax-highlighted preview of whatever the cursor is on. `j/k` move,
+`h/l` step out/in a level, `J/K` scroll the preview, `/` filters the
+focused pane.
 
 ![browsing with the preview pane](img/03-browse.png)
 
-Editor resolution: `[editor].program` in config.toml, then `$VISUAL`,
-then `$EDITOR`, then the first of `hx`, `nvim`, `vim`, `vi` on PATH. With `read_only = true` (the default) the vim
-family is started with `-R`. The same flow opens search-view hits.
+## The keys that matter
 
-## Yank a URL (`␣ y`)
+| Key | Does |
+|---|---|
+| `j` `k` `h` `l` | move · focus out · drill in |
+| `Enter` | open: repo, tree, or file |
+| `␣` | leader — `␣ s` search, `␣ f` find file, `␣ g` grep, `␣ y` yank URL |
+| `v` | VISUAL multi-select (marks for `:clone`) |
+| `:` | command line — `:settings`, `:clone` |
+| `?` | every keybinding, per mode |
+| `q` | quit |
 
-Copies the browser URL for whatever is under the cursor to the
-clipboard and confirms in the modeline ("yanked …"):
+The `?` popup is generated from the same tables that drive key
+dispatch, so it can never drift from reality. In any popup or text
+input: `Tab` moves between fields, `Enter` submits, `Esc` steps back —
+inputs are modal like vim (`Esc` drops to NORMAL, `i/a/A` re-enter
+INSERT).
 
-- repo level — the repo URL; org level — the org URL
-- file/dir — the blob/tree URL for that path
-- search view — the hit's URL, with a `#L<line>` fragment for the
-  matched line
+![keybinds popup](img/08-keybinds.png)
+
+## Finding things
+
+Three searches, one shape (`␣ f` / `␣ g` replace the browser
+full-screen):
+
+- **`␣ s` — repos & orgs.** The launch popup, reopened.
+- **`␣ f` — find file.** Matches whole paths like GitHub's *go to
+  file*: needles match contiguously or as an in-order subsequence
+  (`urldef` finds `djangosite/urls/default.py`), filename hits rank
+  above directory hits. Space separates needles; all must match.
+- **`␣ g` — grep contents.** Zed-style result blocks: path +
+  match-count badge, syntax-highlighted lines with real numbers,
+  matched text chipped in yellow. `/` filters results locally,
+  `Enter` on a hit opens it in your editor.
+
+Scope waterfalls from where you are — an open repo defaults to
+`repo:`, a selected org to `org:`, otherwise `global`. `j/k` on the
+scope field cycles it; `Enter` opens the radio popup with live
+preview.
+
+![grep results](img/04-grep.png)
+
+![scope popup](img/06-scope-popup.png)
+
+## Open & yank
+
+`Enter` on a file materializes the cached blob under
+`~/.cache/rootle/edit/`, suspends the terminal, and runs your editor
+on it read-only — edits are never written back. Resolution:
+`[editor].program` → `$VISUAL` → `$EDITOR` → first of `hx`, `nvim`,
+`vim`, `vi`.
+
+`␣ y` copies the browser URL of whatever is under the cursor — repo,
+org, file, tree, or a search hit with a `#L<line>` fragment — via OSC
+52 (works over SSH and tmux) or a local clipboard tool.
+`ROOTLE_CLIPBOARD=<path>` redirects yanks to a file for scripts and
+CI.
 
 ![yank toast](img/07-yank.png)
 
-Clipboard: OSC 52 first (works over SSH and tmux), then a local tool
-(`wl-copy`, `xclip`, `xsel`, `pbcopy`). `ROOTLE_CLIPBOARD=<path>`
-redirects yanks to a file for scripts and CI.
+## Clone repos
 
-## The command line (`:`)
-
-`:` opens a strip above the modeline with a filtered option list:
-
-- `:settings` — one section per config key (`[editor]`, `[theme]`,
-  `[cache]`, `[provider]`) in a sidebar; Tab/h/l switch sections, j/k
-  move rows, ␣/enter set a value (radio lists for themes and the
-  provider kind, ●/○ dots for booleans) or edit text in place. A
-  committed theme recolors the popup live; Esc closes, and a dirty
-  popup saves config.toml and hot-reloads the theme (provider changes
-  apply after restart).
-- `:clone` — the clone wizard over VISUAL marks (see README).
-
-![settings editor section](img/09-settings.png)
-
-![settings theme section — radio list of palettes](img/10-settings-theme.png)
-
-### Clone wizard (`v` + `:clone`)
-
-`v` in browse mode enters VISUAL: `Space` marks entries (green ●).
-Marks **persist after leaving VISUAL** (the ● stays) — they drive
-`:clone` and `␣ d`. `␣ c` clears them all.
-
-- `:clone` resolves marks to repos — files fold up to their repo,
-  a marked org expands down to ALL its repos — and walks three screens:
-  repo checkboxes, a destination mini-browser over your local folders,
-  and a summary with the exact commands. Repos clone into
-  `<dest>/<org>/<repo>` so same-named repos never collide. `Esc`
-  cancels the wizard from any screen; `:` works from inside VISUAL.
-- `␣ d` deletes marked **orgs** from the orgs pane (and your recents)
-  — the way to clean up orgs you no longer browse.
-
-![visual marks](img/11-visual.png)
+`v` enters VISUAL; `Space` marks entries (the marks persist after you
+leave VISUAL). `:clone` resolves marks to repos — a marked org expands
+to all of them — then walks three screens: repo checkboxes, a
+destination mini-browser over your local folders, and a summary with
+the exact commands. Repos land at `<dest>/<org>/<repo>` so same-named
+repos never collide. `␣ c` clears marks; `␣ d` deletes marked orgs
+from the orgs pane and your recents.
 
 ![clone wizard: repos](img/12-clone-repos.png)
 
-![clone wizard: destination](img/13-clone-destination.png)
-
 ![clone wizard: summary](img/14-clone-summary.png)
 
-## Where things live
+## Auth
 
-| Path | Contents |
-|---|---|
-| `~/.config/rootle/config.toml` | configuration |
-| `~/.config/rootle/themes/<name>.toml` | palette overrides (`[semantic]` role = hex) |
-| `~/.local/state/rootle/state.json` | recents, last org/repo/path, last search scope/extension |
-| `~/.cache/rootle/edit/` | files materialized for your editor |
-| `~/.cache/rootle/providers/<name>/` | per-provider content cache (safe to delete) |
+If your machine already talks to GitHub — `gh auth login` done once,
+or `ROOTLE_TOKEN`/`GITHUB_TOKEN` exported — rootle just uses it.
+Everything else works anonymously; only code search asks for a token,
+and it says so in the status line when it does. With a stdio
+provider, credentials live entirely inside your adapter — rootle
+never sees them.
 
-Cache layout: `trees/<sha>.json` (immutable repo trees), `blobs/<ab>/<rest>`
-(blobs sharded by the first two sha chars), `index/refs/<owner>/<repo>/<branch>`
-(rev → tree sha + etag, revalidated on open), `edit/` (materialized files).
-At startup rootle sweeps orphans and evicts least-recently-used blobs past
-`[cache].max_mb` (default 512). Deleting `~/.cache/rootle` is always safe;
-state and config are separate files.
+## Going further
 
-## Next
-
-- [provider-protocol.md](provider-protocol.md) — run rootle against your
-  own backend via a stdio provider.
-- [settings.md](settings.md) — every config key, theme role, env
-  variable, and CLI flag.
+- [settings.md](settings.md) — every config key, theme role, env var,
+  CLI flag, and where state/config/cache live on disk.
+- [provider-protocol.md](provider-protocol.md) — run rootle against
+  your own backend via a stdio provider.
 - [development.md](development.md) — architecture, dev workflow, and
   the test harness, for contributors.
 - [house-style.md](house-style.md) — the component contract.

@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 470" font-family="DejaVu Sans Mono, monospace">
+  <!-- rootle provider architecture: the TUI behind one seam (trait
+       Provider), github in-tree, anything else as an NDJSON-RPC stdio
+       child. Dark card so it renders identically on light and dark
+       backgrounds. Companion to doc/provider-protocol.md. -->
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#89b4fa"/>
+    </marker>
+    <marker id="arrg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#a6e3a1"/>
+    </marker>
+    <marker id="arrp" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#fab387"/>
+    </marker>
+  </defs>
+  <rect width="960" height="470" rx="16" fill="#11111b"/>
+  <!-- the seam -->
+  <text x="330" y="46" text-anchor="middle" font-size="14" font-weight="bold" fill="#f9e2af">trait Provider</text>
+  <text x="330" y="63" text-anchor="middle" font-size="10" fill="#6c7086">src/provider/mod.rs</text>
+  <line x1="330" y1="74" x2="330" y2="390" stroke="#585b70" stroke-width="2" stroke-dasharray="6 5"/>
+  <!-- TUI -->
+  <rect x="28" y="115" width="240" height="210" rx="12" fill="#1e1e2e" stroke="#89b4fa" stroke-width="2.5"/>
+  <text x="148" y="145" text-anchor="middle" font-size="16" font-weight="bold" fill="#cdd6f4">rootle TUI</text>
+  <text x="148" y="172" text-anchor="middle" font-size="11" fill="#a6adc8">ratatui frontend</text>
+  <text x="148" y="192" text-anchor="middle" font-size="11" fill="#a6adc8">miller columns · modal</text>
+  <text x="148" y="212" text-anchor="middle" font-size="11" fill="#a6adc8">search · grep · clone</text>
+  <line x1="52" y1="232" x2="244" y2="232" stroke="#313244" stroke-width="1.5"/>
+  <text x="148" y="256" text-anchor="middle" font-size="11" fill="#a6adc8">content cache</text>
+  <text x="148" y="274" text-anchor="middle" font-size="10" fill="#6c7086">~/.cache/rootle/providers/&lt;name&gt;/</text>
+  <text x="148" y="304" text-anchor="middle" font-size="10" fill="#6c7086">edit/ scratch for your editor</text>
+  <!-- pipe TUI <-> seam -->
+  <line x1="272" y1="170" x2="322" y2="170" stroke="#89b4fa" stroke-width="2" marker-end="url(#arr)" marker-start="url(#arr)"/>
+  <!-- github in-tree -->
+  <rect x="440" y="88" width="280" height="118" rx="12" fill="#1e1e2e" stroke="#a6e3a1" stroke-width="2"/>
+  <text x="580" y="114" text-anchor="middle" font-size="13" font-weight="bold" fill="#a6e3a1">github — in-tree</text>
+  <text x="580" y="138" text-anchor="middle" font-size="10.5" fill="#a6adc8">REST client + wire models</text>
+  <text x="580" y="156" text-anchor="middle" font-size="10.5" fill="#a6adc8">auth: gh / ROOTLE_TOKEN / anon</text>
+  <text x="580" y="174" text-anchor="middle" font-size="10.5" fill="#a6adc8">ETag revalidation · LRU eviction</text>
+  <line x1="338" y1="140" x2="434" y2="140" stroke="#a6e3a1" stroke-width="2" marker-end="url(#arrg)" marker-start="url(#arrg)"/>
+  <line x1="726" y1="140" x2="786" y2="140" stroke="#a6e3a1" stroke-width="2" marker-end="url(#arrg)" marker-start="url(#arrg)"/>
+  <text x="756" y="126" text-anchor="middle" font-size="10" fill="#6c7086">HTTPS</text>
+  <rect x="794" y="110" width="138" height="60" rx="10" fill="#181825" stroke="#585b70" stroke-width="1.5"/>
+  <text x="863" y="136" text-anchor="middle" font-size="11" fill="#a6adc8">api.github.com</text>
+  <text x="863" y="154" text-anchor="middle" font-size="9.5" fill="#6c7086">the reference backend</text>
+  <!-- stdio child -->
+  <rect x="440" y="288" width="280" height="118" rx="12" fill="#1e1e2e" stroke="#fab387" stroke-width="2"/>
+  <text x="580" y="314" text-anchor="middle" font-size="13" font-weight="bold" fill="#fab387">stdio — child process</text>
+  <text x="580" y="338" text-anchor="middle" font-size="10.5" fill="#a6adc8">your adapter, any language</text>
+  <text x="580" y="356" text-anchor="middle" font-size="10.5" fill="#a6adc8">examples/providers/fs_provider.py</text>
+  <text x="580" y="374" text-anchor="middle" font-size="10.5" fill="#a6adc8">NDJSON-RPC 2.0 over pipes</text>
+  <text x="580" y="393" text-anchor="middle" font-size="9.5" fill="#6c7086">stderr discarded · dies with rootle</text>
+  <line x1="338" y1="330" x2="434" y2="330" stroke="#fab387" stroke-width="2" marker-end="url(#arrp)" marker-start="url(#arrp)"/>
+  <text x="394" y="316" text-anchor="middle" font-size="10" fill="#6c7086">stdin ▸</text>
+  <text x="394" y="352" text-anchor="middle" font-size="10" fill="#6c7086">◂ stdout</text>
+  <line x1="726" y1="345" x2="786" y2="345" stroke="#fab387" stroke-width="2" marker-end="url(#arrp)" marker-start="url(#arrp)"/>
+  <text x="756" y="331" text-anchor="middle" font-size="10" fill="#6c7086">yours</text>
+  <rect x="794" y="315" width="138" height="60" rx="10" fill="#181825" stroke="#585b70" stroke-width="1.5"/>
+  <text x="863" y="341" text-anchor="middle" font-size="11" fill="#a6adc8">your backend</text>
+  <text x="863" y="359" text-anchor="middle" font-size="9.5" fill="#6c7086">Gitea · fs · anything</text>
+  <!-- wire example -->
+  <rect x="28" y="420" width="904" height="38" rx="8" fill="#181825"/>
+  <text x="44" y="444" font-size="10.5" fill="#a6adc8">→ {"jsonrpc":"2.0","id":1,<tspan fill="#89b4fa">"method":"repo/tree"</tspan>,"params":{"repo":"local/alpha"}}   ← {"id":1,<tspan fill="#a6e3a1">"result"</tspan>:{"entries":[…],"branch":"main"}}</text>
+</svg>

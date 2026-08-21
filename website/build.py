@@ -4,13 +4,15 @@
 Single source of truth: the landing page is website/index.html, and the
 docs pages are converted from doc/*.md at build time — editing a doc in
 the repo is all it takes to update the site (pages.yml redeploys on
-doc/** changes).
+doc/** changes). Docs pages get a left sidebar: site navigation plus an
+on-this-page TOC generated from the headings.
 
     uv run --with markdown python website/build.py    # → public/
 """
 
 from __future__ import annotations
 
+import html as html_mod
 import re
 import shutil
 from pathlib import Path
@@ -22,56 +24,55 @@ OUT = ROOT / "public"
 
 REPO = "https://github.com/tknawara/rootle"
 
-# Docs mirrored onto the site: url-slug -> source file (relative to ROOT).
-PAGES: dict[str, str] = {
-    "getting-started": "doc/getting-started.md",
-    "settings": "doc/settings.md",
+# Docs mirrored onto the site: url-slug -> (source file, nav label).
+PAGES: dict[str, tuple[str, str]] = {
+    "getting-started": ("doc/getting-started.md", "getting started"),
+    "settings": ("doc/settings.md", "settings"),
+    "provider-protocol": ("doc/provider-protocol.md", "providers"),
 }
 
 # Links inside the mirrored docs that point at files we do NOT mirror:
 # send them to the blob/tree on GitHub instead.
 GITHUB_LINKS: dict[str, str] = {
-    "provider-protocol.md": f"{REPO}/blob/main/doc/provider-protocol.md",
     "development.md": f"{REPO}/blob/main/doc/development.md",
     "house-style.md": f"{REPO}/blob/main/doc/house-style.md",
     "../skills/rootle-provider/SKILL.md": f"{REPO}/tree/main/skills/rootle-provider",
+    "../examples/providers/fs_provider.py": f"{REPO}/blob/main/examples/providers/fs_provider.py",
 }
 
+# Doc-local images that are not screenshots: copied alongside img/.
+DOC_ASSETS = {"architecture.svg"}
 
-def nav(prefix: str, active: str) -> str:
-    def link(target: str, label: str) -> str:
-        slug = target.rsplit("/", 1)[-1].removesuffix(".html")
-        cls = ' class="active"' if slug == active else ""
-        return f'<a{cls} href="{prefix}{target}">{label}</a>'
 
-    home_cls = ' class="active"' if active == "index" else ""
+def slugify(text: str) -> str:
+    """Match python-markdown's toc slugify (lower, strip punctuation,
+    spaces to dashes)."""
+    slug = re.sub(r"[^\w\s-]", "", text.lower()).strip()
+    return re.sub(r"[-\s]+", "-", slug)
+
+
+def sidebar(active: str, toc: list[tuple[str, str]]) -> str:
+    links = []
+    for slug, (_, label) in PAGES.items():
+        cls = ' class="active"' if f"docs/{slug}.html" == active else ""
+        links.append(f'      <a{cls} href="./{slug}.html">{label}</a>')
+    toc_html = "".join(
+        f'      <a href="#{anchor}">{html_mod.escape(label)}</a>\n' for label, anchor in toc
+    )
+    toc_block = f"""
+    <div class="side-toc">
+      <span class="side-head">on this page</span>
+{toc_html}    </div>""" if toc_html else ""
     return f"""
-<header>
-  <nav>
-    <img class="icon" src="{prefix}assets/icon.svg" alt="rootle icon">
-    <span class="wordmark">rootle</span>
-    <span class="links">
-      <a{home_cls} href="{prefix}index.html">home</a>
-      {link("docs/getting-started.html", "getting started")}
-      {link("docs/settings.html", "settings")}
-    </span>
-    <span class="spacer"></span>
-    <a class="github" href="{REPO}">github ↗</a>
-  </nav>
-</header>"""
+  <aside class="side">
+    <div class="side-pages">
+      <span class="side-head">rootle</span>
+{chr(10).join(links)}
+    </div>{toc_block}
+  </aside>"""
 
 
-def footer() -> str:
-    return f"""
-<footer>
-  <span>MIT license</span>
-  <a href="{REPO}">source</a>
-  <a href="{REPO}/blob/main/doc/getting-started.md">docs</a>
-  <span style="margin-left:auto">a ratatui TUI · Catppuccin Mocha</span>
-</footer>"""
-
-
-def page(title: str, body: str, prefix: str, active: str) -> str:
+def page(title: str, body: str, active: str, toc: list[tuple[str, str]]) -> str:
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -79,49 +80,82 @@ def page(title: str, body: str, prefix: str, active: str) -> str:
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title}</title>
 <meta name="description" content="rootle — a modal terminal UI for browsing remote source-control systems.">
-<link rel="icon" href="{prefix}assets/favicon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="{prefix}assets/site.css">
+<link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../assets/site.css">
 </head>
 <body class="docs">
 <div class="wrap">
-{nav(prefix, active)}
+<header>
+  <nav>
+    <img class="icon" src="../assets/icon.svg" alt="rootle icon">
+    <span class="wordmark">rootle</span>
+    <span class="spacer"></span>
+    <a class="github" href="{REPO}">github ↗</a>
+  </nav>
+</header>
+<div class="layout">{sidebar(active, toc)}
+  <article class="md">
 {body}
-{footer()}
+  </article>
+</div>
+<footer>
+  <span>MIT license</span>
+  <a href="{REPO}">source</a>
+  <a href="../index.html">home</a>
+  <span style="margin-left:auto">a ratatui TUI · Catppuccin Mocha</span>
+</footer>
 </div>
 </body>
 </html>
 """
 
 
-def rewrite(html: str, slugs: set[str]) -> str:
+def extract_toc(md_body: str) -> list[tuple[str, str]]:
+    """(label, anchor) for every h2 the toc extension stamped with an id."""
+    toc = []
+    for m in re.finditer(r'<h2 id="([^"]+)">(.*?)</h2>', md_body):
+        label = re.sub(r"<[^>]+>", "", m.group(2))
+        toc.append((label, m.group(1)))
+    return toc
+
+
+def rewrite(body: str, slugs: set[str]) -> str:
     """Fix links/images in converted doc HTML for their new home."""
 
     # Screenshots: img/NN-*.png -> ../assets/img/NN-*.png
-    html = re.sub(r'src="img/', 'src="../assets/img/', html)
+    body = re.sub(r'src="img/', 'src="../assets/img/', body)
+
+    # Doc-local assets (diagrams): architecture.svg -> ../assets/…
+    for name in DOC_ASSETS:
+        body = body.replace(f'src="{name}"', f'src="../assets/{name}"')
 
     # Sibling docs that ARE mirrored -> their site page.
     for slug in slugs:
-        html = html.replace(f'href="{slug}.md"', f'href="./{slug}.html"')
+        body = body.replace(f'href="{slug}.md"', f'href="./{slug}.html"')
 
-    # Docs we don't mirror -> GitHub.
+    # Files we don't mirror -> GitHub.
     for src, dst in GITHUB_LINKS.items():
-        html = html.replace(f'href="{src}"', f'href="{dst}"')
+        body = body.replace(f'href="{src}"', f'href="{dst}"')
 
-    return html
+    return body
 
 
 def build_docs() -> None:
     slugs = set(PAGES)
-    for slug, src in PAGES.items():
+    for slug, (src, _) in PAGES.items():
         text = (ROOT / src).read_text()
-        body = markdown.markdown(text, extensions=["fenced_code", "tables"])
+        body = markdown.markdown(
+            text, extensions=["fenced_code", "tables", "toc", "sane_lists"]
+        )
         body = rewrite(body, slugs)
         title = re.match(r"# (.+)", text).group(1).strip()
-        article = f'<article class="md">\n{body}\n</article>'
+        toc = extract_toc(body)
         dst = OUT / "docs" / f"{slug}.html"
         dst.parent.mkdir(parents=True, exist_ok=True)
-        dst.write_text(page(f"rootle — {title.lower()}", article, "../", f"docs/{slug}.html"))
-        print(f"built docs/{slug}.html from {src}")
+        dst.write_text(
+            page(f"rootle — {title.lower()}", body, f"docs/{slug}.html", toc)
+        )
+        print(f"built docs/{slug}.html from {src} ({len(toc)} toc entries)")
 
 
 def assemble() -> None:
@@ -135,6 +169,8 @@ def assemble() -> None:
         shutil.copy(ROOT / "website" / "assets" / name, OUT / "assets" / name)
     shutil.copy(ROOT / "doc" / "logo.svg", OUT / "assets" / "logo.svg")
     shutil.copy(ROOT / "doc" / "demo.gif", OUT / "assets" / "demo.gif")
+    for name in DOC_ASSETS:
+        shutil.copy(ROOT / "doc" / name, OUT / "assets" / name)
     for img in (ROOT / "doc" / "img").glob("*.png"):
         shutil.copy(img, OUT / "assets" / "img" / img.name)
     print(f"copied landing page + {len(list((ROOT / 'doc' / 'img').glob('*.png')))} screenshots")
