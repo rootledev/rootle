@@ -113,6 +113,8 @@ def test_settings_theme_radio_selects_and_saves(tmp_path: Path) -> None:
         screen = tui.expect("gruvbox-dark")
         assert "\u25cf catppuccin-mocha" in screen  # current theme carries the dot
 
+        # Alphabetical: catppuccin-mocha → dracula → gruvbox-dark.
+        tui.send("j")
         tui.send("j")
         tui.send(" ")  # select gruvbox-dark → live preview + unsaved chip
         screen = tui.expect("unsaved")

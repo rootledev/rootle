@@ -45,7 +45,7 @@ return.
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `name` | string | `"catppuccin-mocha"` | Palette to load. Resolution: `~/.config/rootle/themes/<name>.toml` → `<config dir>/themes/<name>.toml` → embedded Catppuccin Mocha. Unknown name → embedded fallback. |
+| `name` | string | `"catppuccin-mocha"` | Palette to load. Embedded: `catppuccin-mocha`, `dracula`, `gruvbox-dark`, `nord`, `one-dark`, `solarized-dark`, `tokyo-night`. A `~/.config/rootle/themes/<name>.toml` file merges over the embedded palette (or forks a builtin by name). Unknown name → Catppuccin Mocha. |
 | `path` | string, optional | unset | Explicit palette file; wins over `name`. |
 
 `--theme NAME` (CLI) overrides `name` for one session.

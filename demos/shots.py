@@ -154,16 +154,8 @@ def main() -> None:
     )
 
     tui = Tui(build(), cols=100, rows=28, args=["--config", str(config)])
-    # A second palette in the hermetic config dir, so the settings
-    # theme section shows a real radio list.
-    themes = Path(tui._home.name) / "config" / "rootle" / "themes"
-    themes.mkdir(parents=True, exist_ok=True)
-    (themes / "gruvbox-dark.toml").write_text(
-        '[semantic]\n'
-        'text = "#ebdbb2"\nbase = "#282828"\nmantle = "#1d2021"\n'
-        'crust = "#151313"\nsurface0 = "#3c3836"\n'
-        'border_focused = "#b8bb26"\nselection_fg = "#b8bb26"\n'
-    )
+    # The embedded palette list (dracula, nord, …) fills the settings
+    # theme radio — no fixture file needed.
     tui.start()
     r = Renderer(100, 28)
 
