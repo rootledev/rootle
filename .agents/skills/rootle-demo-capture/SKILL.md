@@ -10,7 +10,7 @@ Two artifacts, two different tools — do NOT cross them:
 | Artifact | Tool | Source |
 |---|---|---|
 | `doc/demo.gif` (README hero) | VHS via docker | `doc/demo.tape` |
-| `doc/img/*.png` (getting-started stills) | pyte screen renderer | `e2e/shots.py` |
+| `doc/img/*.png` (app-state stills) | pyte screen renderer | `e2e/shots.py` |
 
 ## 1. Demo GIF
 
@@ -75,7 +75,8 @@ Renderer gotchas (each produced a visible bug class):
 - UI/visual changes to any feature shown (fields row, chips, popups,
   wizard screens, keybinds layout).
 - New flows: extend `shots.py` with the flow + `shot("NN-name.png")`,
-  then embed in `doc/getting-started.md` next to the feature text.
+  then embed in the README or the relevant `doc/*.md` next to the
+  feature text.
 - Theme/palette changes: re-run both (GIF and stills).
 
 Commit the artifacts — GitHub renders both inline in README/docs.

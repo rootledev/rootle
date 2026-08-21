@@ -1,5 +1,5 @@
-"""Deterministic screenshots for doc/getting-started.md: the pyte
-screen is rendered to PNG cell-by-cell (fg/bg per cell, bold face).
+"""Deterministic screenshots of app states (README/docs embeds): the
+pyte screen is rendered to PNG cell-by-cell (fg/bg per cell, bold face).
 Driven by expect(), so every frame captures exactly the state it
 names — no PTY/VHS timing races.
 

@@ -26,7 +26,6 @@ REPO = "https://github.com/tknawara/rootle"
 
 # Docs mirrored onto the site: url-slug -> (source file, nav label).
 PAGES: dict[str, tuple[str, str]] = {
-    "getting-started": ("doc/getting-started.md", "getting started"),
     "settings": ("doc/settings.md", "settings"),
     "provider-protocol": ("doc/provider-protocol.md", "providers"),
 }
@@ -42,6 +41,39 @@ GITHUB_LINKS: dict[str, str] = {
 
 # Doc-local images that are not screenshots: copied alongside img/.
 DOC_ASSETS = {"architecture.svg"}
+
+# Palette roles in doc/logo.svg -> site CSS vars, so the inline logo
+# re-themes with the palette picker. The mole's illustration colors
+# (fur shading, whiskers, eye highlights) are character colors and stay
+# hardcoded; mode_leader is warm orange in every palette, so mapping
+# fur to --peach keeps the mole a mole.
+LOGO_VARS = {
+    "#11111b": "var(--bg)",            # crust — backdrop, eyes
+    "#1e1e2e": "var(--card)",          # base — terminal card
+    "#181825": "var(--deep)",          # mantle — modeline bar
+    "#313244": "var(--border)",        # surface0 — selection, scrollbar track
+    "#45475a": "color-mix(in srgb, var(--border) 55%, var(--border-strong))",  # surface1
+    "#585b70": "var(--border-strong)",  # surface2 — unfocused borders
+    "#6c7086": "var(--faint)",         # overlay0 — modeline hints
+    "#a6adc8": "var(--dim)",           # subtext0 — entries, code lines
+    "#cdd6f4": "var(--text)",          # wordmark
+    "#89b4fa": "var(--blue)",          # border_focused
+    "#a6e3a1": "var(--green)",         # mode_browse
+    "#f9e2af": "var(--yellow)",        # mode_search
+    "#fab387": "var(--peach)",         # mode_leader — mole fur
+    "#f38ba8": "var(--red)",           # error
+    "#cba6f7": "var(--mauve)",         # mode_visual
+    "#94e2d5": "var(--teal)",          # mode_insert
+}
+
+
+def themed_logo() -> str:
+    """doc/logo.svg with palette hexes swapped for site CSS vars."""
+    svg = (ROOT / "doc" / "logo.svg").read_text()
+    for hex_color, var in LOGO_VARS.items():
+        svg = svg.replace(hex_color, var)
+    return svg.strip()
+
 
 RAIL_LINKS = [("index.html", "home")] + [
     (f"docs/{slug}.html", label) for slug, (_, label) in PAGES.items()
@@ -157,7 +189,9 @@ def assemble() -> None:
     (OUT / "assets" / "img").mkdir(parents=True)
     (OUT / "docs").mkdir(parents=True)
 
-    shutil.copy(ROOT / "website" / "index.html", OUT / "index.html")
+    index = (ROOT / "website" / "index.html").read_text()
+    assert "<!--LOGO-->" in index, "index.html lost its <!--LOGO--> placeholder"
+    (OUT / "index.html").write_text(index.replace("<!--LOGO-->", themed_logo()))
     # Served at tknawara.github.io/rootle/install.sh — the curl-pipe-sh installer.
     shutil.copy(ROOT / "install.sh", OUT / "install.sh")
     for name in ("icon.svg", "favicon.svg", "site.css", "site.js"):
@@ -166,7 +200,9 @@ def assemble() -> None:
     shutil.copy(ROOT / "doc" / "demo.gif", OUT / "assets" / "demo.gif")
     for name in DOC_ASSETS:
         shutil.copy(ROOT / "doc" / name, OUT / "assets" / name)
-    for img in (ROOT / "doc" / "img").glob("*.png"):
+    for img in list((ROOT / "doc" / "img").glob("*.png")) + list(
+        (ROOT / "doc" / "img").glob("*.gif")
+    ):
         shutil.copy(img, OUT / "assets" / "img" / img.name)
     print(f"copied landing page + {len(list((ROOT / 'doc' / 'img').glob('*.png')))} screenshots")
 
