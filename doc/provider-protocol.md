@@ -1,4 +1,4 @@
-# The rootle provider protocol, v1
+# The rootle provider protocol, v1.1
 
 rootle talks to source-control backends through one seam (`trait
 Provider`, `src/provider/mod.rs`). The built-in `github` provider is
@@ -25,6 +25,10 @@ else as an NDJSON-RPC stdio child](architecture.svg)
   tolerated). A closed stdout fails every call ("provider closed its
   output"). There is no restart policy in v1 — a dead child surfaces
   per-call errors as status-line toasts.
+- **Reader tolerance (normative, both directions):** unknown fields in
+  requests, replies, and results MUST be ignored, and unsolicited
+  notifications MUST be ignored. v1.1 additions are additive for exactly
+  this reason — `protocol` stays `1`.
 
 ```
 → {"jsonrpc":"2.0","id":1,"method":"repo/tree","params":{"repo":"local/alpha"}}
@@ -84,7 +88,10 @@ Details:
   `org:`, `extension:`, `path:`). Items: `{"repo","path","sha","branch",
   "matches":[str,…]}`; `sha` defaults to `""`, `branch` to `"main"`,
   `matches` to `[]`. `matches` are matched substrings — the UI locates
-  them in the blob to compute real line numbers and previews.
+  them in the blob to compute real line numbers and previews. Optional
+  per-item `located` (bool, default `true`): `false` means the provider
+  knows its index is stale for this hit — the UI shows a `stale` chip
+  instead of line numbers until client-side locating self-heals it.
 
 ## Content ids
 
@@ -94,6 +101,23 @@ changes. rootle's cache is content-keyed and immutable — trees live at
 never invalidated, only evicted. A provider that reuses a sha for
 different bytes will show stale content. `fs_provider.py` hashes blob
 bytes with sha256 (directories hash their path — they have no content).
+
+## Cancellation (advisory)
+
+rootle may send an LSP-style cancellation **notification** (no reply)
+for a request it no longer needs — a superseded search, a context
+fetch whose hit was scrolled past:
+
+```
+→ {"jsonrpc":"2.0","method":"$/cancelRequest","params":{"id":7}}
+```
+
+Advisory only: the reply may still arrive and is handled normally
+(rootle's replies are id-matched and generation-guarded, and blob
+content is sha-keyed, so late work is never wrong). Providers MAY
+ignore it — cache-backed adapters lose nothing; quota-paying or
+long-running backends SHOULD use it to skip work. Cancels for unknown
+or completed ids are ignored.
 
 ## Errors
 
@@ -107,6 +131,20 @@ The `message` becomes the `Err` the UI shows as a one-line status/toast
 (`code` is ignored). A reply with neither `result` nor `error` fails
 with "provider reply without result". `fs_provider.py` wraps every
 handler exception this way.
+
+**Kinds (v1.1, optional).** Errors may carry a semantic kind in
+`data.kind` — an open string enum the UI maps to precise handling:
+
+```
+← {"jsonrpc":"2.0","id":9,"error":{"code":1,"message":"rate limited (reset in 37s)",
+     "data":{"kind":"rate_limited","retry_after_s":37}}}
+```
+
+Defined kinds: `auth`, `rate_limited` (optional `retry_after_s`
+seconds), `not_found`, `network`, `timeout`, `provider` (internal).
+Unknown kinds degrade to the message toast — never error on them.
+`code` stays any positive int of the provider's choosing (the JSON-RPC
+standard `-32xxx` codes remain reserved for protocol-level errors).
 
 ## Configuration
 

@@ -36,8 +36,8 @@ repo — Enter alone resumes it).
 
 Three miller columns — orgs → repos → tree — plus a live
 syntax-highlighted preview of whatever the cursor is on. `j/k` move,
-`h/l` step out/in a level, `J/K` scroll the preview, `/` filters the
-focused pane.
+`h/l` step out/in a level, `J/K` walk a line cursor through the
+preview (the border shows `line/total`), `/` filters the focused pane.
 
 ![browsing with the preview pane](img/03-browse.png)
 
@@ -94,8 +94,10 @@ on it read-only — edits are never written back. Resolution:
 `vim`, `vi`.
 
 `␣ y` copies the browser URL of whatever is under the cursor — repo,
-org, file, tree, or a search hit with a `#L<line>` fragment — via OSC
-52 (works over SSH and tmux) or a local clipboard tool.
+org, file, tree, or a search hit with a `#L<line>` fragment. In the
+browser's preview the line cursor sets the fragment: move with `J/K`,
+yank the URL of that exact line. Clipboard: OSC 52 (works over SSH and
+tmux), then a local tool.
 `ROOTLE_CLIPBOARD=<path>` redirects yanks to a file for scripts and
 CI.
 
