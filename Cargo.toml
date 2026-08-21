@@ -18,7 +18,7 @@ name = "rootle"
 path = "src/main.rs"
 
 [dependencies]
-ratatui = { version = "0.29", features = [] }
+ratatui = { version = "0.30", features = [] }
 crossterm = "0.29"
 serde = { version = "1", features = ["derive"] }
 toml = "1.1"
