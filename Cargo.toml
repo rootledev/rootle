@@ -4,6 +4,11 @@ version = "0.2.2"
 edition = "2024"
 rust-version = "1.88"
 license = "MIT"
+description = "Modal TUI for browsing remote source-control systems (GitHub in-tree, any forge via stdio providers) from the terminal"
+repository = "https://github.com/tknawara/ghx"
+readme = "README.md"
+keywords = ["tui", "github", "terminal", "git", "browser"]
+categories = ["command-line-utilities"]
 
 [lib]
 path = "src/lib.rs"
