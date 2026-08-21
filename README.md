@@ -10,6 +10,7 @@ releases; pin a version if it matters to you.
 [![ci](https://github.com/tknawara/ghx/actions/workflows/ci.yml/badge.svg)](https://github.com/tknawara/ghx/actions/workflows/ci.yml)
 [![release](https://github.com/tknawara/ghx/actions/workflows/release.yml/badge.svg)](https://github.com/tknawara/ghx/actions/workflows/release.yml)
 [![audit](https://github.com/tknawara/ghx/actions/workflows/audit.yml/badge.svg)](https://github.com/tknawara/ghx/actions/workflows/audit.yml)
+[![crates.io](https://img.shields.io/crates/v/ghx.svg)](https://crates.io/crates/ghx)
 [![version](https://img.shields.io/github/v/release/tknawara/ghx?display_name=tag&sort=semver)](https://github.com/tknawara/ghx/releases/latest)
 [![status](https://img.shields.io/badge/status-alpha-orange)](https://github.com/tknawara/ghx/milestones)
 
@@ -46,7 +47,8 @@ small stdio script.
 ## Quick start
 
 ```bash
-# download the static binary from a release, or build:
+cargo install ghx    # from crates.io (Rust 1.88+)
+# or download the static binary from a release, or build:
 docker compose run --build --rm release    # → ./dist/ghx-linux-x86_64-musl
 
 ghx                # repo search on first run; browser after that
