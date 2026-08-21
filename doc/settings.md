@@ -45,45 +45,12 @@ return.
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `name` | string | `"catppuccin-mocha"` | Palette to load. Embedded: `catppuccin-mocha`, `dracula`, `gruvbox-dark`, `nord`, `one-dark`, `solarized-dark`, `tokyo-night`. A `~/.config/rootle/themes/<name>.toml` file merges over the embedded palette (or forks a builtin by name). Unknown name → Catppuccin Mocha. |
+| `name` | string | `"catppuccin-mocha"` | Palette to load. Embedded: `catppuccin-mocha`, `dracula`, `gruvbox-dark`, `nord`, `one-dark`, `solarized-dark`, `tokyo-night`. Unknown name → Catppuccin Mocha. |
 | `path` | string, optional | unset | Explicit palette file; wins over `name`. |
 
-`--theme NAME` (CLI) overrides `name` for one session.
-
-### Palette files (`themes/<name>.toml`)
-
-Only `[semantic]` role overrides, each a hex color (`"#89b4fa"` or
-`"89b4fa"`). Unknown roles and bad hex are silently ignored — bad
-palettes never crash the app. Roles (Catppuccin Mocha defaults):
-
-| Role | Default | Used for |
-|---|---|---|
-| `crust` | `#11111b` | text on accent chips, match-chip foreground |
-| `mantle` | `#181825` | popup/modeline background |
-| `base` | `#1e1e2e` | pane background, unthemed cells |
-| `surface0` | `#313244` | selection background, idle buttons |
-| `surface2` | `#585b70` | unfocused borders |
-| `overlay0` | `#6c7086` | empty-preview placeholder text |
-| `subtext0` | `#a6adc8` | secondary text: hints, line numbers, disabled radio items |
-| `text` | `#cdd6f4` | body text, file names |
-| `border_focused` | `#89b4fa` | focused borders — the dominant accent (blue) |
-| `border_unfocused` | `#585b70` | unfocused field/pane borders |
-| `directory` | `#89b4fa` | directories (bold) and dir previews |
-| `file` | `#cdd6f4` | file entries |
-| `selection_bg` | `#313244` | selected-row background |
-| `selection_fg` | `#89b4fa` | selected-row text |
-| `hint` | `#a6adc8` | hint rows in borders/modeline |
-| `error` | `#f38ba8` | (reserved) error accents |
-| `warning` | `#f9e2af` | status-line messages |
-| `mode_browse` | `#a6e3a1` | `[BROWSE]` chip |
-| `mode_search` | `#f9e2af` | `[SEARCH]` chip |
-| `mode_insert` | `#94e2d5` | `[INSERT]` chip |
-| `mode_normal` | `#89b4fa` | `[NORMAL]` chip |
-| `mode_leader` | `#fab387` | `[LEADER]` chip, `:` prompt |
-| `mode_visual` | `#f5c2e7` | `[VISUAL]` chip, marked-entry dot `●` |
-| `badge_repo` | `#89b4fa` | `[repo]` badge in search results |
-| `badge_org` | `#fab387` | `[org]` badge in search results |
-| `search_match` | `#f9e2af` | grep match chips (crust text on top) |
+`--theme NAME` (CLI) overrides `name` for one session. To write your
+own palette — file format, overridable roles, worked example — see
+[themes.md](themes.md).
 
 Syntax highlighting maps syntect scopes onto the active palette — a
 palette change recolors previews automatically.

@@ -84,13 +84,10 @@ reviewers can see exactly which cells changed.
 
 ### Screenshots (visual changes)
 
-Only commit PNGs when they double as documentation (README/docs);
-otherwise frames suffice. For doc-worthy changes:
-
-1. Add the state to `e2e/shots.py` (`shot("NN-name.png")` + the flow),
-   run it — see the [rootle-demo-capture] skill for renderer gotchas.
-2. Embed in the README or the relevant `doc/*.md` next to the feature
-   text in the same PR.
+There is no stills pipeline anymore — frames are the evidence. If a
+change is doc-worthy visually, it belongs in the demo tape: extend
+`demos/demo.tape` and let the `demo` workflow re-render (see the
+[rootle-demo-capture] skill for tape gotchas).
 
 ### Recordings (flow changes)
 

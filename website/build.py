@@ -27,12 +27,14 @@ REPO = "https://github.com/tknawara/rootle"
 # Docs mirrored onto the site: url-slug -> (source file, nav label).
 PAGES: dict[str, tuple[str, str]] = {
     "settings": ("doc/settings.md", "settings"),
-    "provider-protocol": ("doc/provider-protocol.md", "providers"),
+    # Trimmed site version; doc/provider-protocol.md stays the full spec.
+    "provider-protocol": ("website/providers.md", "providers"),
 }
 
 # Links inside the mirrored docs that point at files we do NOT mirror:
 # send them to the blob/tree on GitHub instead.
 GITHUB_LINKS: dict[str, str] = {
+    "themes.md": f"{REPO}/blob/main/doc/themes.md",
     "development.md": f"{REPO}/blob/main/doc/development.md",
     "house-style.md": f"{REPO}/blob/main/doc/house-style.md",
     "../skills/rootle-provider/SKILL.md": f"{REPO}/tree/main/skills/rootle-provider",
@@ -173,9 +175,6 @@ def extract_toc(md_body: str) -> list[tuple[str, str]]:
 def rewrite(body: str, slugs: set[str]) -> str:
     """Fix links/images in converted doc HTML for their new home."""
 
-    # Screenshots: img/NN-*.png -> ../assets/img/NN-*.png
-    body = re.sub(r'src="img/', 'src="../assets/img/', body)
-
     # Doc-local assets (diagrams): architecture.svg -> ../assets/…
     for name in DOC_ASSETS:
         body = body.replace(f'src="{name}"', f'src="../assets/{name}"')
@@ -244,11 +243,9 @@ def assemble() -> None:
     shutil.copy(ROOT / "doc" / "demo.gif", OUT / "assets" / "demo.gif")
     for name in DOC_ASSETS:
         shutil.copy(ROOT / "doc" / name, OUT / "assets" / name)
-    for img in list((ROOT / "doc" / "img").glob("*.png")) + list(
-        (ROOT / "doc" / "img").glob("*.gif")
-    ):
-        shutil.copy(img, OUT / "assets" / "img" / img.name)
-    print(f"copied landing page + {len(list((ROOT / 'doc' / 'img').glob('*.png')))} screenshots")
+    for gif in (ROOT / "doc" / "img").glob("*.gif"):
+        shutil.copy(gif, OUT / "assets" / "img" / gif.name)
+    print(f"copied landing page + {len(list((ROOT / 'doc' / 'img').glob('*.gif')))} themed demo GIFs")
 
 
 if __name__ == "__main__":

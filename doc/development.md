@@ -101,16 +101,17 @@ Gotchas that have bitten (all covered by the suite):
 - `docker compose run` needs `--build` after source changes or it
   runs a stale image.
 
-## Demo + screenshots
+## Demo GIFs
 
-`doc/demo.gif` renders from `demos/demo.tape` via the VHS docker image;
-`doc/img/*.png` render from `demos/shots.py` (pyte screen → PNG). Both
-carry gotcha lists in the
+`doc/demo.gif` (canonical, Catppuccin Mocha) and the per-palette
+`doc/img/demo-<theme>.gif` variants (the website's palette picker swaps
+them in) all render from `demos/demo.tape` via the VHS docker image —
+one sed-parameterized run per embedded palette. Gotchas live in the
 [rootle-demo-capture](../.agents/skills/rootle-demo-capture/SKILL.md)
 skill; re-capture when any shown surface changes — or let the `demo`
 workflow (`.github/workflows/demo.yml`) do it: on pushes touching
-`src/`, `demos/`, or `e2e/` it rebuilds, re-renders, and commits
-changed artifacts back to main (`[skip ci]`, idempotent).
+`src/`, `demos/`, or `e2e/` it rebuilds, re-renders, and opens a
+`demo/artifacts` PR with the refreshed GIFs.
 
 ## Skills (`.agents/skills/`)
 
@@ -118,7 +119,7 @@ changed artifacts back to main (`[skip ci]`, idempotent).
 |---|---|
 | rootle-component | adding any UI component |
 | rootle-tui-debug | verifying/debugging terminal behavior |
-| rootle-demo-capture | demo GIF + doc screenshots |
+| rootle-demo-capture | demo GIFs (per-palette) |
 | rootle-pr | authoring PRs (evidence contract) |
 
 Public skill (`skills/rootle-provider`) scaffolds external providers with

@@ -25,10 +25,6 @@ jobs:
 
       - uses: astral-sh/setup-uv@v7
 
-      # shots.py renders with DejaVu fonts (present on ubuntu runners).
-      - name: Screenshots (doc/img)
-        run: uv run --project e2e python demos/shots.py
-
       # The release service requires VERSION; the demo only needs the
       # binary inside the tarball (demo_setup.sh extracts it).
       - name: Build binary for the tape

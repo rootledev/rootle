@@ -63,7 +63,8 @@ search (it says so in the status line when it matters).
 
 | Doc | Contents |
 |---|---|
-| [settings](doc/settings.md) | every config key, theme role, env var, CLI flag |
+| [settings](doc/settings.md) | every config key, env var, CLI flag |
+| [themes](doc/themes.md) | writing your own palette (role reference) |
 | [provider protocol](doc/provider-protocol.md) | wrap your own backend (NDJSON-RPC over stdio) |
 | [development](doc/development.md) | architecture, dev workflow, e2e harness |
 | [house style](doc/house-style.md) | the component behavior contract |
@@ -88,6 +89,6 @@ docker compose run --build --rm e2e # same e2e suite in a container
 ```
 
 CI runs the gate + e2e on every push; the `demo` workflow re-renders
-the GIF and screenshots above whenever the app or its tooling changes
-and opens a PR with the refreshed artifacts — this README always shows
-the current look and feel.
+the demo GIFs above (one per palette) whenever the app or its tooling
+changes and opens a PR with the refreshed artifacts — this README
+always shows the current look and feel.
