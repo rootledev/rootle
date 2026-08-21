@@ -18,6 +18,8 @@ syntax-highlighted previews, Zed-style global search, and a pluggable
 provider seam — GitHub ships in-tree, anything else wraps in via a
 small stdio script.
 
+![demo](doc/demo.gif)
+
 </div>
 
 ## Contents
