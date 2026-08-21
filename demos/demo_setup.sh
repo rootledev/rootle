@@ -39,11 +39,21 @@ kind = "stdio"
 command = ["python3", "$PWD/examples/providers/fs_provider.py", "$DEMO/code"]
 EOF
 
-# The tape launches the release binary; fall back to a debug build.
+# The tape launches the release binary. Releases ship as a tarball
+# (rootle-<v>-<target>.tar.gz) — extract it; locally, fall back to a
+# debug build when no release has been run.
 if [ ! -x dist/rootle-linux-x86_64-musl ]; then
-    cargo build --quiet
-    mkdir -p dist
-    cp target/debug/rootle dist/rootle-linux-x86_64-musl
+    tarball="$(ls dist/rootle-*-x86_64-unknown-linux-musl.tar.gz 2>/dev/null | head -1)"
+    if [ -n "$tarball" ]; then
+        tmp="$(mktemp -d)"
+        tar -xzf "$tarball" -C "$tmp"
+        install -m755 "$tmp"/*/rootle dist/rootle-linux-x86_64-musl
+        rm -rf "$tmp"
+    else
+        cargo build --quiet
+        mkdir -p dist
+        cp target/debug/rootle dist/rootle-linux-x86_64-musl
+    fi
 fi
 
 echo "demo fixture ready: $DEMO"
