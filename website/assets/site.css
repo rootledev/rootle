@@ -27,6 +27,8 @@ code {
   display: grid;
   grid-template-columns: 236px minmax(0, 1fr);
   min-height: 100vh;
+  max-width: 1240px;
+  margin-inline: auto;
 }
 .rail {
   position: sticky; top: 0; height: 100vh; overflow-y: auto;
@@ -60,7 +62,7 @@ code {
   padding: 4px 12px; border-radius: 6px; line-height: 1.4;
 }
 .rail-toc a:hover { color: var(--text); background: var(--card); text-decoration: none; }
-.content { padding: 0 40px 0 48px; max-width: 900px; }
+.content { padding: 0 32px; max-width: 940px; margin-inline: auto; }
 body.docs .content { max-width: 800px; }
 
 /* ---- shared blocks ---- */

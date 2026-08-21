@@ -32,9 +32,12 @@ def test_grep_folds_regions_with_count_badge(provider_tui: Tui) -> None:
     tui.send("g")
     tui.type_query("render")
     tui.key("ENTER")
-    screen = tui.expect("local/alpha/src/main.rs")
-    assert "2 matches" in screen  # render on lines 2 and 6, folded
-    assert "⋮" in screen  # region separator between the two matches
+    # The result block renders progressively; the fold separator is the
+    # last glyph to land — poll it, then assert the rest on that frame
+    # (asserting on the first frame containing the path races the draw).
+    tui.expect("2 matches")
+    screen = tui.expect("⋮")
+    assert "local/alpha/src/main.rs" in screen
     assert "fn render() -> &'static str {" in screen
 
 
