@@ -22,7 +22,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
 
       # shots.py renders with DejaVu fonts (present on ubuntu runners).
       - name: Screenshots (doc/img)
