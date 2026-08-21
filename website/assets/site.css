@@ -1,5 +1,7 @@
-/* rootle site styles — shared by the landing page and the docs pages
-   built from doc/*.md by website/build.py. Catppuccin Mocha. */
+/* rootle site styles — every page shares one chrome: a left rail
+   (brand, site nav, on-this-page TOC on docs) and a content column.
+   Landing page: website/index.html. Docs pages: built from doc/*.md by
+   website/build.py. Catppuccin Mocha. */
 :root {
   --bg: #11111b; --card: #1e1e2e; --deep: #181825;
   --border: #313244; --text: #cdd6f4; --dim: #a6adc8; --faint: #6c7086;
@@ -8,43 +10,86 @@
   --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 * { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
 body {
   margin: 0; background: var(--bg); color: var(--text);
   font-family: var(--sans); line-height: 1.6; font-size: 16px;
 }
 a { color: var(--blue); text-decoration: none; }
-a:hover { text-decoration: underline; }
-.wrap { max-width: 920px; margin: 0 auto; padding: 0 24px; }
 code {
   font-family: var(--mono); font-size: 0.9em; color: var(--peach);
   background: var(--deep); border: 1px solid var(--border);
   border-radius: 5px; padding: 1px 5px; white-space: nowrap;
 }
-header nav {
-  display: flex; align-items: center; gap: 14px; padding: 20px 0;
-  flex-wrap: wrap;
+
+/* ---- shell: rail + content ---- */
+.shell {
+  display: grid;
+  grid-template-columns: 236px minmax(0, 1fr);
+  min-height: 100vh;
 }
-header nav img.icon { width: 36px; height: 36px; }
-header nav .wordmark {
-  font-family: var(--mono); font-weight: 700; font-size: 20px; color: var(--text);
+.rail {
+  position: sticky; top: 0; height: 100vh; overflow-y: auto;
+  border-right: 1px solid var(--border);
+  padding: 26px 14px 36px 20px;
+  font-family: var(--mono);
 }
-header nav .links { display: flex; gap: 18px; margin-left: 12px; }
-header nav .links a {
-  font-family: var(--mono); font-size: 14px; color: var(--dim);
+.rail .brand {
+  display: flex; align-items: center; gap: 10px;
+  padding: 4px 12px; margin-bottom: 24px;
 }
-header nav .links a.active { color: var(--blue); }
-header nav .links a:hover { text-decoration: none; color: var(--text); }
-header nav .spacer { flex: 1; }
-header nav a.github { color: var(--dim); font-size: 14px; }
-section { padding: 40px 0 8px; }
+.rail .brand img { width: 30px; height: 30px; }
+.rail .brand .wordmark { font-weight: 700; font-size: 18px; color: var(--text); }
+.rail .rail-head {
+  display: block; font-size: 10.5px; letter-spacing: 1.6px;
+  text-transform: uppercase; color: var(--faint);
+  margin: 20px 0 6px 12px;
+}
+.rail nav { display: flex; flex-direction: column; gap: 2px; }
+.rail nav a {
+  display: block; font-size: 14px; color: var(--dim);
+  padding: 7px 12px; border-radius: 8px; line-height: 1.35;
+}
+.rail nav a:hover { background: var(--card); color: var(--text); text-decoration: none; }
+.rail nav a.active { background: var(--card); color: var(--blue); }
+.rail nav a.gh { color: var(--faint); margin-top: 14px; }
+.rail nav a.gh:hover { color: var(--text); }
+.rail-toc { margin-top: 4px; }
+.rail-toc a {
+  display: block; font-size: 12.5px; color: var(--faint);
+  padding: 4px 12px; border-radius: 6px; line-height: 1.4;
+}
+.rail-toc a:hover { color: var(--text); background: var(--card); text-decoration: none; }
+.content { padding: 0 40px 0 48px; max-width: 900px; }
+body.docs .content { max-width: 800px; }
+
+/* ---- shared blocks ---- */
+section { padding: 32px 0 8px; }
 h2.section {
   font-family: var(--mono); font-size: 15px; font-weight: 700;
   color: var(--faint); text-transform: lowercase; letter-spacing: 1px;
   margin: 0 0 20px;
 }
-h2.section::before { content: "## "; color: var(--blue); }
-.hero { text-align: center; padding: 48px 0 8px; }
-.hero img.logo { width: min(480px, 100%); height: auto; }
+h2.section::before { content: "\276F  "; color: var(--blue); font-size: 0.9em; }
+pre {
+  font-family: var(--mono); font-size: 14px; line-height: 1.7;
+  background: var(--deep); border: 1px solid var(--border); border-radius: 12px;
+  padding: 18px 22px; overflow-x: auto; margin: 0 0 14px;
+}
+pre .p { color: var(--green); }
+pre .c { color: var(--faint); }
+pre code { background: none; border: none; padding: 0; color: inherit; white-space: pre; }
+.note { color: var(--faint); font-size: 14px; margin: 14px 0 0; }
+.note code { border: none; padding: 0 2px; }
+footer {
+  margin-top: 64px; border-top: 1px solid var(--border); padding: 24px 0 44px;
+  color: var(--faint); font-size: 14px; display: flex; gap: 18px; flex-wrap: wrap;
+}
+
+/* ---- home ---- */
+body.home { background: linear-gradient(180deg, #15151f 0%, var(--bg) 320px); }
+.hero { text-align: center; padding: 40px 0 0; }
+.hero img.logo { width: min(460px, 100%); height: auto; }
 .hero p.tagline { font-size: 19px; color: var(--dim); margin: 8px 0 4px; }
 .hero p.sub { font-size: 15px; color: var(--faint); margin: 0 0 24px; }
 .hero p.sub .chip {
@@ -65,11 +110,13 @@ h2.section::before { content: "## "; color: var(--blue); }
   width: 100%; border: 1px solid var(--border); border-radius: 12px;
   display: block; background: var(--card);
 }
-.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
 .card {
   background: var(--card); border: 1px solid var(--border); border-radius: 12px;
   padding: 18px 20px;
+  transition: border-color 0.15s ease, transform 0.15s ease;
 }
+.card:hover { border-color: var(--blue); transform: translateY(-2px); }
 .card h3 { font-family: var(--mono); font-size: 16px; margin: 0 0 6px; color: var(--text); }
 .card h3 .key {
   display: inline-block; font-size: 12px; color: var(--blue);
@@ -78,83 +125,35 @@ h2.section::before { content: "## "; color: var(--blue); }
   padding: 0 7px; margin-left: 8px; vertical-align: 2px;
 }
 .card p { margin: 0; color: var(--dim); font-size: 14px; }
-.card code, .note code { border: none; padding: 0 2px; }
-.shots { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+.card code { border: none; padding: 0 2px; }
+.shots { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
 .shots figure { margin: 0; }
 .shots img {
   width: 100%; display: block; border: 1px solid var(--border);
   border-radius: 10px; background: var(--card);
+  transition: border-color 0.15s ease;
 }
+.shots figure:hover img { border-color: var(--blue); }
 .shots figcaption { font-size: 13px; color: var(--faint); padding-top: 6px; text-align: center; }
-pre {
-  font-family: var(--mono); font-size: 14px; line-height: 1.7;
-  background: var(--deep); border: 1px solid var(--border); border-radius: 12px;
-  padding: 18px 22px; overflow-x: auto; margin: 0 0 14px;
-}
-pre .p { color: var(--green); }
-pre .c { color: var(--faint); }
-pre code { background: none; border: none; padding: 0; color: inherit; white-space: pre; }
-.note { color: var(--faint); font-size: 14px; margin: 14px 0 0; }
-footer {
-  margin-top: 56px; border-top: 1px solid var(--border); padding: 24px 0 40px;
-  color: var(--faint); font-size: 14px; display: flex; gap: 18px; flex-wrap: wrap;
-}
 
 /* ---- docs pages (built from doc/*.md) ---- */
-body.docs .wrap { max-width: 940px; }
-.layout {
-  display: grid; grid-template-columns: 190px minmax(0, 1fr);
-  gap: 52px; align-items: start;
-}
-aside.side {
-  position: sticky; top: 0; align-self: start;
-  max-height: 100vh; overflow-y: auto;
-  padding: 28px 0 32px; font-family: var(--mono);
-}
-.side-head {
-  display: block; font-size: 11px; letter-spacing: 1.5px;
-  text-transform: uppercase; color: var(--faint); margin-bottom: 8px;
-}
-.side-pages a {
-  display: block; font-size: 14px; color: var(--dim);
-  padding: 5px 12px; border-radius: 7px; margin-left: -12px;
-}
-.side-pages a:hover { text-decoration: none; color: var(--text); background: var(--card); }
-.side-pages a.active { color: var(--blue); background: var(--card); }
-.side-toc { margin-top: 18px; border-top: 1px solid var(--border); padding-top: 14px; }
-.side-toc a {
-  padding: 3px 0 3px 12px; border-left: 2px solid var(--border);
-  margin-left: -10px; line-height: 1.45;
-}
-.side-toc a:hover { text-decoration: none; color: var(--text); border-left-color: var(--blue); }
-@media (max-width: 860px) {
-  .layout { display: block; }
-  aside.side {
-    position: static; max-height: none; overflow: visible;
-    padding-top: 8px; border-bottom: 1px solid var(--border);
-    padding-bottom: 14px;
-  }
-  .side-pages { display: flex; flex-wrap: wrap; gap: 8px; }
-  .side-pages a { margin-left: 0; padding: 3px 12px; background: var(--card); }
-  .side-toc { display: none; }
-}
-article.md { padding: 8px 0 24px; min-width: 0; }
+article.md { padding: 12px 0 24px; min-width: 0; }
 article.md h1 {
-  font-family: var(--mono); font-size: 28px; margin: 24px 0 4px;
+  font-family: var(--mono); font-size: 28px; margin: 20px 0 4px;
   padding-bottom: 12px; border-bottom: 1px solid var(--border);
 }
 article.md h2 {
   font-family: var(--mono); font-size: 17px; font-weight: 700;
   margin: 40px 0 12px; color: var(--text); scroll-margin-top: 16px;
 }
-article.md h2::before { content: "## "; color: var(--blue); }
+article.md h2::before { content: "\276F  "; color: var(--blue); font-size: 0.9em; }
 article.md h3 {
   font-family: var(--mono); font-size: 15px; font-weight: 700;
   margin: 28px 0 10px; color: var(--dim);
 }
-article.md h3::before { content: "### "; color: var(--faint); }
+
 article.md p { color: var(--dim); margin: 12px 0; }
-article.md p code, article.md li code { color: var(--peach); }
+article.md p code, article.md li code { color: var(--peach); border: none; padding: 0 2px; }
 article.md ul, article.md ol { color: var(--dim); padding-left: 26px; margin: 12px 0; }
 article.md li { margin: 4px 0; }
 article.md img {
@@ -181,4 +180,21 @@ article.md hr { border: none; border-top: 1px solid var(--border); margin: 24px 
 article.md blockquote {
   margin: 14px 0; padding: 2px 18px; color: var(--dim);
   border-left: 3px solid var(--blue);
+}
+
+/* ---- narrow screens: rail collapses to a top bar ---- */
+@media (max-width: 880px) {
+  .shell { display: block; }
+  .rail {
+    position: static; height: auto; overflow: visible;
+    border-right: none; border-bottom: 1px solid var(--border);
+    padding: 14px 20px 16px;
+  }
+  .rail .brand { margin-bottom: 10px; padding: 0; }
+  .rail .rail-head { display: none; }
+  .rail nav { flex-direction: row; flex-wrap: wrap; gap: 6px; }
+  .rail nav a { font-size: 13px; padding: 5px 12px; background: var(--card); }
+  .rail nav a.gh { margin-top: 0; }
+  .rail-toc { display: none; }
+  .content { padding: 0 20px; }
 }
