@@ -7,6 +7,7 @@ all go through the child process."""
 import subprocess
 import time
 
+from conftest import dismiss_launch_popup
 from tui import Tui
 
 
@@ -43,10 +44,9 @@ def test_fs_provider_search_to_tree_to_preview(provider_tui: Tui) -> None:
 
 def test_fs_provider_grep_over_stdio(provider_tui: Tui) -> None:
     tui = provider_tui
-    # Close the launch popup: no repo open → global scope over the
-    # provider's code search.
-    tui.key("ESC")
-    tui.key("ESC")
+    # Close the launch popup (waits for the close — an ESC that outruns
+    # it lands in the freshly opened view instead).
+    dismiss_launch_popup(tui)
     tui.send(" ")
     tui.send("g")
     screen = tui.expect("grep")
