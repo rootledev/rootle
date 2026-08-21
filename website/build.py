@@ -157,6 +157,8 @@ def assemble() -> None:
     (OUT / "docs").mkdir(parents=True)
 
     shutil.copy(ROOT / "website" / "index.html", OUT / "index.html")
+    # Served at tknawara.github.io/rootle/install.sh — the curl-pipe-sh installer.
+    shutil.copy(ROOT / "install.sh", OUT / "install.sh")
     for name in ("icon.svg", "favicon.svg", "site.css"):
         shutil.copy(ROOT / "website" / "assets" / name, OUT / "assets" / name)
     shutil.copy(ROOT / "doc" / "logo.svg", OUT / "assets" / "logo.svg")

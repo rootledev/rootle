@@ -48,9 +48,8 @@ small stdio script.
 ## Quick start
 
 ```bash
-cargo install rootle    # from crates.io (Rust 1.88+)
-# or download the static binary from a release, or build:
-docker compose run --build --rm release    # → ./dist/rootle-linux-x86_64-musl
+curl -fsSL https://tknawara.github.io/rootle/install.sh | sh   # linux x86_64, to ~/.local/bin
+cargo install rootle    # or from crates.io (Rust 1.88+)
 
 rootle                # repo search on first run; browser after that
 rootle owner/repo     # jump straight into a repo
