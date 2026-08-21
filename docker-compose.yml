@@ -1,7 +1,7 @@
 # rootle build/test/release services (PLAN.md §13).
 #   docker compose run --rm test      # fmt + clippy + tests
 #   docker compose run --rm build     # debug build (warm cache check)
-#   docker compose run --rm release   # exports static binary to ./dist/
+#   docker compose run --rm -e VERSION=x.y.z release   # tarball → ./dist/
 
 services:
   test:
@@ -20,6 +20,10 @@ services:
       target: builder
     command: cargo build --locked
 
+  # Exports a versioned tarball + checksum to ./dist/ (VERSION required,
+  # e.g. `docker compose run --build --rm -e VERSION=0.3.0 release`).
+  # The tarball layout is the install.sh contract:
+  #   rootle-<VERSION>-<TARGET>.tar.gz containing <dir>/rootle
   release:
     build:
       context: .
@@ -29,12 +33,19 @@ services:
       - sh
       - -c
       - |
+        set -e
+        VERSION="$${VERSION:?set VERSION to the release version, e.g. -e VERSION=0.3.0}"
+        TARGET="x86_64-unknown-linux-musl"
+        PKG="rootle-$$VERSION-$$TARGET"
         cargo build --release --locked \
         && strip target/release/rootle \
-        && install -m755 target/release/rootle /dist/rootle-linux-x86_64-musl \
+        && staging="$$(mktemp -d)" \
+        && mkdir -p "$$staging/$$PKG" \
+        && install -m755 target/release/rootle "$$staging/$$PKG/rootle" \
+        && tar -czf "/dist/$$PKG.tar.gz" -C "$$staging" "$$PKG" \
         && cd /dist \
-        && sha256sum rootle-linux-x86_64-musl > rootle-linux-x86_64-musl.sha256 \
-        && echo "released: /dist/rootle-linux-x86_64-musl"
+        && sha256sum "$$PKG.tar.gz" > "$$PKG.tar.gz.sha256" \
+        && echo "released: /dist/$$PKG.tar.gz"
     volumes:
       - ./dist:/dist
 
