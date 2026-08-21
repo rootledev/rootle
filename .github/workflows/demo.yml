@@ -46,7 +46,9 @@ jobs:
       # Idempotent: an unchanged render commits nothing, so this never
       # loops. main is protected, so changed artifacts land as a PR on
       # a fixed branch (force-pushed, one open PR at a time) instead of
-      # a direct push.
+      # a direct push. The PR is reused — every render rewrites the body
+      # with the source SHA so it never looks stale; the [bot] marker in
+      # the title makes its provenance unambiguous.
       - name: Open artifacts PR if renders changed
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -55,11 +57,23 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add doc/demo.gif doc/img/
           git diff --cached --quiet && exit 0
+          changed="$(git diff --cached --name-only | sed 's/^/- /')"
           git checkout -B demo/artifacts
           git commit -m "docs: refresh demo.gif + screenshots"
           git push -f origin demo/artifacts
-          if ! gh pr view demo/artifacts --json state -q .state 2>/dev/null | grep -q OPEN; then
-            gh pr create --base main --head demo/artifacts \
-              --title "docs: refresh demo.gif + screenshots" \
-              --body "Re-rendered demo artifacts from the demo workflow. Docs-only: bot PRs don't trigger CI, so merge with the admin override."
+          title="chore(demo): refresh demo.gif + screenshots [bot]"
+          body="Re-rendered demo artifacts from the demo workflow.
+
+          - rendered from: \`main@${GITHUB_SHA:0:8}\`
+          - at: $(date -u '+%Y-%m-%d %H:%M UTC')
+
+          $changed
+
+          Docs-only: bot PRs don't trigger CI (GITHUB_TOKEN), so merge with the
+          admin override. This PR is reused: every render force-pushes the
+          demo/artifacts branch and rewrites this body."
+          if gh pr view demo/artifacts --json state -q .state 2>/dev/null | grep -q OPEN; then
+            gh pr edit demo/artifacts --title "$title" --body "$body"
+          else
+            gh pr create --base main --head demo/artifacts --title "$title" --body "$body"
           fi
