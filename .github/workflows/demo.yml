@@ -15,6 +15,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
   demo:
@@ -35,12 +36,22 @@ jobs:
         run: docker run --rm -v "$PWD:/vhs" -w /vhs ghcr.io/charmbracelet/vhs demos/demo.tape
 
       # Idempotent: an unchanged render commits nothing, so this never
-      # loops. [skip ci] keeps the gate quiet on the demo commit.
-      - name: Commit changed artifacts
+      # loops. main is protected, so changed artifacts land as a PR on
+      # a fixed branch (force-pushed, one open PR at a time) instead of
+      # a direct push.
+      - name: Open artifacts PR if renders changed
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add doc/demo.gif doc/img/
           git diff --cached --quiet && exit 0
-          git commit -m "docs: refresh demo.gif + screenshots [skip ci]"
-          git push
+          git checkout -B demo/artifacts
+          git commit -m "docs: refresh demo.gif + screenshots"
+          git push -f origin demo/artifacts
+          if ! gh pr view demo/artifacts --json state -q .state 2>/dev/null | grep -q OPEN; then
+            gh pr create --base main --head demo/artifacts \
+              --title "docs: refresh demo.gif + screenshots" \
+              --body "Re-rendered demo artifacts from the demo workflow. Docs-only: bot PRs don't trigger CI, so merge with the admin override."
+          fi

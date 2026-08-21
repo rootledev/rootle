@@ -88,4 +88,5 @@ docker compose run --build --rm e2e # same e2e suite in a container
 
 CI runs the gate + e2e on every push; the `demo` workflow re-renders
 the GIF and screenshots above whenever the app or its tooling changes
-— this README always shows the current look and feel.
+and opens a PR with the refreshed artifacts — this README always shows
+the current look and feel.
