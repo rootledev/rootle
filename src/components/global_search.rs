@@ -726,12 +726,10 @@ impl GlobalSearch {
             ))),
             inner,
         );
-        if focused {
-            if let Some(cursor) = cursor {
-                let x = inner.x + cursor as u16;
-                if x < inner.x + inner.width {
-                    frame.set_cursor_position((x, inner.y));
-                }
+        if focused && let Some(cursor) = cursor {
+            let x = inner.x + cursor as u16;
+            if x < inner.x + inner.width {
+                frame.set_cursor_position((x, inner.y));
             }
         }
     }
@@ -784,13 +782,13 @@ impl GlobalSearch {
             // Disjoint match regions get a dim ellipsis separator.
             let mut prev_no: Option<u32> = None;
             for (no, line) in &hit.preview {
-                if let Some(prev) = prev_no {
-                    if *no > prev + 1 {
-                        lines.push(Line::from(Span::styled(
-                            "       ⋮",
-                            Style::default().fg(sem.subtext0),
-                        )));
-                    }
+                if let Some(prev) = prev_no
+                    && *no > prev + 1
+                {
+                    lines.push(Line::from(Span::styled(
+                        "       ⋮",
+                        Style::default().fg(sem.subtext0),
+                    )));
                 }
                 prev_no = Some(*no);
                 lines.push(preview_line(*no, line, theme));
@@ -801,13 +799,11 @@ impl GlobalSearch {
         let total = lines.len();
 
         // Keep the selected hit visible; J/K free scroll otherwise.
-        if focused {
-            if let Some((start, end)) = ranges.get(self.selected).copied() {
-                if start < self.scroll as usize {
-                    self.scroll = start as u16;
-                } else if end >= self.scroll as usize + height {
-                    self.scroll = (end + 1).saturating_sub(height) as u16;
-                }
+        if focused && let Some((start, end)) = ranges.get(self.selected).copied() {
+            if start < self.scroll as usize {
+                self.scroll = start as u16;
+            } else if end >= self.scroll as usize + height {
+                self.scroll = (end + 1).saturating_sub(height) as u16;
             }
         }
         let max_scroll = total.saturating_sub(height) as u16;
@@ -1356,14 +1352,14 @@ fn code_search(
         };
         // Grep: real line numbers come from locating the matched texts
         // in the blob (fragments carry no absolute numbers).
-        if kind == SearchKind::Grep && hits.len() < PREVIEW_CAP {
-            if let Some((line, preview, count)) =
+        if kind == SearchKind::Grep
+            && hits.len() < PREVIEW_CAP
+            && let Some((line, preview, count)) =
                 locate_matches(provider, &hit.repo, &hit.sha, &needles)
-            {
-                hit.line = line;
-                hit.preview = preview;
-                hit.match_count = count;
-            }
+        {
+            hit.line = line;
+            hit.preview = preview;
+            hit.match_count = count;
         }
         hits.push(hit);
     }

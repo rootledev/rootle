@@ -207,10 +207,10 @@ impl Browser {
             self.marks.remove(&format!("{orgs_prefix}{org}"));
         }
         // Selected org deleted → drop to the first remaining entry.
-        if let Some(sel) = self.levels[0].selected_entry() {
-            if deleted.contains(&sel.name) {
-                self.levels[0].select(0);
-            }
+        if let Some(sel) = self.levels[0].selected_entry()
+            && deleted.contains(&sel.name)
+        {
+            self.levels[0].select(0);
         }
         self.sync();
         deleted
@@ -441,10 +441,10 @@ impl Browser {
                         name: entry.name,
                     };
                 }
-                if self.focus == self.levels.len() - 1 {
-                    if let Some(children) = self.children_of(&entry) {
-                        self.levels.push(Pane::new(entry.name.clone(), children));
-                    }
+                if self.focus == self.levels.len() - 1
+                    && let Some(children) = self.children_of(&entry)
+                {
+                    self.levels.push(Pane::new(entry.name.clone(), children));
                 }
                 if self.focus + 1 < self.levels.len() {
                     self.focus += 1;
@@ -452,10 +452,10 @@ impl Browser {
                 Action::Noop
             }
             EntryKind::Dir => {
-                if self.focus == self.levels.len() - 1 {
-                    if let Some(children) = self.children_of(&entry) {
-                        self.levels.push(Pane::new(entry.name.clone(), children));
-                    }
+                if self.focus == self.levels.len() - 1
+                    && let Some(children) = self.children_of(&entry)
+                {
+                    self.levels.push(Pane::new(entry.name.clone(), children));
                 }
                 if self.focus + 1 < self.levels.len() {
                     self.focus += 1;

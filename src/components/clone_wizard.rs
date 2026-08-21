@@ -252,10 +252,10 @@ impl CloneWizard {
                     Action::Noop
                 }
                 KeyCode::Char(' ') if self.screen == Screen::Repos => {
-                    if let Some(&orig) = self.visible_repos().get(self.cursor) {
-                        if let Some((_, on)) = self.repos.get_mut(orig) {
-                            *on = !*on;
-                        }
+                    if let Some(&orig) = self.visible_repos().get(self.cursor)
+                        && let Some((_, on)) = self.repos.get_mut(orig)
+                    {
+                        *on = !*on;
                     }
                     Action::Noop
                 }
@@ -263,17 +263,17 @@ impl CloneWizard {
                 KeyCode::Char('l') | KeyCode::Enter | KeyCode::Right
                     if self.screen == Screen::Destination =>
                 {
-                    if let Some(&orig) = self.visible_dest().get(self.dest_cursor) {
-                        if let Some(entry) = self.dest_entries.get(orig) {
-                            let next = if entry == ".." {
-                                self.dest.parent().map(|p| p.to_path_buf())
-                            } else {
-                                Some(self.dest.join(entry))
-                            };
-                            if let Some(next) = next {
-                                self.dest = next;
-                                self.refresh_dest();
-                            }
+                    if let Some(&orig) = self.visible_dest().get(self.dest_cursor)
+                        && let Some(entry) = self.dest_entries.get(orig)
+                    {
+                        let next = if entry == ".." {
+                            self.dest.parent().map(|p| p.to_path_buf())
+                        } else {
+                            Some(self.dest.join(entry))
+                        };
+                        if let Some(next) = next {
+                            self.dest = next;
+                            self.refresh_dest();
                         }
                     }
                     Action::Noop

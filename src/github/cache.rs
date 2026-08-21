@@ -173,10 +173,10 @@ fn sweep_orphans(root: &Path) {
     let mut ref_files = Vec::new();
     walk_files(&index, &mut ref_files);
     for file in ref_files {
-        if let Ok(text) = std::fs::read_to_string(&file) {
-            if let Ok(entry) = serde_json::from_str::<RefCache>(&text) {
-                referenced_trees.insert(entry.tree_sha);
-            }
+        if let Ok(text) = std::fs::read_to_string(&file)
+            && let Ok(entry) = serde_json::from_str::<RefCache>(&text)
+        {
+            referenced_trees.insert(entry.tree_sha);
         }
     }
 
@@ -200,15 +200,15 @@ fn sweep_orphans(root: &Path) {
     // Blob shas referenced by a live tree.
     let mut referenced_blobs = std::collections::HashSet::new();
     for file in &live_trees {
-        if let Ok(text) = std::fs::read_to_string(file) {
-            if let Ok(tree) = serde_json::from_str::<TreeResponse>(&text) {
-                referenced_blobs.extend(
-                    tree.tree
-                        .iter()
-                        .filter(|e| e.kind == "blob")
-                        .map(|e| e.sha.clone()),
-                );
-            }
+        if let Ok(text) = std::fs::read_to_string(file)
+            && let Ok(tree) = serde_json::from_str::<TreeResponse>(&text)
+        {
+            referenced_blobs.extend(
+                tree.tree
+                    .iter()
+                    .filter(|e| e.kind == "blob")
+                    .map(|e| e.sha.clone()),
+            );
         }
     }
 

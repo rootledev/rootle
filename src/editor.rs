@@ -21,10 +21,10 @@ pub fn resolve_program(config: &Config) -> Option<String> {
         return Some(program.clone());
     }
     for key in ["VISUAL", "EDITOR"] {
-        if let Ok(value) = std::env::var(key) {
-            if !value.is_empty() {
-                return Some(value);
-            }
+        if let Ok(value) = std::env::var(key)
+            && !value.is_empty()
+        {
+            return Some(value);
         }
     }
     ["hx", "nvim", "vim", "vi"]

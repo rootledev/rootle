@@ -86,14 +86,14 @@ impl Theme {
     /// plus any `themes/<name>.toml` in the config dir. Settings list.
     pub fn available_names() -> Vec<String> {
         let mut names = vec!["catppuccin-mocha".to_string()];
-        if let Some(dir) = dirs::config_dir().map(|d| d.join("ghx").join("themes")) {
-            if let Ok(entries) = std::fs::read_dir(dir) {
-                for entry in entries.flatten() {
-                    if entry.path().extension().is_some_and(|e| e == "toml") {
-                        if let Some(stem) = entry.path().file_stem().and_then(|s| s.to_str()) {
-                            names.push(stem.to_string());
-                        }
-                    }
+        if let Some(dir) = dirs::config_dir().map(|d| d.join("ghx").join("themes"))
+            && let Ok(entries) = std::fs::read_dir(dir)
+        {
+            for entry in entries.flatten() {
+                if entry.path().extension().is_some_and(|e| e == "toml")
+                    && let Some(stem) = entry.path().file_stem().and_then(|s| s.to_str())
+                {
+                    names.push(stem.to_string());
                 }
             }
         }
