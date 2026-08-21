@@ -1,0 +1,29 @@
+# Dependency upgrades: cargo crates + workflow actions, weekly,
+# grouped (minor+patch together) to keep PR noise low. The cargo
+# ecosystem updates manifest and lockfile together (auto — the
+# default), which is right for a binary crate that ships its lock.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      cargo-minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions-minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    commit-message:
+      prefix: "chore(ci)"

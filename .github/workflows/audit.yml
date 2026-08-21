@@ -1,0 +1,22 @@
+name: audit
+
+# RustSec advisory scan: on every lockfile change into main plus a
+# weekly sweep — the security signal next to Dependabot's version PRs.
+# The action opens an issue per newly found advisory.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1"
+  push:
+    branches: [main]
+    paths: ["Cargo.lock"]
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions-rust-lang/audit@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
