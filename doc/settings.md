@@ -29,7 +29,7 @@ kind = "github"         # "github" | "stdio"
 command = []            # list of strings (kind = "stdio")
 ```
 
-## `[editor]` — how files open (Enter on a file)
+## `[editor]` — opening files
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
@@ -88,7 +88,7 @@ palettes never crash the app. Roles (Catppuccin Mocha defaults):
 Syntax highlighting maps syntect scopes onto the active palette — a
 palette change recolors previews automatically.
 
-## `[cache]` — the GitHub provider's content store
+## `[cache]` — content store
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
@@ -132,3 +132,20 @@ rootle --config PATH      # alternate config file
 rootle --theme NAME       # override [theme].name for this session
 rootle --version | -V
 ```
+
+## Where things live
+
+| Path | Contents |
+|---|---|
+| `~/.config/rootle/config.toml` | configuration |
+| `~/.config/rootle/themes/<name>.toml` | palette overrides (`[semantic]` role = hex) |
+| `~/.local/state/rootle/state.json` | recents, last org/repo/path, last search scope/extension |
+| `~/.cache/rootle/edit/` | files materialized for your editor |
+| `~/.cache/rootle/providers/<name>/` | per-provider content cache (safe to delete) |
+
+Cache layout: `trees/<sha>.json` (immutable repo trees), `blobs/<ab>/<rest>`
+(blobs sharded by the first two sha chars), `index/refs/<owner>/<repo>/<branch>`
+(rev → tree sha + etag, revalidated on open), `edit/` (materialized files).
+At startup rootle sweeps orphans and evicts least-recently-used blobs past
+`[cache].max_mb` (default 512). Deleting `~/.cache/rootle` is always safe;
+state and config are separate files.

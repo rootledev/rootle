@@ -9,6 +9,9 @@ implemented in `src/provider/stdio.rs`. The reference adapter is
 which serves a local directory of repos — use it as a template and as
 documentation-by-example.
 
+![how rootle talks to backends: one seam, github in-tree, anything
+else as an NDJSON-RPC stdio child](architecture.svg)
+
 ## Transport
 
 - rootle spawns the provider once per app: `command[0]` is the program,
@@ -83,7 +86,7 @@ Details:
   `matches` to `[]`. `matches` are matched substrings — the UI locates
   them in the blob to compute real line numbers and previews.
 
-## The content-id contract
+## Content ids
 
 Every `sha` is an opaque **content id**: it MUST change when content
 changes. rootle's cache is content-keyed and immutable — trees live at
@@ -143,7 +146,7 @@ Scaffolding: `skills/rootle-provider/SKILL.md` (in this repo) walks
 through building a provider — capability questionnaire, adapter
 skeleton, and a conformance test suite that gates integration.
 
-## Provider disk caches
+## Disk caches
 
 Providers that cache on disk must not write into `~/.cache/rootle/`
 directly — that root belongs to the TUI (`edit/` scratch). Use a
