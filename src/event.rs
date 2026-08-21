@@ -52,6 +52,18 @@ pub enum AppEvent {
         gen_id: u64,
         message: String,
     },
+    /// Lazy per-hit context (plans/0006 §1): blob fetched + located on
+    /// a worker for the selected bare hit.
+    HitContextLoaded {
+        gen_id: u64,
+        repo: String,
+        path: String,
+        sha: String,
+        line: u32,
+        preview: Vec<(u32, String)>,
+        match_count: u32,
+        query: String,
+    },
     CloneDone {
         ok: Vec<String>,
         failed: Vec<(String, String)>,

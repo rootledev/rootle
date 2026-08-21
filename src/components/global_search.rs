@@ -84,6 +84,9 @@ pub struct RawHit {
     pub line: u32,
     pub preview: Vec<(u32, String)>,
     pub match_count: u32,
+    /// v1.1 `located: false` — provider knows its index is stale for
+    /// this hit; cleared once client-side locating succeeds.
+    pub stale: bool,
 }
 
 /// One result: full path + highlighted preview lines (`line_no`, `Line`).
@@ -104,6 +107,8 @@ pub struct SearchHit {
     pub preview: Vec<(u32, Line<'static>)>,
     pub match_count: u32,
     pub body: String,
+    /// v1.1: provider flagged the placement stale (`located: false`).
+    pub stale: bool,
 }
 
 impl SearchHit {
@@ -128,6 +133,7 @@ impl SearchHit {
                 .collect(),
             match_count,
             body,
+            stale: false,
         }
     }
 
@@ -143,6 +149,7 @@ impl SearchHit {
         );
         hit.sha = raw.sha;
         hit.branch = raw.branch;
+        hit.stale = raw.stale;
         hit
     }
 
@@ -337,6 +344,18 @@ impl GlobalSearch {
         self.visible().get(self.selected).copied()
     }
 
+    /// v1.1 lazy context (plans/0006 §1): the cursor sits on a hit
+    /// with a sha but no preview lines — ask for its blob context.
+    pub fn context_request(&self) -> Option<Action> {
+        let hit = self.selected_hit()?;
+        if !hit.preview.is_empty() || hit.sha.is_empty() {
+            return None;
+        }
+        Some(Action::LoadHitContext {
+            hit: Box::new(hit.clone()),
+            query: self.query.value(),
+        })
+    }
     fn set_filter(&mut self, value: String) {
         self.filter_value = value;
         self.clamp_selection();
@@ -455,6 +474,30 @@ impl GlobalSearch {
                 self.error = Some(message.clone());
                 self.hits = vec![];
             }
+            // v1.1 lazy context landed (plans/0006 §1): merge by
+            // identity — the hit list may have been filtered/reordered
+            // since the fetch started.
+            Action::HitContextLoaded {
+                repo,
+                path,
+                sha,
+                line,
+                preview,
+                match_count,
+            } => {
+                let target = self
+                    .hits
+                    .iter_mut()
+                    .find(|h| &h.repo == repo && &h.path == path && &h.sha == sha);
+                if let Some(hit) = target
+                    && !preview.is_empty()
+                {
+                    hit.line = *line;
+                    hit.preview = preview.clone();
+                    hit.match_count = *match_count;
+                    hit.stale = false;
+                }
+            }
             _ => {}
         }
     }
@@ -543,11 +586,11 @@ impl GlobalSearch {
                 KeyCode::Char(' ') => Action::Leader,
                 KeyCode::Char('j') | KeyCode::Down => {
                     self.move_selection(1);
-                    Action::Noop
+                    self.context_request().unwrap_or(Action::Noop)
                 }
                 KeyCode::Char('k') | KeyCode::Up => {
                     self.move_selection(-1);
-                    Action::Noop
+                    self.context_request().unwrap_or(Action::Noop)
                 }
                 KeyCode::Char('J') => {
                     self.scroll = self.scroll.saturating_add(1);
@@ -823,8 +866,12 @@ impl GlobalSearch {
         let sem = &theme.semantic;
         let gutter = if selected { "▌ " } else { "  " };
         // Grep hits carry a match-count badge (folded multi-matches);
-        // file-find hits show the first line number instead.
-        let meta = if hit.match_count > 0 {
+        // file-find hits show the first line number instead. A stale
+        // hit (v1.1 located:false) says so until client-side locating
+        // self-heals it.
+        let meta = if hit.stale {
+            "stale".to_string()
+        } else if hit.match_count > 0 {
             format!(
                 "{} match{}",
                 hit.match_count,
@@ -852,7 +899,7 @@ impl GlobalSearch {
             s
         };
         let meta_style = {
-            let mut s = Style::default().fg(sem.subtext0);
+            let mut s = Style::default().fg(if hit.stale { sem.warning } else { sem.subtext0 });
             if let Some(bg) = bg {
                 s = s.bg(bg);
             }
@@ -1255,6 +1302,7 @@ fn tree_file_find(
                 line: 1,
                 preview: vec![],
                 match_count: 0,
+                stale: false,
             },
         ));
     }
@@ -1349,6 +1397,7 @@ fn code_search(
             line: 1,
             preview: vec![],
             match_count: needles.len() as u32,
+            stale: !item.located,
         };
         // Grep: real line numbers come from locating the matched texts
         // in the blob (fragments carry no absolute numbers).
@@ -1360,6 +1409,7 @@ fn code_search(
             hit.line = line;
             hit.preview = preview;
             hit.match_count = count;
+            hit.stale = false; // located client-side: self-healed
         }
         hits.push(hit);
     }
@@ -1370,21 +1420,29 @@ fn code_search(
 }
 
 /// (first match line, preview lines, matched-line count).
-type LocatedPreview = (u32, Vec<(u32, String)>, u32);
+pub(crate) type LocatedPreview = (u32, Vec<(u32, String)>, u32);
 
 /// Grep preview: fetch the blob (cache-first), find the lines matching
-/// the query's needles, merge into ≤2 regions of ≤5 lines.
-fn locate_matches(
+/// the query's needles, merge into ≤2 regions of ≤5 lines. Also used by
+/// the lazy per-hit context path (plans/0006 §1) via `locate_in_blob`.
+pub(crate) fn locate_matches(
     provider: &dyn Provider,
     repo: &str,
     sha: &str,
     needles: &[String],
 ) -> Option<LocatedPreview> {
     let bytes = provider.fetch_blob(repo, sha).ok()?;
-    if crate::sanitize::is_binary(&bytes) {
+    locate_in_blob(&bytes, needles)
+}
+
+/// Scan sanitized blob bytes for the needles and fold into ≤2 regions
+/// of ≤5 lines (shared by the eager worker path and lazy per-hit
+/// context, plans/0006 §1).
+pub(crate) fn locate_in_blob(bytes: &[u8], needles: &[String]) -> Option<LocatedPreview> {
+    if crate::sanitize::is_binary(bytes) {
         return None;
     }
-    let text = crate::sanitize::sanitize(&bytes);
+    let text = crate::sanitize::sanitize(bytes);
     let lines: Vec<&str> = text.lines().collect();
     let needles: Vec<String> = needles
         .iter()

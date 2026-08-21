@@ -403,8 +403,8 @@ impl Browser {
                 }
                 self.sync();
             }
-            Action::PreviewScrollDown => self.preview.scroll_by(3),
-            Action::PreviewScrollUp => self.preview.scroll_by(-3),
+            Action::PreviewLineDown => self.preview.move_cursor(1),
+            Action::PreviewLineUp => self.preview.move_cursor(-1),
             _ => {}
         }
         Action::Noop
@@ -514,6 +514,11 @@ impl Browser {
         // Stay marked pending: no auto-retry while the user keeps
         // moving (avoids hammering a failing endpoint per keystroke).
         self.preview.content = super::preview::PreviewContent::Text(format!("error: {message}"));
+    }
+
+    /// Current preview line cursor (1-based) — anchors `␣ y` (v1.1).
+    pub fn preview_line(&self) -> Option<u32> {
+        self.preview.line()
     }
 
     /// The repo coordinates for a blob fetch.

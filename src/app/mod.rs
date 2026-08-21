@@ -54,6 +54,9 @@ pub struct App {
     search_gen: u64,
     /// Same for the global search view (find/grep workers).
     view_gen: u64,
+    /// sha of the lazy hit-context fetch in flight (plans/0006 §1) —
+    /// dedupes repeat selections and names the cancel target.
+    pending_context_sha: Option<String>,
     /// One-line status shown in the modeline (searching/loading/error).
     status: Option<String>,
     /// Offline apps (tests) never spawn workers.
@@ -134,6 +137,7 @@ impl App {
             highlighter: Highlighter::new(),
             search_gen: 0,
             view_gen: 0,
+            pending_context_sha: None,
             status: None,
             offline,
             should_quit: false,
@@ -249,6 +253,15 @@ impl App {
                 if let Some(view) = &mut self.search_view {
                     view.update(&Action::GlobalSearchResults { hits });
                 }
+                // Bare selected hit (beyond the eager preview cap): ask
+                // for its context lazily (plans/0006 §1).
+                let request = self
+                    .search_view
+                    .as_ref()
+                    .and_then(|view| view.context_request());
+                if let Some(action) = request {
+                    self.handle_action(action);
+                }
             }
             AppEvent::GlobalSearchFailed { gen_id, message } => {
                 if gen_id != self.view_gen {
@@ -257,6 +270,48 @@ impl App {
                 self.status = None;
                 if let Some(view) = &mut self.search_view {
                     view.update(&Action::GlobalSearchFailed { message });
+                }
+            }
+            AppEvent::HitContextLoaded {
+                gen_id,
+                repo,
+                path,
+                sha,
+                line,
+                preview,
+                match_count,
+                query,
+            } => {
+                if gen_id != self.view_gen {
+                    return; // view moved on
+                }
+                if self.pending_context_sha.as_deref() == Some(sha.as_str()) {
+                    self.pending_context_sha = None;
+                }
+                let Some(view) = &self.search_view else {
+                    return;
+                };
+                let kind = view.kind();
+                let mut hits = vec![crate::components::global_search::SearchHit::plain(
+                    &repo,
+                    &path,
+                    line,
+                    preview,
+                    match_count,
+                    String::new(),
+                )];
+                hits = self.finish_hits(hits, kind, &query);
+                let styled = hits.pop().expect("one hit");
+                let action = Action::HitContextLoaded {
+                    repo,
+                    path,
+                    sha,
+                    line,
+                    preview: styled.preview,
+                    match_count,
+                };
+                if let Some(view) = &mut self.search_view {
+                    view.update(&action);
                 }
             }
             AppEvent::CloneExpanded { repos, errors } => {
@@ -353,6 +408,7 @@ impl App {
             }
             Action::SearchSubmitted(_) => {
                 self.search_gen += 1;
+                self.provider.advise_cancel(); // superseded in-flight work
                 self.status = Some("searching GitHub…".into());
                 if let Some(popup) = &mut self.popup {
                     popup.update(&action);
@@ -507,7 +563,6 @@ impl App {
                         self.state.last_org = None;
                     }
                     self.state.save();
-                    self.browser.clear_marks();
                     self.status = Some(format!("deleted {} org(s)", deleted.len()));
                 }
             }
@@ -536,8 +591,15 @@ impl App {
                         None => (self.browser.dir_path(), false),
                     };
                     let branch = self.browser.branch().unwrap_or("");
+                    // File yank anchors to the preview line cursor
+                    // (plans/0006 §5); dirs/orgs stay line-less.
+                    let line = if is_file {
+                        self.browser.preview_line()
+                    } else {
+                        None
+                    };
                     self.provider
-                        .web_url(&format!("{owner}/{repo}"), &path, branch, None, is_file)
+                        .web_url(&format!("{owner}/{repo}"), &path, branch, line, is_file)
                         .ok()
                 } else {
                     self.browser
@@ -600,6 +662,8 @@ impl App {
                     self.state.save();
                 }
                 self.view_gen += 1;
+                self.provider.advise_cancel(); // superseded in-flight work
+                self.pending_context_sha = None;
                 if let Some(view) = &mut self.search_view {
                     view.update(&action);
                 }
@@ -612,6 +676,15 @@ impl App {
                         view.update(&Action::GlobalSearchResults { hits });
                     }
                     self.status = None;
+                    // Bare selected hit (beyond the eager preview cap):
+                    // ask for its context lazily (plans/0006 §1).
+                    let request = self
+                        .search_view
+                        .as_ref()
+                        .and_then(|view| view.context_request());
+                    if let Some(action) = request {
+                        self.handle_action(action);
+                    }
                 } else {
                     self.status = Some("searching code…".into());
                     self.spawn_view_search(
@@ -628,6 +701,28 @@ impl App {
                     view.update(&action);
                 }
                 self.status = None;
+            }
+            Action::LoadHitContext { hit, query } => {
+                // Dedupe repeat selections; a different pending fetch is
+                // superseded — tell the provider it can stop (v1.1).
+                if self.pending_context_sha.as_deref() == Some(hit.sha.as_str()) {
+                    return;
+                }
+                if self.pending_context_sha.is_some() {
+                    self.provider.advise_cancel();
+                }
+                if self.offline {
+                    return; // tests inject context via Action directly
+                }
+                let sha = hit.sha.clone();
+                self.pending_context_sha = Some(sha);
+                let gen_id = self.view_gen;
+                self.spawn_hit_context(gen_id, *hit, query);
+            }
+            Action::HitContextLoaded { .. } => {
+                if let Some(view) = &mut self.search_view {
+                    view.update(&action);
+                }
             }
             Action::OpenSearchHit(hit) => {
                 if !hit.sha.is_empty() {
@@ -738,8 +833,8 @@ impl App {
             | Action::MoveDown
             | Action::DrillIn
             | Action::DrillOut
-            | Action::PreviewScrollUp
-            | Action::PreviewScrollDown => {
+            | Action::PreviewLineUp
+            | Action::PreviewLineDown => {
                 let follow = self.browser.update(&action);
                 self.handle_action(follow);
             }

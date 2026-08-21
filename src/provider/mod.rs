@@ -58,6 +58,9 @@ pub struct CodeMatch {
     pub sha: String,
     pub branch: String,
     pub matches: Vec<String>,
+    /// v1.1: provider knows its index is stale for this hit (the UI
+    /// shows a stale chip until client-side locating self-heals).
+    pub located: bool,
 }
 
 /// The backend contract. Blocking; calls run on worker threads.
@@ -81,9 +84,14 @@ pub trait Provider: Send + Sync {
     /// Code search; `q` is the full query string with qualifiers.
     fn search_code(&self, q: &str) -> Result<Vec<CodeMatch>, String>;
 
+    /// Advisory cancellation (protocol v1.1): tells the backend the
+    /// caller no longer needs the in-flight request. Best-effort —
+    /// replies may still arrive and are always handled. Default: nothing
+    /// to cancel (in-process providers drop work via generations).
+    fn advise_cancel(&self) {}
+
     /// URL `git clone` accepts for a repo (clone wizard, plans/0004).
     fn clone_url(&self, repo: &str) -> Result<String, String>;
-
     /// Browser URL for yank (␣ y): repo root, or a path inside it.
     /// `is_file` picks the grammar (GitHub: blob vs tree); `line`
     /// adds a fragment when Some. `branch` may be empty (the provider

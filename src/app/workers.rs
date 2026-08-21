@@ -187,6 +187,61 @@ impl App {
         });
     }
 
+    /// Lazy per-hit context (plans/0006 §1): fetch the selected bare
+    /// hit's blob and locate the query's context. Cache-first, so the
+    /// second visit of a hit is free.
+    pub(super) fn spawn_hit_context(
+        &self,
+        gen_id: u64,
+        hit: crate::components::global_search::SearchHit,
+        query: String,
+    ) {
+        let provider = self.provider.clone();
+        let tx = self.tx.clone();
+        std::thread::spawn(move || {
+            let sha = hit.sha.clone();
+            trace(&format!(
+                "hit ctx start gen={gen_id} {} sha={sha}",
+                hit.path
+            ));
+            let event = match provider.fetch_blob(&hit.repo, &sha) {
+                Ok(bytes) => {
+                    let needles: Vec<String> =
+                        query.split_whitespace().map(str::to_string).collect();
+                    let located =
+                        crate::components::global_search::locate_in_blob(&bytes, &needles);
+                    match located {
+                        Some((line, preview, count)) => {
+                            trace(&format!("hit ctx ok gen={gen_id} {sha}"));
+                            AppEvent::HitContextLoaded {
+                                gen_id,
+                                repo: hit.repo,
+                                path: hit.path,
+                                sha,
+                                line,
+                                preview,
+                                match_count: count,
+                                query,
+                            }
+                        }
+                        None => {
+                            // Blob fetched but nothing matched (moved on,
+                            // or binary): nothing to merge — the pending
+                            // marker clears on the next request.
+                            trace(&format!("hit ctx none gen={gen_id} {sha}"));
+                            return;
+                        }
+                    }
+                }
+                Err(message) => {
+                    trace(&format!("hit ctx ERR gen={gen_id} {sha} {message}"));
+                    return; // quiet: bare path remains, retry on revisit
+                }
+            };
+            let _ = tx.send(event);
+        });
+    }
+
     pub(super) fn spawn_org_repos(&self, org: String) {
         let provider = self.provider.clone();
         let tx = self.tx.clone();

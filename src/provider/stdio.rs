@@ -11,15 +11,21 @@ use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 pub struct StdioProvider {
     name: String,
     capabilities: Capabilities,
+    /// Writes are their own lock: an advisory cancel (v1.1) must not
+    /// queue behind a reader blocked on a reply.
+    stdin: Mutex<ChildStdin>,
     io: Mutex<Io>,
+    /// Request id currently blocked in the read loop (0 = none).
+    /// Advisory-cancel bookkeeping only — see `advise_cancel`.
+    current_id: AtomicU64,
 }
 
 struct Io {
-    stdin: ChildStdin,
     stdout: BufReader<ChildStdout>,
     child: Child,
     next_id: u64,
@@ -57,12 +63,13 @@ impl StdioProvider {
                 orgs: true,
                 code_search: true,
             },
+            stdin: Mutex::new(stdin),
             io: Mutex::new(Io {
-                stdin,
                 stdout,
                 child,
                 next_id: 0,
             }),
+            current_id: AtomicU64::new(0),
         };
         let caps = provider.initialize()?;
         Ok(caps)
@@ -90,7 +97,9 @@ impl StdioProvider {
     }
 
     /// One NDJSON-RPC round trip: write the request line, read lines
-    /// until the matching id answers (skip anything else).
+    /// until the matching id answers (skip anything else). Requests
+    /// serialize on `io`; `current_id` publishes the blocking id so
+    /// `advise_cancel` can name it from another thread.
     fn request(&self, method: &str, params: Value) -> Result<Value, String> {
         let io = &mut *self.io.lock().expect("provider io poisoned");
         io.next_id += 1;
@@ -102,10 +111,12 @@ impl StdioProvider {
             "params": params,
         })
         .to_string();
-        writeln!(io.stdin, "{line}").map_err(|e| format!("provider write: {e}"))?;
-        io.stdin
-            .flush()
-            .map_err(|e| format!("provider flush: {e}"))?;
+        {
+            let mut stdin = self.stdin.lock().expect("provider stdin poisoned");
+            writeln!(stdin, "{line}").map_err(|e| format!("provider write: {e}"))?;
+            stdin.flush().map_err(|e| format!("provider flush: {e}"))?;
+        }
+        let _cleared = CurrentIdGuard::new(self, id);
 
         let mut buf = String::new();
         loop {
@@ -137,6 +148,35 @@ impl StdioProvider {
                 .ok_or_else(|| "provider reply without result".to_string());
         }
     }
+}
+
+/// Publishes `id` in `current_id` until the request leaves the read
+/// loop (reply, error, or closed pipe).
+struct CurrentIdGuard<'a> {
+    provider: &'a StdioProvider,
+}
+
+impl<'a> CurrentIdGuard<'a> {
+    fn new(provider: &'a StdioProvider, id: u64) -> Self {
+        provider.current_id.store(id, Ordering::Release);
+        CurrentIdGuard { provider }
+    }
+}
+
+impl Drop for CurrentIdGuard<'_> {
+    fn drop(&mut self) {
+        self.provider.current_id.store(0, Ordering::Release);
+    }
+}
+
+/// The advisory-cancel notification line for a request id (v1.1).
+fn cancel_notification(id: u64) -> String {
+    json!({
+        "jsonrpc": "2.0",
+        "method": "$/cancelRequest",
+        "params": { "id": id },
+    })
+    .to_string()
 }
 
 /// Deserialize a `result` value, tolerating missing optional fields.
@@ -288,9 +328,15 @@ impl Provider for StdioProvider {
             branch: String,
             #[serde(default)]
             matches: Vec<String>,
+            /// v1.1: absent = located (verified placement).
+            #[serde(default = "located")]
+            located: bool,
         }
         fn main() -> String {
             "main".into()
+        }
+        fn located() -> bool {
+            true
         }
         let r: R = de(self.request("search/code", json!({ "q": q }))?)?;
         Ok(r.items
@@ -301,7 +347,55 @@ impl Provider for StdioProvider {
                 sha: i.sha,
                 branch: i.branch,
                 matches: i.matches,
+                located: i.located,
             })
             .collect())
+    }
+
+    /// v1.1 advisory cancel: name the request currently blocking in
+    /// the read loop, if any. Best-effort — a racing cancel for an id
+    /// that just completed is ignored by the provider by contract.
+    fn advise_cancel(&self) {
+        let id = self.current_id.load(Ordering::Acquire);
+        if id == 0 {
+            return;
+        }
+        let line = cancel_notification(id);
+        let Ok(mut stdin) = self.stdin.lock() else {
+            return;
+        };
+        let _ = writeln!(stdin, "{line}");
+        let _ = stdin.flush();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cancel_notification_shape() {
+        let line = cancel_notification(7);
+        let v: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(v["jsonrpc"], "2.0");
+        assert_eq!(v["method"], "$/cancelRequest");
+        assert_eq!(v["params"]["id"], 7);
+        assert!(v.get("id").is_none()); // notification, not request
+    }
+
+    #[test]
+    fn located_defaults_true_and_parses_false() {
+        #[derive(serde::Deserialize)]
+        struct Item {
+            #[serde(default = "located")]
+            located: bool,
+        }
+        fn located() -> bool {
+            true
+        }
+        let absent: Item = serde_json::from_str("{}").unwrap();
+        assert!(absent.located);
+        let stale: Item = serde_json::from_str(r#"{"located":false}"#).unwrap();
+        assert!(!stale.located);
     }
 }

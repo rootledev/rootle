@@ -26,8 +26,13 @@ pub enum PreviewContent {
 pub struct Preview {
     pub content: PreviewContent,
     pub title: String,
-    /// Vertical scroll offset (lines), driven by J/K in BROWSE mode.
+    /// Vertical scroll offset (lines), follows the line cursor.
     scroll: u16,
+    /// Line cursor (0-based) — `J/K` walk it, `␣ y` anchors the yank
+    /// URL to it (plans/0006 §5). Only text content is cursored.
+    cursor: u16,
+    /// Total logical lines of the current text content; 0 = cursorless.
+    line_count: u16,
 }
 
 impl Default for Preview {
@@ -42,24 +47,30 @@ impl Preview {
             content: PreviewContent::Empty,
             title: "preview".into(),
             scroll: 0,
+            cursor: 0,
+            line_count: 0,
         }
     }
 
     /// Load raw bytes (as fetched from a blob); binary → placeholder.
     pub fn set_bytes(&mut self, name: &str, bytes: &[u8]) {
         self.title = sanitize::sanitize_inline(name);
-        self.content = if sanitize::is_binary(bytes) {
-            PreviewContent::Binary { size: bytes.len() }
+        if sanitize::is_binary(bytes) {
+            self.content = PreviewContent::Binary { size: bytes.len() };
+            self.line_count = 0;
         } else {
-            PreviewContent::Text(sanitize::sanitize(bytes))
-        };
-        self.reset_scroll();
+            let text = sanitize::sanitize(bytes);
+            self.line_count = text.lines().count() as u16;
+            self.content = PreviewContent::Text(text);
+        }
+        self.reset();
     }
 
     pub fn set_dir(&mut self, name: &str, children: Vec<Entry>) {
         self.title = format!("{}/", sanitize::sanitize_inline(name));
         self.content = PreviewContent::DirSummary(children);
-        self.reset_scroll();
+        self.line_count = 0;
+        self.reset();
     }
 
     /// File meta until blob content lands (milestone 5): size + blob sha.
@@ -67,27 +78,61 @@ impl Preview {
         self.title = sanitize::sanitize_inline(name);
         let size = size.map(|s| s.to_string()).unwrap_or_else(|| "?".into());
         let short = &sha[..sha.len().min(7)];
-        self.content = PreviewContent::Text(format!("{size} bytes · blob {short}\n\nloading…"));
-        self.reset_scroll();
+        let text = format!("{size} bytes · blob {short}\n\nloading…");
+        self.line_count = text.lines().count() as u16;
+        self.content = PreviewContent::Text(text);
+        self.reset();
     }
 
     pub fn set_highlighted(&mut self, name: &str, lines: Vec<Line<'static>>) {
         self.title = sanitize::sanitize_inline(name);
+        self.line_count = lines.len() as u16;
         self.content = PreviewContent::Highlighted(lines);
-        self.reset_scroll();
+        self.reset();
     }
 
-    pub fn scroll_by(&mut self, delta: i32) {
-        self.scroll = self.scroll.saturating_add_signed(delta as i16);
+    /// Move the line cursor (J/K). No-op for cursorless content
+    /// (dirs, binaries, empty).
+    pub fn move_cursor(&mut self, delta: i32) {
+        if self.line_count == 0 {
+            return;
+        }
+        self.cursor = self
+            .cursor
+            .saturating_add_signed(delta as i16)
+            .min(self.line_count - 1);
     }
 
-    fn reset_scroll(&mut self) {
+    /// Current cursor line, 1-based — what `␣ y` anchors to.
+    pub fn line(&self) -> Option<u32> {
+        (self.line_count > 0).then(|| u32::from(self.cursor) + 1)
+    }
+
+    /// Border readout (`3/41`) for text content.
+    fn readout(&self) -> Option<String> {
+        (self.line_count > 0).then(|| format!("{}/{}", self.cursor + 1, self.line_count))
+    }
+
+    fn reset(&mut self) {
         self.scroll = 0;
+        self.cursor = 0;
+    }
+
+    /// Keep the cursor inside the viewport after moves/renders.
+    fn clamp_scroll(&mut self, viewport: u16) {
+        if self.line_count == 0 || viewport == 0 {
+            return;
+        }
+        if self.cursor < self.scroll {
+            self.scroll = self.cursor;
+        } else if self.cursor >= self.scroll + viewport {
+            self.scroll = self.cursor + 1 - viewport;
+        }
     }
 
     pub fn render(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
         let sem = &theme.semantic;
-        let block = Block::default()
+        let mut block = Block::default()
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(sem.border_unfocused))
@@ -96,8 +141,19 @@ impl Preview {
                 format!(" {} ", self.title),
                 Style::default().fg(sem.subtext0),
             ));
+        if let Some(readout) = self.readout() {
+            block = block.title_bottom(
+                Line::from(Span::styled(
+                    format!(" {readout} "),
+                    Style::default().fg(sem.subtext0),
+                ))
+                .right_aligned(),
+            );
+        }
 
-        let lines: Vec<Line> = match &self.content {
+        let cursored = self.line_count > 0;
+        let cursor = self.cursor as usize;
+        let mut lines: Vec<Line> = match &self.content {
             PreviewContent::Empty => {
                 vec![Line::from(Span::styled(
                     "nothing selected",
@@ -133,7 +189,12 @@ impl Preview {
                 Style::default().fg(sem.warning),
             ))],
         };
+        // Selection tint on the cursor line (text content only).
+        if cursored && let Some(line) = lines.get_mut(cursor) {
+            line.style = Style::default().bg(sem.selection_bg);
+        }
 
+        self.clamp_scroll(area.height.saturating_sub(2));
         frame.render_widget(
             Paragraph::new(lines)
                 .block(block)
@@ -141,5 +202,68 @@ impl Preview {
                 .wrap(Wrap { trim: false }),
             area,
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cursor_walks_and_clamps() {
+        let mut p = Preview::new();
+        p.set_bytes("a.rs", b"one\ntwo\nthree");
+        assert_eq!(p.line(), Some(1));
+        p.move_cursor(1);
+        p.move_cursor(1);
+        assert_eq!(p.line(), Some(3));
+        p.move_cursor(1); // clamped at last line
+        assert_eq!(p.line(), Some(3));
+        p.move_cursor(-10); // clamped at first
+        assert_eq!(p.line(), Some(1));
+    }
+
+    #[test]
+    fn cursorless_content_has_no_line() {
+        let mut p = Preview::new();
+        p.set_dir("src", vec![]);
+        assert_eq!(p.line(), None);
+        p.move_cursor(1);
+        assert_eq!(p.line(), None);
+        p.set_bytes("blob", b"\0\0binary\0");
+        assert_eq!(p.line(), None);
+        assert_eq!(p.readout(), None);
+    }
+
+    #[test]
+    fn cursor_resets_on_new_content() {
+        let mut p = Preview::new();
+        p.set_bytes("a.rs", b"one\ntwo\nthree");
+        p.move_cursor(2);
+        assert_eq!(p.line(), Some(3));
+        p.set_highlighted("b.rs", vec![Line::from("x")]);
+        assert_eq!(p.line(), Some(1));
+        assert_eq!(p.readout().as_deref(), Some("1/1"));
+    }
+
+    #[test]
+    fn scroll_follows_cursor_into_viewport() {
+        let mut p = Preview::new();
+        p.set_bytes(
+            "a.rs",
+            (1..=50)
+                .map(|i| format!("line{i}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+                .as_bytes(),
+        );
+        for _ in 0..49 {
+            p.move_cursor(1);
+        }
+        p.clamp_scroll(10);
+        assert_eq!(p.scroll, 40); // cursor 49 visible in rows 40..50
+        p.move_cursor(-49);
+        p.clamp_scroll(10);
+        assert_eq!(p.scroll, 0);
     }
 }

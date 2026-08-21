@@ -891,3 +891,85 @@ fn panes_get_scrollbars_when_they_overflow() {
         "overflowing panes should show a scrollbar"
     );
 }
+
+#[test]
+fn preview_line_cursor_walks_and_readout_updates() {
+    // plans/0006 §5: J/K move a line cursor in the preview; the border
+    // readout tracks it — the value ␣ y anchors the yank URL to.
+    let mut app = browsing_app();
+    app.handle_key(key(KeyCode::Char('l'))); // drill into repo root
+    // Dirs sort first (docs/, examples/, src/) — three j's to Cargo.toml.
+    for _ in 0..3 {
+        app.handle_key(key(KeyCode::Char('j')));
+    }
+    app.handle_action(rootle::action::Action::BlobLoaded {
+        sha: "abc1234def5678".into(),
+        name: "Cargo.toml".into(),
+        bytes: (1..=9)
+            .map(|i| format!("line{i}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+            .into_bytes(),
+    });
+    let screen = render(&mut app, 100, 30).join("\n");
+    assert!(
+        screen.contains("1/9"),
+        "readout should show cursor 1 of 9:\n{screen}"
+    );
+    app.handle_key(key(KeyCode::Char('J')));
+    app.handle_key(key(KeyCode::Char('J')));
+    let screen = render(&mut app, 100, 30).join("\n");
+    assert!(screen.contains("3/9"), "two J moves → cursor 3:\n{screen}");
+    for _ in 0..20 {
+        app.handle_key(key(KeyCode::Char('J')));
+    }
+    let screen = render(&mut app, 100, 30).join("\n");
+    assert!(
+        screen.contains("9/9"),
+        "cursor clamps at last line:\n{screen}"
+    );
+}
+
+#[test]
+fn stale_hit_shows_chip_until_located() {
+    // v1.1: a search/code item with located=false renders a `stale`
+    // chip instead of line numbers; HitContextLoaded clears it.
+    let mut app = browsing_app();
+    app.handle_key(key(KeyCode::Char(' ')));
+    app.handle_key(key(KeyCode::Char('g')));
+    for c in "query".chars() {
+        app.handle_key(key(KeyCode::Char(c)));
+    }
+    app.handle_key(key(KeyCode::Enter));
+    let mut stale = rootle::components::global_search::SearchHit::plain(
+        "owner/repo",
+        "src/place.rs",
+        1,
+        vec![],
+        0,
+        String::new(),
+    );
+    stale.sha = "deadbee".into();
+    stale.stale = true;
+    app.handle_action(rootle::action::Action::GlobalSearchResults { hits: vec![stale] });
+    let screen = render(&mut app, 100, 30).join("\n");
+    assert!(
+        screen.contains("stale"),
+        "stale chip should render:\n{screen}"
+    );
+    // Context lands (located client-side): chip clears, line shows.
+    app.handle_action(rootle::action::Action::HitContextLoaded {
+        repo: "owner/repo".into(),
+        path: "src/place.rs".into(),
+        sha: "deadbee".into(),
+        line: 7,
+        preview: vec![(7, ratatui::text::Line::from("needle here"))],
+        match_count: 1,
+    });
+    let screen = render(&mut app, 100, 30).join("\n");
+    assert!(
+        !screen.contains("stale"),
+        "chip clears after locate:\n{screen}"
+    );
+    assert!(screen.contains("needle here"), "preview renders:\n{screen}");
+}
