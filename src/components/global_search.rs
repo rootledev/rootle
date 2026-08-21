@@ -1008,7 +1008,7 @@ fn preview_line(no: u32, line: &Line<'static>, theme: &Theme) -> Line<'static> {
 /// Mock producer (plans/0002 §5): tests and the offline app inject
 /// these; the real backend below feeds the same `SearchHit` shape.
 pub mod mock {
-    use super::{SearchHit, SearchKind};
+    use super::{SearchHit, SearchKind, file_find_score};
 
     /// (path, first-match line, preview lines as (line_no, text)).
     type MockFile = (&'static str, u32, &'static [(u32, &'static str)]);
@@ -1105,13 +1105,20 @@ pub mod mock {
         };
         let needle = query.to_lowercase();
         let ext = extension.trim_start_matches('.').to_lowercase();
-        bodies
+        // File find uses the backend's GitHub-style matcher (so the
+        // mock exercises the real semantics); grep stays substring.
+        let needles: Vec<String> = query
+            .to_lowercase()
+            .split_whitespace()
+            .map(str::to_string)
+            .collect();
+        let mut bodies: Vec<&MockFile> = bodies
             .iter()
             .filter(|(path, _, preview)| {
                 let path = path.to_lowercase();
                 let matches_query = needle.is_empty()
                     || match kind {
-                        SearchKind::FileFind => path.contains(&needle),
+                        SearchKind::FileFind => file_find_score(&path, &needles).is_some(),
                         SearchKind::Grep => {
                             path.contains(&needle)
                                 || preview
@@ -1122,6 +1129,15 @@ pub mod mock {
                 let matches_ext = ext.is_empty() || path.ends_with(&format!(".{ext}"));
                 matches_query && matches_ext
             })
+            .collect();
+        if kind == SearchKind::FileFind {
+            // Same ranking as tree_file_find: best match first.
+            bodies.sort_by_key(|(path, _, _)| {
+                std::cmp::Reverse(file_find_score(&path.to_lowercase(), &needles))
+            });
+        }
+        bodies
+            .iter()
             .map(|(path, line, preview)| {
                 let match_count = match kind {
                     // Occurrences of the query across the preview lines.
@@ -1204,8 +1220,9 @@ pub fn run_view_search(
     code_search(provider, kind, query, scope_label, extension)
 }
 
-/// File find over the repo's cached recursive tree — substring on
-/// paths, blob heads as previews. Zero search-API calls.
+/// File find over the repo's cached recursive tree, GitHub-"go to
+/// file"-style (see `file_find_score`), blob heads as previews. Zero
+/// search-API calls.
 fn tree_file_find(
     provider: &dyn Provider,
     query: &str,
@@ -1214,35 +1231,105 @@ fn tree_file_find(
 ) -> Result<Vec<RawHit>, String> {
     let tree = provider.fetch_tree(repo_full)?;
     let branch = tree.branch;
-    let needle = query.to_lowercase();
+    let needles: Vec<String> = query
+        .to_lowercase()
+        .split_whitespace()
+        .map(str::to_string)
+        .collect();
     let ext = extension.trim_start_matches('.').to_lowercase();
-    let mut hits = Vec::new();
+    let mut scored: Vec<(i32, RawHit)> = Vec::new();
     for entry in tree.entries {
         if entry.is_dir {
             continue;
         }
-        let path = entry.path.to_lowercase();
-        if !needle.is_empty() && !path.contains(&needle) {
+        let path_lower = entry.path.to_lowercase();
+        if !ext.is_empty() && !path_lower.ends_with(&format!(".{ext}")) {
             continue;
         }
-        if !ext.is_empty() && !path.ends_with(&format!(".{ext}")) {
+        let Some(score) = file_find_score(&path_lower, &needles) else {
             continue;
-        }
-        hits.push(RawHit {
-            repo: repo_full.to_string(),
-            path: entry.path,
-            sha: entry.sha,
-            branch: branch.clone(),
-            line: 1,
-            preview: vec![],
-            match_count: 0,
-        });
-        if hits.len() >= HIT_CAP {
-            break;
-        }
+        };
+        scored.push((
+            score,
+            RawHit {
+                repo: repo_full.to_string(),
+                path: entry.path,
+                sha: entry.sha,
+                branch: branch.clone(),
+                line: 1,
+                preview: vec![],
+                match_count: 0,
+            },
+        ));
     }
+    // Best matches first; the stable sort keeps tree order on ties.
+    scored.sort_by_key(|(score, _)| std::cmp::Reverse(*score));
+    let mut hits: Vec<RawHit> = scored.into_iter().take(HIT_CAP).map(|(_, h)| h).collect();
     add_blob_heads(provider, &mut hits);
     Ok(hits)
+}
+
+/// GitHub-"go to file"-style match (behavior verified against
+/// github.com's finder): the query splits on whitespace into needles,
+/// and every needle must occur in the lowercased path — contiguously
+/// (substring) or, failing that, as an in-order subsequence, so
+/// `urldef` matches `djangosite/urls/default.py` (url in a directory,
+/// def in the file name). Directory names match like file names —
+/// `/term/cargo.toml` is a hit for `term`. The returned score ranks:
+/// needle in the file name (best: starting it) > needle anywhere in
+/// the path > scattered subsequence; longer paths lose a little (they
+/// carry more noise). `None` = no match. Empty needles match
+/// everything at score 0.
+pub(crate) fn file_find_score(path: &str, needles: &[String]) -> Option<i32> {
+    let file = path.rsplit('/').next().unwrap_or(path);
+    let mut total = 0;
+    let mut any = false;
+    for needle in needles {
+        if needle.is_empty() {
+            continue;
+        }
+        any = true;
+        let n = needle.len() as i32;
+        let score = if file.starts_with(needle.as_str()) {
+            120 + n
+        } else if file.contains(needle.as_str()) {
+            100 + n
+        } else if path.contains(needle.as_str()) {
+            50 + n
+        } else {
+            subsequence_score(path, needle)?
+        };
+        total += score;
+    }
+    if !any {
+        return Some(0);
+    }
+    Some(total - path.len() as i32 / 8)
+}
+
+/// In-order subsequence score over the whole path: one point per
+/// matched char, consecutive runs compound, chars at word boundaries
+/// (after `/ . _ -`) get a bonus. `None` if some char never occurs
+/// after the previous one.
+fn subsequence_score(path: &str, needle: &str) -> Option<i32> {
+    let hay: Vec<char> = path.chars().collect();
+    let mut score = 0;
+    let mut hi = 0;
+    let mut prev: Option<usize> = None;
+    let mut run = 0;
+    for c in needle.chars() {
+        let pos = hay[hi..].iter().position(|&h| h == c)? + hi;
+        run = if prev.is_some_and(|p| pos == p + 1) {
+            run + 1
+        } else {
+            1
+        };
+        let boundary = pos == 0 || matches!(hay[pos - 1], '/' | '.' | '_' | '-');
+        score += 1 + run + i32::from(boundary) * 3;
+        prev = Some(pos);
+        hi = pos + 1;
+    }
+    Some(score)
 }
 
 /// /search/code for grep (content) and non-repo file find (path:).
@@ -1589,5 +1676,57 @@ mod tests {
         assert_eq!(mock::hits(SearchKind::Grep, "query", ".md").len(), 1);
         // No matches is an honest empty state.
         assert!(mock::hits(SearchKind::Grep, "zzz", "").is_empty());
+    }
+
+    fn needles(q: &str) -> Vec<String> {
+        q.split_whitespace().map(str::to_string).collect()
+    }
+
+    /// GitHub-"go to file" semantics (verified against github.com):
+    /// fuzzy subsequence over the full path, directory names included,
+    /// filename matches ranked above path matches.
+    #[test]
+    fn file_find_matches_like_github_go_to_file() {
+        // The canonical example: urldef → djangosite/urls/default.py
+        // (url in a directory, def in the file name).
+        let s = file_find_score("djangosite/urls/default.py", &needles("urldef"));
+        assert!(s.is_some(), "subsequence across dir + file must match");
+
+        // Directory names match like file names (substring).
+        assert!(file_find_score("something/term/cargo.toml", &needles("term")).is_some());
+
+        // Space-separated fragments each must match, in any spread.
+        assert!(file_find_score("djangosite/urls/default.py", &needles("url def")).is_some());
+        assert!(file_find_score("djangosite/urls/default.py", &needles("url zzz")).is_none());
+
+        // In-order only: reversed chars never match.
+        assert!(file_find_score("src/main.rs", &needles("msni")).is_none());
+        assert!(file_find_score("src/main.rs", &needles("mrs")).is_some());
+
+        // Empty query matches everything at 0.
+        assert_eq!(file_find_score("src/main.rs", &[]), Some(0));
+    }
+
+    #[test]
+    fn file_find_ranks_filename_above_path_above_scattered() {
+        let starts = file_find_score("src/terminal.rs", &needles("term")).unwrap();
+        let inside = file_find_score("src/myterm.rs", &needles("term")).unwrap();
+        let dir = file_find_score("src/term/cargo.toml", &needles("term")).unwrap();
+        let scattered = file_find_score("src/test/remote.rs", &needles("term")).unwrap();
+        assert!(
+            starts > inside,
+            "needle starting the file name beats one inside it"
+        );
+        assert!(inside > dir, "file-name match beats a directory-only match");
+        assert!(
+            dir > scattered,
+            "contiguous path match beats scattered chars"
+        );
+    }
+
+    #[test]
+    fn mock_file_find_orders_best_match_first() {
+        let hits = mock::hits(SearchKind::FileFind, "query", "");
+        assert_eq!(hits[0].path, "tests/query_roundtrip.rs");
     }
 }

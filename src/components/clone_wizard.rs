@@ -301,10 +301,38 @@ impl CloneWizard {
         frame.render_widget(Clear, popup);
 
         let (back, next) = self.buttons();
-        let title = match self.screen {
-            Screen::Repos => " clone — 1/3 repos ",
-            Screen::Destination => " clone — 2/3 destination ",
-            Screen::Summary => " clone — 3/3 summary ",
+        let (title, subtitle) = match self.screen {
+            Screen::Repos => (
+                " clone — 1/3 repos ",
+                " pick what to clone — ␣ toggles, / filters ",
+            ),
+            Screen::Destination => (
+                " clone — 2/3 destination ",
+                " browse to where they land — l descends, h climbs ",
+            ),
+            Screen::Summary => (
+                " clone — 3/3 summary ",
+                " review the plan — enter on clone! runs git ",
+            ),
+        };
+        // Step pips in the title row: ● done (green), ● current
+        // (accent, bold), ○ ahead (dim).
+        let step = self.screen as usize;
+        let pip = |i: usize| {
+            let (sym, mut style) = if i < step {
+                ("●", Style::default().fg(sem.mode_browse))
+            } else if i == step {
+                (
+                    "●",
+                    Style::default()
+                        .fg(sem.border_focused)
+                        .add_modifier(Modifier::BOLD),
+                )
+            } else {
+                ("○", Style::default().fg(sem.surface2))
+            };
+            style = style.bg(sem.mantle);
+            Span::styled(format!(" {sym} "), style)
         };
         let block = Block::default()
             .borders(Borders::ALL)
@@ -315,6 +343,7 @@ impl CloneWizard {
                 title,
                 Style::default().fg(sem.text).add_modifier(Modifier::BOLD),
             ))
+            .title_top(Line::from(vec![pip(0), pip(1), pip(2)]).right_aligned())
             .title_bottom(Span::styled(
                 " tab buttons · enter activate · / filter · esc cancel ",
                 Style::default().fg(sem.hint),
@@ -324,8 +353,16 @@ impl CloneWizard {
 
         let rows = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Min(1), Constraint::Length(2)])
+            .constraints([
+                Constraint::Length(1),
+                Constraint::Min(1),
+                Constraint::Length(2),
+            ])
             .split(inner);
+        frame.render_widget(
+            Paragraph::new(Span::styled(subtitle, Style::default().fg(sem.hint))),
+            rows[0],
+        );
 
         let (lines, cursor_pos) = match self.screen {
             Screen::Repos => (self.repos_lines(theme), Some(self.cursor)),
@@ -333,7 +370,7 @@ impl CloneWizard {
             Screen::Summary => (self.summary_lines(theme), None),
         };
         let total = lines.len();
-        let height = rows[0].height as usize;
+        let height = rows[1].height as usize;
         // Keep the list cursor visible; the summary scrolls freely.
         if let Some(pos) = cursor_pos {
             if pos < self.scroll {
@@ -344,9 +381,9 @@ impl CloneWizard {
         }
         self.scroll = self.scroll.min(total.saturating_sub(height));
         let scroll = self.scroll;
-        frame.render_widget(Paragraph::new(lines).scroll((scroll as u16, 0)), rows[0]);
+        frame.render_widget(Paragraph::new(lines).scroll((scroll as u16, 0)), rows[1]);
         super::scrollbar(frame, popup, height, total, scroll, theme);
-        self.render_buttons(frame, rows[1], theme, back, next);
+        self.render_buttons(frame, rows[2], theme, back, next);
     }
 
     fn repos_lines(&self, theme: &Theme) -> Vec<Line<'static>> {

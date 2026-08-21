@@ -94,6 +94,38 @@ def test_settings_write_back_and_toast(tmp_path: Path) -> None:
         tui.stop()
 
 
+def test_settings_theme_radio_selects_and_saves(tmp_path: Path) -> None:
+    root = make_fs_root(tmp_path)
+    # A second theme in the hermetic XDG dir; save() also writes there.
+    xdg = tmp_path / "xdg"
+    themes = xdg / "ghx" / "themes"
+    themes.mkdir(parents=True)
+    (themes / "gruvbox-dark.toml").write_text('[semantic]\nborder_focused = "#b8bb26"\n')
+    tui = launch(tmp_path, root, env_extra={"XDG_CONFIG_HOME": str(xdg)})
+    try:
+        dismiss_launch_popup(tui)
+        tui.send(":")
+        tui.type_query("settings")
+        tui.key("ENTER")
+        tui.expect("editor")
+
+        tui.key("TAB")  # → theme section: radio list of palettes
+        screen = tui.expect("gruvbox-dark")
+        assert "\u25cf catppuccin-mocha" in screen  # current theme carries the dot
+
+        tui.send("j")
+        tui.send(" ")  # select gruvbox-dark → live preview + unsaved chip
+        screen = tui.expect("unsaved")
+        assert "\u25cf gruvbox-dark" in screen
+        assert "\u25cb catppuccin-mocha" in screen
+
+        tui.key("ESC")  # dirty → ApplySettings
+        tui.expect("settings saved")
+        assert 'name = "gruvbox-dark"' in (xdg / "ghx" / "config.toml").read_text()
+    finally:
+        tui.stop()
+
+
 def test_clone_wizard_runs_git_clone(tmp_path: Path, git_root: Path) -> None:
     root = git_root
     tui = launch(tmp_path, root)

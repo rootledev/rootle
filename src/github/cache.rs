@@ -361,10 +361,13 @@ mod tests {
             return;
         }
         // write_ref lands in index/refs/owner/repo/branch; cached_branch
-        // must find it back without any network.
+        // must find it back without any network. The ghx-test owner
+        // keeps the real cache untouched, and cleanup removes only what
+        // this test wrote — a whole-root wipe races parallel tests that
+        // share the cache tree.
         write_ref(
-            "ratatui",
-            "ratatui",
+            "ghx-test",
+            "cached-branch",
             "main",
             &RefCache {
                 tree_sha: "abc".into(),
@@ -372,10 +375,13 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(cached_branch("ratatui", "ratatui").as_deref(), Some("main"));
-        assert!(cached_branch("ratatui", "never-opened").is_none());
+        assert_eq!(
+            cached_branch("ghx-test", "cached-branch").as_deref(),
+            Some("main")
+        );
+        assert!(cached_branch("ghx-test", "never-opened").is_none());
         if let Some(root) = root() {
-            std::fs::remove_dir_all(root).unwrap();
+            let _ = std::fs::remove_dir_all(root.join("index/refs/ghx-test"));
         }
     }
 }

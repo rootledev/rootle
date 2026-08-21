@@ -154,6 +154,11 @@ impl App {
             return Mode::Browse;
         }
         if let Some(view) = &self.search_view {
+            // The leader layer can be raised over the view (␣ from the
+            // results) — it owns the keys and the modeline while up.
+            if self.mode == Mode::Leader {
+                return Mode::Leader;
+            }
             return view.effective_mode();
         }
         match &self.popup {

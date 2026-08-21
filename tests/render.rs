@@ -621,23 +621,24 @@ fn search_view_previews_are_syntax_highlighted() {
 }
 
 #[test]
-fn keybinds_popup_scrolls_and_closes_without_residue() {
+fn keybinds_popup_walks_modes_and_closes_without_residue() {
     let mut app = browsing_app();
     app.handle_key(key(KeyCode::Char('?')));
     let rows = render(&mut app, 100, 30);
     let screen = rows.join("\n");
     assert!(screen.contains("keybindings"), "popup title missing");
-    assert!(screen.contains("BROWSE"), "browse section missing");
+    // Every mode's chip sits in the sidebar; BROWSE is active.
+    assert!(screen.contains("BROWSE"), "browse chip missing");
+    assert!(screen.contains("LEADER"), "leader chip missing");
+    assert!(screen.contains("VISUAL"), "visual chip missing");
     println!("{screen}");
 
-    // Scroll down: later sections appear.
-    for _ in 0..24 {
-        app.handle_key(key(KeyCode::Char('j')));
+    // Tab walks the modes; the leader table renders its bindings.
+    for _ in 0..4 {
+        app.handle_key(key(KeyCode::Tab));
     }
-    let rows = render(&mut app, 100, 30);
-    let screen = rows.join("\n");
-    assert!(screen.contains("LEADER"), "scroll should reach LEADER");
-    assert!(screen.contains("VISUAL"), "scroll should reach VISUAL");
+    let screen = render(&mut app, 100, 30).join("\n");
+    assert!(screen.contains("clear marks"), "leader bindings missing");
 
     app.handle_key(key(KeyCode::Esc));
     let rows = render(&mut app, 100, 30);
@@ -672,9 +673,9 @@ fn command_line_filters_and_runs_settings() {
     let rows = render(&mut app, 100, 30);
     let screen = rows.join("\n");
     assert!(screen.contains("settings"), "settings popup missing");
-    assert!(screen.contains("editor"), "editor tab missing");
-    assert!(screen.contains("theme"), "theme tab missing");
-    assert!(screen.contains("cache"), "cache tab missing");
+    assert!(screen.contains("editor"), "editor section missing");
+    assert!(screen.contains("theme"), "theme section missing");
+    assert!(screen.contains("cache"), "cache section missing");
     println!("{screen}");
 }
 
@@ -789,6 +790,38 @@ fn leader_yank_toasts_hit_url_in_search_view() {
 }
 
 #[test]
+fn leader_chip_and_hints_show_over_search_view() {
+    let mut app = browsing_app();
+    app.handle_key(key(KeyCode::Char(' ')));
+    app.handle_key(key(KeyCode::Char('f'))); // open the file-find view
+    for c in "term".chars() {
+        app.handle_key(key(KeyCode::Char(c)));
+    }
+    app.handle_key(key(KeyCode::Enter)); // submit → results focus
+    let screen = render(&mut app, 120, 30).join("\n");
+    assert!(screen.contains("find file"), "search view missing");
+
+    // ␣ raises the leader layer over the view — the modeline must
+    // flip to the LEADER chip with the leader hints.
+    app.handle_key(key(KeyCode::Char(' ')));
+    let screen = render(&mut app, 120, 30).join("\n");
+    assert!(
+        screen.contains("LEADER"),
+        "leader chip missing over the search view:\n{screen}"
+    );
+    assert!(screen.contains("yank"), "leader hints missing:\n{screen}");
+
+    // Esc drops the layer; the view stays open with its own chip.
+    app.handle_key(key(KeyCode::Esc));
+    let screen = render(&mut app, 120, 30).join("\n");
+    assert!(
+        screen.contains("find file"),
+        "view should survive leader Esc"
+    );
+    assert!(!screen.contains("LEADER"), "leader chip should drop");
+}
+
+#[test]
 fn launch_popup_only_when_state_has_no_repos() {
     // Fresh state → popup opens automatically.
     let mut fresh = test_app();
@@ -831,15 +864,16 @@ fn launch_popup_only_when_state_has_no_repos() {
 fn scrollable_popups_show_a_border_scrollbar() {
     let mut app = browsing_app();
     app.handle_key(key(KeyCode::Char('?')));
-    let rows = render(&mut app, 100, 30);
+    // Short terminal: the active mode's bindings overflow the popup.
+    let rows = render(&mut app, 100, 14);
     let screen = rows.join("\n");
     assert!(screen.contains('┃'), "scrollbar thumb missing:\n{screen}");
 
     // Scrolling moves the thumb.
-    for _ in 0..24 {
+    for _ in 0..4 {
         app.handle_key(key(KeyCode::Char('j')));
     }
-    let rows = render(&mut app, 100, 30);
+    let rows = render(&mut app, 100, 14);
     assert!(
         rows.join("\n").contains('┃'),
         "thumb should persist mid-scroll"

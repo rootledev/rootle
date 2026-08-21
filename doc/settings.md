@@ -5,9 +5,11 @@ lives at `~/.config/ghx/config.toml` (`$GHX_CONFIG` does not apply —
 use `ghx --config PATH` for an alternate file). Missing keys fall
 back to defaults; a malformed file never blocks startup (defaults are
 used silently). The `:settings` popup edits these in place and writes the same file —
-hot-reloads the theme on save. Text fields edit with `Enter`; booleans
-and lists (themes, provider kind) toggle/cycle with `Space`. Provider
-changes save too but apply after restart.
+hot-reloads the theme on save. Sections live in a sidebar (Tab/h/l);
+themes and the provider kind are radio lists, booleans are ●/○ dots,
+and text fields edit in place — ␣/enter activates the row. Committing
+a theme recolors the popup immediately. Provider changes save too but
+apply after restart.
 
 ```toml
 [editor]

@@ -31,16 +31,18 @@ def test_command_line_filters_and_opens_settings(tui: Tui) -> None:
     assert "clone the selected" not in screen  # filtered out
 
     tui.key("ENTER")
-    screen = tui.expect("editor")  # settings popup, first tab
+    screen = tui.expect("editor")  # settings popup, editor section
     assert "theme" in screen and "cache" in screen
 
-    tui.key("TAB")  # editor → theme tab
-    tui.expect("catppuccin-mocha")
+    tui.key("TAB")  # editor → theme section
+    screen = tui.expect("catppuccin-mocha")
+    assert "\u25cf" in screen  # current theme is a filled radio dot
 
-    tui.key("ENTER")  # edit the theme name field
+    tui.send("j")  # → path field below the theme list
+    tui.key("ENTER")  # edit it
     screen = tui.expect("INSERT")
     tui.key("ESC")  # stop editing
-    tui.key("ESC")  # close settings
+    tui.key("ESC")  # close settings (clean → no save)
     tui.expect_gone("settings")
 
 

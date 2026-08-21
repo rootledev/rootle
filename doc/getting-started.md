@@ -55,7 +55,9 @@ q                 quit
 ```
 
 Every key is listed in the `?` popup — the same tables that drive
-dispatch generate it, so the two cannot drift.
+dispatch generate it, so the two cannot drift. Modes sit in a sidebar
+as their chips (with binding counts); Tab/h/l switch, j/k scroll,
+that mode's bindings show as keycaps.
 
 ![keybinds popup](img/08-keybinds.png)
 
@@ -66,7 +68,14 @@ scope · extension), Zed-style result blocks below — path + match-count
 badge, syntax-highlighted preview lines with real line numbers, and
 matched text chipped in yellow. `Tab` cycles fields, `Enter` runs the
 search and focuses results, `j/k` move between blocks, `/` filters the
-results locally, `Enter` on a hit opens it in your editor.
+results locally, `Enter` on a hit opens it in your editor. `␣` on the
+results raises the leader layer (yank, re-search) right from the view.
+
+File find (`␣ f`) matches like GitHub's *go to file*: needles match
+the whole path — directories included — contiguously or as an in-order
+subsequence (`urldef` finds `djangosite/urls/default.py`), with
+filename matches ranked above directory matches. Space separates
+several needles, all of which must match.
 
 ![grep results](img/04-grep.png)
 
@@ -115,15 +124,18 @@ redirects yanks to a file for scripts and CI.
 
 `:` opens a strip above the modeline with a filtered option list:
 
-- `:settings` — tabs per config section (`[editor]`, `[theme]`,
-  `[cache]`); Tab/h/l switch tabs, j/k move, Enter edits a value in
-  place, Esc closes (a dirty popup saves config.toml and hot-reloads
-  the theme).
+- `:settings` — one section per config key (`[editor]`, `[theme]`,
+  `[cache]`, `[provider]`) in a sidebar; Tab/h/l switch sections, j/k
+  move rows, ␣/enter set a value (radio lists for themes and the
+  provider kind, ●/○ dots for booleans) or edit text in place. A
+  committed theme recolors the popup live; Esc closes, and a dirty
+  popup saves config.toml and hot-reloads the theme (provider changes
+  apply after restart).
 - `:clone` — the clone wizard over VISUAL marks (see README).
 
-![settings editor tab](img/09-settings.png)
+![settings editor section](img/09-settings.png)
 
-![settings theme tab](img/10-settings-theme.png)
+![settings theme section — radio list of palettes](img/10-settings-theme.png)
 
 ### Clone wizard (`v` + `:clone`)
 
