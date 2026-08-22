@@ -1,6 +1,6 @@
 name: pages
 
-# Project website at rootledev.github.io/rootle — assembled by
+# Project website at rootle.dev — assembled by
 # website/build.py: the landing page from website/, the docs pages
 # converted from doc/*.md, and the rendered demo artifacts. Editing a
 # doc in the repo is all it takes to update the site.

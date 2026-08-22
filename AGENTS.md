@@ -59,7 +59,7 @@ docker or `sudo`.
 - The `demo` workflow re-renders `doc/demo.gif` + screenshots when
   `src/`, `demos/`, or `e2e/` change and opens a `demo/artifacts` PR —
   merge those to keep docs current.
-- The site (rootledev.github.io/rootle) builds from `website/` +
+- The site (rootle.dev) builds from `website/` +
   `doc/*.md` via `website/build.py` in the `pages` workflow — edit docs
   in `doc/`, never `public/` (build output, gitignored).
 - Releases: tag `vX.Y.Z` matching `Cargo.toml`'s version, push the tag;
