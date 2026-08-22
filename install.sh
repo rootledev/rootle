@@ -72,7 +72,7 @@ case "$OS/$ARCH" in
         TARGET="x86_64-unknown-linux-musl"
         ;;
     *)
-        err "no prebuilt binary for $OS/$ARCH yet — install from crates.io instead: cargo install $BIN"
+        err "no prebuilt binary for $OS/$ARCH yet — use brew: brew install rootledev/tap/rootle (builds from source), or cargo install $BIN"
         ;;
 esac
 

@@ -51,3 +51,22 @@ jobs:
           gh release create "$tag" dist/* \
             --title "rootle $tag" \
             --generate-notes
+
+      # Keep the tap in sync: bump the formula's version + crate sha256.
+      # Needs HOMEBREW_TAP_TOKEN (PAT, contents:write on the tap repo) —
+      # GITHUB_TOKEN is repo-scoped and can't push to homebrew-tap.
+      - name: Bump homebrew formula
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          ver="${GITHUB_REF_NAME#v}"
+          sha="$(curl -fsSL "https://static.crates.io/crates/rootle/rootle-$ver.crate" | sha256sum | cut -d' ' -f1)"
+          gh repo clone rootledev/homebrew-tap /tmp/tap -- --depth 1
+          sed -i -e "s|rootle-[0-9.]*\.crate|rootle-$ver.crate|" \
+                 -e "s|sha256 \"[0-9a-f]*\"|sha256 \"$sha\"|" \
+                 /tmp/tap/Formula/rootle.rb
+          cd /tmp/tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "rootle $ver"
+          git push

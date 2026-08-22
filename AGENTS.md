@@ -64,4 +64,5 @@ docker or `sudo`.
   in `doc/`, never `public/` (build output, gitignored).
 - Releases: tag `vX.Y.Z` matching `Cargo.toml`'s version, push the tag;
   the release workflow verifies the binary, publishes to crates.io,
-  then cuts the GitHub release.
+  cuts the GitHub release, then bumps the formula in
+  `rootledev/homebrew-tap` (needs the `HOMEBREW_TAP_TOKEN` secret).
