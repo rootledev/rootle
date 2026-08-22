@@ -38,9 +38,9 @@ def test_command_line_filters_and_opens_settings(tui: Tui) -> None:
     screen = tui.expect("catppuccin-mocha")
     assert "\u25cf" in screen  # current theme is a filled radio dot
 
-    # The theme radio is inline: 7 embedded palettes sit between the
+    # The theme radio is inline: 11 embedded palettes sit between the
     # `name` row and `path` — walk past all of them.
-    for _ in range(7):
+    for _ in range(11):
         tui.send("j")
     tui.key("ENTER")  # edit the path field
     screen = tui.expect("INSERT")
