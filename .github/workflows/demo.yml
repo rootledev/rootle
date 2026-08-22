@@ -85,9 +85,10 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: demo-gif-${{ matrix.theme }}
-          path: |
-            doc/demo.gif
-            doc/img/demo-${{ matrix.theme }}*.gif
+          # Exactly the file this job rendered — globbing doc/demo.gif
+          # here would also match the committed (stale) one and race the
+          # canonical GIF in the merged download.
+          path: ${{ matrix.theme == 'catppuccin-mocha' && 'doc/demo.gif' || format('doc/img/demo-{0}.gif', matrix.theme) }}
           if-no-files-found: error
 
   publish:
@@ -103,10 +104,19 @@ jobs:
           merge-multiple: true
 
       - name: Place GIFs
+        # download-artifact may keep directory structure under the
+        # merged dir; copy by basename regardless of layout.
         run: |
           mkdir -p doc/img
-          mv /tmp/gifs/demo.gif doc/demo.gif
-          mv /tmp/gifs/demo-*.gif doc/img/
+          find /tmp/gifs -name '*.gif' | while read -r f; do
+            base="$(basename "$f")"
+            if [ "$base" = "demo.gif" ]; then
+              cp "$f" doc/demo.gif
+            else
+              cp "$f" "doc/img/$base"
+            fi
+          done
+          ls -la doc/demo.gif doc/img/
 
       # Idempotent: an unchanged render commits nothing, so this never
       # loops. main is protected, so changed artifacts land as a PR on
