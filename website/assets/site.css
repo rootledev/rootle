@@ -229,6 +229,10 @@ article.md blockquote {
 }
 .rail-palettes button:hover { transform: scale(1.15); }
 .rail-palettes button.active { border-color: var(--text); }
+.palette-name {
+  display: block; font-size: 11px; color: var(--faint);
+  margin: 6px 12px 0; font-family: var(--mono);
+}
 
 /* ---- hero install box + chips ---- */
 .chips { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin: 10px 0 14px; }
