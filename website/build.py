@@ -13,6 +13,7 @@ website/index.html carries by hand.
 
 from __future__ import annotations
 
+import hashlib
 import re
 import shutil
 from pathlib import Path
@@ -23,6 +24,21 @@ ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "public"
 
 REPO = "https://github.com/rootledev/rootle"
+
+# Cache-busting: content hash of the shared assets, stamped into every
+# css/js URL as ?v=… — a stale cached stylesheet after a deploy can only
+# survive until the hash changes.
+_ASSET_VERSION: str | None = None
+
+
+def asset_version() -> str:
+    global _ASSET_VERSION
+    if _ASSET_VERSION is None:
+        h = hashlib.sha1()
+        for name in ("site.css", "site.js"):
+            h.update((ROOT / "website" / "assets" / name).read_bytes())
+        _ASSET_VERSION = h.hexdigest()[:8]
+    return _ASSET_VERSION
 
 # Docs mirrored onto the site: url-slug -> (source file, nav label).
 PAGES: dict[str, tuple[str, str]] = {
@@ -144,8 +160,8 @@ def page(title: str, body: str, active: str, toc: list[tuple[str, str]]) -> str:
 <title>{title}</title>
 <meta name="description" content="rootle — a modal terminal UI for browsing remote source-control systems.">
 <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="../assets/site.css">
-<script src="../assets/site.js" defer></script>
+<link rel="stylesheet" href="../assets/site.css?v={asset_version()}">
+<script src="../assets/site.js?v={asset_version()}" defer></script>
 </head>
 <body class="docs">
 <div class="shell">
@@ -239,7 +255,10 @@ def assemble() -> None:
 
     index = (ROOT / "website" / "index.html").read_text()
     assert "<!--LOGO-->" in index, "index.html lost its <!--LOGO--> placeholder"
-    (OUT / "index.html").write_text(index.replace("<!--LOGO-->", themed_logo()))
+    index = index.replace("<!--LOGO-->", themed_logo())
+    index = index.replace("./assets/site.css", f"./assets/site.css?v={asset_version()}")
+    index = index.replace("./assets/site.js", f"./assets/site.js?v={asset_version()}")
+    (OUT / "index.html").write_text(index)
     # Custom domain — GitHub Pages reads this from the deployed artifact.
     (OUT / "CNAME").write_text("rootle.dev\n")
     # Served at rootle.dev/install.sh — the curl-pipe-sh installer.

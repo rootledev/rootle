@@ -130,7 +130,7 @@ footer {
   width: 100%; border: 1px solid var(--border); border-radius: 12px;
   display: block; background: var(--card);
 }
-.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+.grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
 .card {
   background: var(--card); border: 1px solid var(--border); border-radius: 12px;
   padding: 18px 20px;
@@ -219,6 +219,7 @@ article.md blockquote {
   .rail-toc { display: none; }
   .rail-palettes { margin-top: 12px; padding: 0; }
   .content { padding: 0 20px; }
+  .grid { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
 }
 
 /* docs rail: compact palette dots (switch themes from any page) */
