@@ -13,7 +13,7 @@ releases; pin a version if it matters to you.
 [![crates.io](https://img.shields.io/crates/v/rootle.svg)](https://crates.io/crates/rootle)
 [![version](https://img.shields.io/github/v/release/rootledev/rootle?display_name=tag&sort=semver)](https://github.com/rootledev/rootle/releases/latest)
 [![status](https://img.shields.io/badge/status-alpha-orange)](https://github.com/rootledev/rootle/milestones)
-[![website](https://img.shields.io/badge/website-rootledev.github.io%2Frootle-89b4fa)](https://rootledev.github.io/rootle/)
+[![website](https://img.shields.io/badge/website-rootle.dev-89b4fa)](https://rootle.dev/)
 
 A modal TUI (ratatui) with a yazi-style miller-column browser,
 syntax-highlighted previews, Zed-style global search, and a pluggable
@@ -48,7 +48,7 @@ small stdio script.
 ## Quick start
 
 ```bash
-curl -fsSL https://rootledev.github.io/rootle/install.sh | sh   # linux x86_64, to ~/.local/bin
+curl -fsSL https://rootle.dev/install.sh | sh   # linux x86_64, to ~/.local/bin
 cargo install rootle    # or from crates.io (Rust 1.88+)
 
 rootle                # repo search on first run; browser after that

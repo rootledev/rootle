@@ -3,7 +3,7 @@
 # rootle installer
 #
 # Usage:
-#   curl -fsSL https://rootledev.github.io/rootle/install.sh | sh
+#   curl -fsSL https://rootle.dev/install.sh | sh
 #
 # Environment variables:
 #   ROOTLE_VERSION      Version to install (default: latest)

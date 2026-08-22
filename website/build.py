@@ -240,7 +240,9 @@ def assemble() -> None:
     index = (ROOT / "website" / "index.html").read_text()
     assert "<!--LOGO-->" in index, "index.html lost its <!--LOGO--> placeholder"
     (OUT / "index.html").write_text(index.replace("<!--LOGO-->", themed_logo()))
-    # Served at rootledev.github.io/rootle/install.sh — the curl-pipe-sh installer.
+    # Custom domain — GitHub Pages reads this from the deployed artifact.
+    (OUT / "CNAME").write_text("rootle.dev\n")
+    # Served at rootle.dev/install.sh — the curl-pipe-sh installer.
     shutil.copy(ROOT / "install.sh", OUT / "install.sh")
     for name in ("icon.svg", "favicon.svg", "site.css", "site.js"):
         shutil.copy(ROOT / "website" / "assets" / name, OUT / "assets" / name)
