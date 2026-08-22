@@ -97,6 +97,10 @@ PALETTE_DOTS = [
     ("one-dark", "#61afef"),
     ("solarized-dark", "#268bd2"),
     ("tokyo-night", "#7aa2f7"),
+    ("catppuccin-latte", "#1e66f5"),
+    ("github-light", "#0969da"),
+    ("one-light", "#4078f2"),
+    ("solarized-light", "#268bd2"),
 ]
 
 
@@ -153,7 +157,7 @@ def page(title: str, body: str, active: str, toc: list[tuple[str, str]]) -> str:
   <span>MIT license</span>
   <a href="{REPO}">source</a>
   <a href="../index.html">home</a>
-  <span style="margin-left:auto">a ratatui TUI · seven palettes</span>
+  <span style="margin-left:auto">a ratatui TUI · eleven palettes</span>
 </footer>
 </main>
 </div>

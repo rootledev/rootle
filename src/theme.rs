@@ -1,8 +1,9 @@
 //! Themes: Catppuccin Mocha is the embedded default; the other famous
 //! dark palettes (Dracula, One Dark, Gruvbox Dark, Nord, Tokyo Night,
-//! Solarized Dark) ship embedded too. `~/.config/rootle/themes/<name>.toml`
-//! overrides merge on top of the embedded base — fork a builtin by
-//! writing a file with its name.
+//! Solarized Dark) plus four light ones (Catppuccin Latte, GitHub
+//! Light, One Light, Solarized Light) ship embedded too.
+//! `~/.config/rootle/themes/<name>.toml` overrides merge on top of the
+//! embedded base — fork a builtin by writing a file with its name.
 
 use ratatui::style::Color;
 
@@ -381,6 +382,126 @@ const SOLARIZED_DARK: &[RoleValue] = &[
     ("search_match", 0xb58900),
 ];
 
+// Light palettes. crust stays the text-on-accent-chip color — for
+// light themes that is the palette's lightest tone (chips are
+// saturated in every palette).
+
+const CATPPUCCIN_LATTE: &[RoleValue] = &[
+    ("crust", 0xdce0e8),
+    ("mantle", 0xe6e9ef),
+    ("base", 0xeff1f5),
+    ("surface0", 0xccd0da),
+    ("surface2", 0xacb0be),
+    ("overlay0", 0x9ca0b0),
+    ("subtext0", 0x6c6f85),
+    ("text", 0x4c4f69),
+    ("border_focused", 0x1e66f5), // blue
+    ("border_unfocused", 0xacb0be),
+    ("directory", 0x1e66f5),
+    ("file", 0x4c4f69),
+    ("selection_bg", 0xccd0da),
+    ("selection_fg", 0x1e66f5),
+    ("hint", 0x6c6f85),
+    ("error", 0xd20f39),
+    ("warning", 0xdf8e1d),     // yellow
+    ("mode_browse", 0x40a02b), // green
+    ("mode_search", 0xdf8e1d),
+    ("mode_insert", 0x179299), // teal
+    ("mode_normal", 0x1e66f5),
+    ("mode_leader", 0xfe640b), // peach
+    ("mode_visual", 0xea76cb), // pink
+    ("badge_repo", 0x1e66f5),
+    ("badge_org", 0xfe640b),
+    ("search_match", 0xdf8e1d),
+];
+
+const GITHUB_LIGHT: &[RoleValue] = &[
+    ("crust", 0xffffff),
+    ("mantle", 0xf6f8fa),
+    ("base", 0xffffff),
+    ("surface0", 0xeaeef2),
+    ("surface2", 0xd1d9e0),
+    ("overlay0", 0x818b98),
+    ("subtext0", 0x59636e),
+    ("text", 0x1f2328),
+    ("border_focused", 0x0969da), // accent blue
+    ("border_unfocused", 0xd1d9e0),
+    ("directory", 0x0969da),
+    ("file", 0x1f2328),
+    ("selection_bg", 0xddf4ff), // accent subtle
+    ("selection_fg", 0x0969da),
+    ("hint", 0x59636e),
+    ("error", 0xd1242f),
+    ("warning", 0x9a6700),     // yellow
+    ("mode_browse", 0x1a7f37), // green
+    ("mode_search", 0x9a6700),
+    ("mode_insert", 0x0a7ea4), // teal-ish
+    ("mode_normal", 0x0969da),
+    ("mode_leader", 0xbc4c00), // orange
+    ("mode_visual", 0x8250df), // purple
+    ("badge_repo", 0x0969da),
+    ("badge_org", 0xbc4c00),
+    ("search_match", 0x9a6700),
+];
+
+const ONE_LIGHT: &[RoleValue] = &[
+    ("crust", 0xfafafa),
+    ("mantle", 0xf0f0f0),
+    ("base", 0xfafafa),
+    ("surface0", 0xeaeaeb),
+    ("surface2", 0xcaccd1),
+    ("overlay0", 0xa0a1a7),
+    ("subtext0", 0x696c77),
+    ("text", 0x383a42),
+    ("border_focused", 0x4078f2), // blue
+    ("border_unfocused", 0xa0a1a7),
+    ("directory", 0x4078f2),
+    ("file", 0x383a42),
+    ("selection_bg", 0xeaeaeb),
+    ("selection_fg", 0x4078f2),
+    ("hint", 0x696c77),
+    ("error", 0xe45649),
+    ("warning", 0xc18401),     // yellow
+    ("mode_browse", 0x50a14f), // green
+    ("mode_search", 0xc18401),
+    ("mode_insert", 0x0184bc), // cyan
+    ("mode_normal", 0x4078f2),
+    ("mode_leader", 0xb76b01), // dark orange
+    ("mode_visual", 0xa626a4), // purple
+    ("badge_repo", 0x4078f2),
+    ("badge_org", 0xb76b01),
+    ("search_match", 0xc18401),
+];
+
+const SOLARIZED_LIGHT: &[RoleValue] = &[
+    ("crust", 0xfdf6e3),  // base3 — lightest, text on accent chips
+    ("mantle", 0xeee8d5), // base2
+    ("base", 0xfdf6e3),   // base3
+    ("surface0", 0xeee8d5),
+    ("surface2", 0x93a1a1),       // base1 — visible unfocused border
+    ("overlay0", 0x839496),       // base0
+    ("subtext0", 0x657b83),       // base00
+    ("text", 0x586e75),           // base01
+    ("border_focused", 0x268bd2), // blue
+    ("border_unfocused", 0x93a1a1),
+    ("directory", 0x268bd2),
+    ("file", 0x586e75),
+    ("selection_bg", 0xeee8d5),
+    ("selection_fg", 0x268bd2),
+    ("hint", 0x657b83),
+    ("error", 0xdc322f),
+    ("warning", 0xb58900),     // yellow
+    ("mode_browse", 0x859900), // green
+    ("mode_search", 0xb58900),
+    ("mode_insert", 0x2aa198), // cyan
+    ("mode_normal", 0x268bd2),
+    ("mode_leader", 0xcb4b16), // orange
+    ("mode_visual", 0x6c71c4), // violet
+    ("badge_repo", 0x268bd2),
+    ("badge_org", 0xcb4b16),
+    ("search_match", 0xb58900),
+];
+
 const EMBEDDED: &[(&str, &[RoleValue])] = &[
     ("catppuccin-mocha", &[]), // baseline, constructed directly
     ("dracula", DRACULA),
@@ -389,6 +510,11 @@ const EMBEDDED: &[(&str, &[RoleValue])] = &[
     ("one-dark", ONE_DARK),
     ("solarized-dark", SOLARIZED_DARK),
     ("tokyo-night", TOKYO_NIGHT),
+    // light
+    ("catppuccin-latte", CATPPUCCIN_LATTE),
+    ("github-light", GITHUB_LIGHT),
+    ("one-light", ONE_LIGHT),
+    ("solarized-light", SOLARIZED_LIGHT),
 ];
 
 #[cfg(test)]
