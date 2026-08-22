@@ -49,7 +49,8 @@ small stdio script.
 
 ```bash
 curl -fsSL https://rootle.dev/install.sh | sh   # linux x86_64, to ~/.local/bin
-cargo install rootle    # or from crates.io (Rust 1.88+)
+brew install rootledev/tap/rootle   # macOS / linux (builds from source)
+cargo install rootle                # or from crates.io (Rust 1.88+)
 
 rootle                # repo search on first run; browser after that
 rootle owner/repo     # jump straight into a repo
