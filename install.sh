@@ -3,7 +3,7 @@
 # rootle installer
 #
 # Usage:
-#   curl -fsSL https://tknawara.github.io/rootle/install.sh | sh
+#   curl -fsSL https://rootledev.github.io/rootle/install.sh | sh
 #
 # Environment variables:
 #   ROOTLE_VERSION      Version to install (default: latest)
@@ -13,7 +13,7 @@
 
 set -e
 
-REPO="tknawara/rootle"
+REPO="rootledev/rootle"
 BIN="rootle"
 INSTALL_DIR="${ROOTLE_INSTALL_DIR:-$HOME/.local/bin}"
 BASE_URL="${ROOTLE_BASE_URL:-https://github.com/$REPO/releases/download}"
