@@ -20,7 +20,9 @@ def test_embedded_themes_in_settings_radio(tmp_path: Path) -> None:
         tui.key("ENTER")  # open the theme radio on [theme].name
         screen = tui.expect("catppuccin-mocha")
         for name in ("dracula", "gruvbox-dark", "nord", "one-dark",
-                     "solarized-dark", "tokyo-night"):
+                     "solarized-dark", "tokyo-night",
+                     "catppuccin-latte", "github-light", "one-light",
+                     "solarized-light"):
             assert name in screen, f"{name} missing from the radio"
     finally:
         tui.stop()

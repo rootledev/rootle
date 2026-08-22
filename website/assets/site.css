@@ -344,3 +344,72 @@ html[data-palette="tokyo-night"] {
   --red: #f7768e; --mauve: #bb9af7; --teal: #7dcfff; --border-strong: #3b4261;
   --blue: #7aa2f7; --green: #9ece6a; --yellow: #e0af68; --peach: #ff9e64;
 }
+
+html[data-palette="catppuccin-latte"] {
+  --bg: #dce0e8;
+  --deep: #e6e9ef;
+  --card: #eff1f5;
+  --border: #ccd0da;
+  --border-strong: #acb0be;
+  --text: #4c4f69;
+  --dim: #6c6f85;
+  --faint: #9ca0b0;
+  --blue: #1e66f5;
+  --green: #40a02b;
+  --yellow: #df8e1d;
+  --peach: #fe640b;
+  --red: #d20f39;
+  --mauve: #ea76cb;
+  --teal: #179299;
+}
+html[data-palette="github-light"] {
+  --bg: #ffffff;
+  --deep: #f6f8fa;
+  --card: #ffffff;
+  --border: #eaeef2;
+  --border-strong: #d1d9e0;
+  --text: #1f2328;
+  --dim: #59636e;
+  --faint: #818b98;
+  --blue: #0969da;
+  --green: #1a7f37;
+  --yellow: #9a6700;
+  --peach: #bc4c00;
+  --red: #d1242f;
+  --mauve: #8250df;
+  --teal: #0a7ea4;
+}
+html[data-palette="one-light"] {
+  --bg: #fafafa;
+  --deep: #f0f0f0;
+  --card: #fafafa;
+  --border: #eaeaeb;
+  --border-strong: #caccd1;
+  --text: #383a42;
+  --dim: #696c77;
+  --faint: #a0a1a7;
+  --blue: #4078f2;
+  --green: #50a14f;
+  --yellow: #c18401;
+  --peach: #b76b01;
+  --red: #e45649;
+  --mauve: #a626a4;
+  --teal: #0184bc;
+}
+html[data-palette="solarized-light"] {
+  --bg: #fdf6e3;
+  --deep: #eee8d5;
+  --card: #fdf6e3;
+  --border: #eee8d5;
+  --border-strong: #93a1a1;
+  --text: #586e75;
+  --dim: #657b83;
+  --faint: #839496;
+  --blue: #268bd2;
+  --green: #859900;
+  --yellow: #b58900;
+  --peach: #cb4b16;
+  --red: #dc322f;
+  --mauve: #6c71c4;
+  --teal: #2aa198;
+}

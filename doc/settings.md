@@ -45,7 +45,7 @@ return.
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `name` | string | `"catppuccin-mocha"` | Palette to load. Embedded: `catppuccin-mocha`, `dracula`, `gruvbox-dark`, `nord`, `one-dark`, `solarized-dark`, `tokyo-night`. Unknown name → Catppuccin Mocha. |
+| `name` | string | `"catppuccin-mocha"` | Palette to load. Embedded dark: `catppuccin-mocha`, `dracula`, `gruvbox-dark`, `nord`, `one-dark`, `solarized-dark`, `tokyo-night`. Embedded light: `catppuccin-latte`, `github-light`, `one-light`, `solarized-light`. Unknown name → Catppuccin Mocha. |
 | `path` | string, optional | unset | Explicit palette file; wins over `name`. |
 
 `--theme NAME` (CLI) overrides `name` for one session. To write your

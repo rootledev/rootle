@@ -1,7 +1,10 @@
 name: demo
 
-# Re-render the README demo and doc screenshots whenever the app or
-# the demo tooling changes — README always shows the current look.
+# Re-render the demo GIFs whenever the app or the demo tooling changes —
+# README and the website always show the current look. One render per
+# embedded palette: catppuccin-mocha is the canonical doc/demo.gif
+# (README hero); the rest land in doc/img/demo-<theme>.gif for the
+# site's palette picker.
 on:
   workflow_dispatch:
   push:
@@ -18,39 +21,92 @@ permissions:
   pull-requests: write
 
 jobs:
-  demo:
+  # The release service requires VERSION; the tape only needs the binary
+  # inside the tarball (demo_setup.sh extracts it, in the VHS container).
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
-      - uses: astral-sh/setup-uv@v7
-
-      # The release service requires VERSION; the demo only needs the
-      # binary inside the tarball (demo_setup.sh extracts it).
       - name: Build binary for the tape
         run: docker compose run --build --rm -e VERSION=0.0.0-demo release
 
-      # VHS resolves fonts via fontconfig: install the vendored
-      # JetBrains Mono into the container first.
-      # One render per embedded palette: catppuccin-mocha stays the
-      # canonical doc/demo.gif (README embeds it); the rest land in
-      # doc/img/demo-<theme>.gif for the site's palette picker. The tape
-      # is sed-parameterized per theme: Output path + --theme flag on
-      # the launch line.
-      - name: Render demo GIFs (per theme)
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-tarball
+          path: dist/*.tar.gz
+
+  # One parallel job per palette — sequential rendering took ~2 min per
+  # theme; the matrix keeps the wall clock at one render. The tape is
+  # sed-parameterized per theme: Output path + --theme on the launch line.
+  render:
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        theme:
+          - catppuccin-mocha
+          - dracula
+          - gruvbox-dark
+          - nord
+          - one-dark
+          - solarized-dark
+          - tokyo-night
+          - catppuccin-latte
+          - github-light
+          - one-light
+          - solarized-light
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-tarball
+          path: dist
+
+      - name: Render demo GIF (${{ matrix.theme }})
+        env:
+          THEME: ${{ matrix.theme }}
         run: |
-          for theme in catppuccin-mocha dracula gruvbox-dark nord one-dark solarized-dark tokyo-night; do
-            out="doc/demo.gif"
-            [ "$theme" = "catppuccin-mocha" ] || out="doc/img/demo-$theme.gif"
-            sed -e "s|^Output .*|Output $out|" \
-                -e "s|--config /tmp/rootle-demo/provider.toml|--theme $theme --config /tmp/rootle-demo/provider.toml|" \
-                demos/demo.tape > "demos/.tape-$theme"
-            docker run --rm -v "$PWD:/vhs" -w /vhs --entrypoint sh ghcr.io/charmbracelet/vhs -c \
-              "mkdir -p /usr/share/fonts/truetype/jbmono && \
-               cp /vhs/demos/fonts/JetBrainsMono-*.ttf /usr/share/fonts/truetype/jbmono/ && \
-               fc-cache -f >/dev/null 2>&1; exec vhs /vhs/demos/.tape-$theme" \
-              && rm "demos/.tape-$theme"
-          done
+          out="doc/demo.gif"
+          [ "$THEME" = "catppuccin-mocha" ] || out="doc/img/demo-$THEME.gif"
+          sed -e "s|^Output .*|Output $out|" \
+              -e "s|--config /tmp/rootle-demo/provider.toml|--theme $THEME --config /tmp/rootle-demo/provider.toml|" \
+              demos/demo.tape > "demos/.tape-$THEME"
+          # VHS resolves fonts via fontconfig: install the vendored
+          # JetBrains Mono into the container first.
+          docker run --rm -v "$PWD:/vhs" -w /vhs --entrypoint sh ghcr.io/charmbracelet/vhs -c \
+            "mkdir -p /usr/share/fonts/truetype/jbmono && \
+             cp /vhs/demos/fonts/JetBrainsMono-*.ttf /usr/share/fonts/truetype/jbmono/ && \
+             fc-cache -f >/dev/null 2>&1; exec vhs /vhs/demos/.tape-$THEME"
+          rm "demos/.tape-$THEME"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: demo-gif-${{ matrix.theme }}
+          path: |
+            doc/demo.gif
+            doc/img/demo-${{ matrix.theme }}*.gif
+          if-no-files-found: error
+
+  publish:
+    needs: render
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: demo-gif-*
+          path: /tmp/gifs
+          merge-multiple: true
+
+      - name: Place GIFs
+        run: |
+          mkdir -p doc/img
+          mv /tmp/gifs/demo.gif doc/demo.gif
+          mv /tmp/gifs/demo-*.gif doc/img/
 
       # Idempotent: an unchanged render commits nothing, so this never
       # loops. main is protected, so changed artifacts land as a PR on
@@ -68,9 +124,9 @@ jobs:
           git diff --cached --quiet && exit 0
           changed="$(git diff --cached --name-only | sed 's/^/- /')"
           git checkout -B demo/artifacts
-          git commit -m "docs: refresh demo.gif + screenshots"
+          git commit -m "docs: refresh demo GIFs"
           git push -f origin demo/artifacts
-          title="chore(demo): refresh demo.gif + screenshots [bot]"
+          title="chore(demo): refresh demo GIFs [bot]"
           body="Re-rendered demo artifacts from the demo workflow.
 
           - rendered from: \`main@${GITHUB_SHA:0:8}\`

@@ -1,6 +1,6 @@
 # Writing a rootle palette
 
-For regular use, pick one of the seven embedded palettes in `:settings`
+For regular use, pick one of the eleven embedded palettes (seven dark, four light) in `:settings`
 or via `rootle --theme NAME` — see [settings.md](settings.md). This
 page is for authoring your own.
 
