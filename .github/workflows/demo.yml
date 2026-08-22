@@ -71,7 +71,24 @@ jobs:
         run: |
           out="doc/demo.gif"
           [ "$THEME" = "catppuccin-mocha" ] || out="doc/img/demo-$THEME.gif"
+          # VHS paints the window remainder (rows×cell < Height) with the
+          # tape theme's background — map each palette to its VHS theme
+          # or light renders get a dark band.
+          case "$THEME" in
+            catppuccin-mocha)  vhs_theme="Catppuccin Mocha" ;;
+            dracula)           vhs_theme="Dracula" ;;
+            gruvbox-dark)      vhs_theme="GruvboxDark" ;;
+            nord)              vhs_theme="nord" ;;
+            one-dark)          vhs_theme="OneDark" ;;
+            solarized-dark)    vhs_theme="Builtin Solarized Dark" ;;
+            tokyo-night)       vhs_theme="TokyoNight" ;;
+            catppuccin-latte)  vhs_theme="Catppuccin Latte" ;;
+            github-light)      vhs_theme="Github" ;;
+            one-light)         vhs_theme="AtomOneLight" ;;
+            solarized-light)   vhs_theme="Builtin Solarized Light" ;;
+          esac
           sed -e "s|^Output .*|Output $out|" \
+              -e "s|^Set Theme .*|Set Theme \"$vhs_theme\"|" \
               -e "s|--config /tmp/rootle-demo/provider.toml|--theme $THEME --config /tmp/rootle-demo/provider.toml|" \
               demos/demo.tape > "demos/.tape-$THEME"
           # VHS resolves fonts via fontconfig: install the vendored

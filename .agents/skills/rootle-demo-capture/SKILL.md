@@ -40,9 +40,10 @@ Gotchas (all were hit, all cost time):
   `Sleep` generously after every state change (≥800ms after search
   submits, ≥1.2s after popups open) or the recording races ahead of
   the app.
-- VHS `Set Theme` only colors the terminal chrome — the app paints
-  RGB itself. The per-theme renders come from rootle's `--theme`
-  flag, not from VHS.
+- VHS `Set Theme` paints the shell lines and the window remainder
+  (rows×cell-height < Height) — the render matrix maps each palette to
+  its VHS theme (`vhs themes` lists valid names), or light renders get
+  a dark band. The app's own colors come from `--theme`, not VHS.
 - `demos/demo_setup.sh` must run INSIDE the tape (it writes the config
   with `$PWD` of the mounted repo). It extracts the release binary
   from `dist/*.tar.gz`, falling back to a debug build.
