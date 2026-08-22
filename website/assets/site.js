@@ -19,6 +19,12 @@
         buttons[i].getAttribute("data-set-palette") === (name || DEFAULT)
       );
     }
+    // Docs rail: name the active palette — a misclick on the unlabeled
+    // dots is otherwise invisible ("why is the site golden?").
+    var labels = document.querySelectorAll("[data-palette-name]");
+    for (var j = 0; j < labels.length; j++) {
+      labels[j].textContent = name || DEFAULT;
+    }
     // Swap the demo GIF to the palette's render (built per-theme by the
     // demo workflow); fall back to the canonical GIF until they exist.
     var demo = document.querySelector("[data-demo-img]");

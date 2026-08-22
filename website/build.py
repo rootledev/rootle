@@ -131,6 +131,7 @@ def rail(active: str, toc: list[tuple[str, str]]) -> str:
 {toc_block}  <span class="rail-head">theme</span>
   <div class="rail-palettes">
 {dots}  </div>
+  <span class="palette-name" data-palette-name>catppuccin-mocha</span>
 </aside>"""
 
 
