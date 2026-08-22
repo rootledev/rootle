@@ -39,12 +39,12 @@ then calls like `repo/tree` and `repo/blob`:
 ## Building one
 
 - **Full wire spec** — every method, error kinds, cancellation:
-  [doc/provider-protocol.md](https://github.com/tknawara/rootle/blob/main/doc/provider-protocol.md)
+  [doc/provider-protocol.md](https://github.com/rootledev/rootle/blob/main/doc/provider-protocol.md)
 - **Reference adapter** (documentation-by-example):
-  [examples/providers/fs_provider.py](https://github.com/tknawara/rootle/blob/main/examples/providers/fs_provider.py)
+  [examples/providers/fs_provider.py](https://github.com/rootledev/rootle/blob/main/examples/providers/fs_provider.py)
 - **Scaffolding skill** — capability questionnaire, adapter skeleton,
   and a conformance test suite that gates integration:
-  [skills/rootle-provider](https://github.com/tknawara/rootle/tree/main/skills/rootle-provider)
+  [skills/rootle-provider](https://github.com/rootledev/rootle/tree/main/skills/rootle-provider)
 
 The e2e suite drives the full TUI through this protocol against the
 reference adapter — offline proof of the whole path.

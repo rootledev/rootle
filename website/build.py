@@ -22,7 +22,7 @@ import markdown
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "public"
 
-REPO = "https://github.com/tknawara/rootle"
+REPO = "https://github.com/rootledev/rootle"
 
 # Docs mirrored onto the site: url-slug -> (source file, nav label).
 PAGES: dict[str, tuple[str, str]] = {
@@ -240,7 +240,7 @@ def assemble() -> None:
     index = (ROOT / "website" / "index.html").read_text()
     assert "<!--LOGO-->" in index, "index.html lost its <!--LOGO--> placeholder"
     (OUT / "index.html").write_text(index.replace("<!--LOGO-->", themed_logo()))
-    # Served at tknawara.github.io/rootle/install.sh — the curl-pipe-sh installer.
+    # Served at rootledev.github.io/rootle/install.sh — the curl-pipe-sh installer.
     shutil.copy(ROOT / "install.sh", OUT / "install.sh")
     for name in ("icon.svg", "favicon.svg", "site.css", "site.js"):
         shutil.copy(ROOT / "website" / "assets" / name, OUT / "assets" / name)

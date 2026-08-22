@@ -7,13 +7,13 @@
 **status: alpha** — features, keys, and config may still shift between
 releases; pin a version if it matters to you.
 
-[![ci](https://github.com/tknawara/rootle/actions/workflows/ci.yml/badge.svg)](https://github.com/tknawara/rootle/actions/workflows/ci.yml)
-[![release](https://github.com/tknawara/rootle/actions/workflows/release.yml/badge.svg)](https://github.com/tknawara/rootle/actions/workflows/release.yml)
-[![audit](https://github.com/tknawara/rootle/actions/workflows/audit.yml/badge.svg)](https://github.com/tknawara/rootle/actions/workflows/audit.yml)
+[![ci](https://github.com/rootledev/rootle/actions/workflows/ci.yml/badge.svg)](https://github.com/rootledev/rootle/actions/workflows/ci.yml)
+[![release](https://github.com/rootledev/rootle/actions/workflows/release.yml/badge.svg)](https://github.com/rootledev/rootle/actions/workflows/release.yml)
+[![audit](https://github.com/rootledev/rootle/actions/workflows/audit.yml/badge.svg)](https://github.com/rootledev/rootle/actions/workflows/audit.yml)
 [![crates.io](https://img.shields.io/crates/v/rootle.svg)](https://crates.io/crates/rootle)
-[![version](https://img.shields.io/github/v/release/tknawara/rootle?display_name=tag&sort=semver)](https://github.com/tknawara/rootle/releases/latest)
-[![status](https://img.shields.io/badge/status-alpha-orange)](https://github.com/tknawara/rootle/milestones)
-[![website](https://img.shields.io/badge/website-tknawara.github.io%2Frootle-89b4fa)](https://tknawara.github.io/rootle/)
+[![version](https://img.shields.io/github/v/release/rootledev/rootle?display_name=tag&sort=semver)](https://github.com/rootledev/rootle/releases/latest)
+[![status](https://img.shields.io/badge/status-alpha-orange)](https://github.com/rootledev/rootle/milestones)
+[![website](https://img.shields.io/badge/website-rootledev.github.io%2Frootle-89b4fa)](https://rootledev.github.io/rootle/)
 
 A modal TUI (ratatui) with a yazi-style miller-column browser,
 syntax-highlighted previews, Zed-style global search, and a pluggable
@@ -48,7 +48,7 @@ small stdio script.
 ## Quick start
 
 ```bash
-curl -fsSL https://tknawara.github.io/rootle/install.sh | sh   # linux x86_64, to ~/.local/bin
+curl -fsSL https://rootledev.github.io/rootle/install.sh | sh   # linux x86_64, to ~/.local/bin
 cargo install rootle    # or from crates.io (Rust 1.88+)
 
 rootle                # repo search on first run; browser after that
