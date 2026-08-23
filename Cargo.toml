@@ -9,6 +9,24 @@ repository = "https://github.com/rootledev/rootle"
 readme = "README.md"
 keywords = ["tui", "github", "terminal", "git", "browser"]
 categories = ["command-line-utilities"]
+# The crate ships source + README + LICENSE only; docs-site assets,
+# harnesses and agent tooling stay in the repo (crates.io caps uploads
+# at 10 MiB — doc/img alone is 11 MiB of demo GIFs).
+exclude = [
+    "/.agents",
+    "/.github",
+    "/demos",
+    "/doc",
+    "/e2e",
+    "/plans",
+    "/skills",
+    "/website",
+    "/Dockerfile",
+    "/docker-compose.yml",
+    "/install.sh",
+    "/PLAN.md",
+    "/AGENTS.md",
+]
 
 [lib]
 path = "src/lib.rs"
