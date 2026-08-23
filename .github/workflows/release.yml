@@ -66,6 +66,9 @@ jobs:
                  -e "s|sha256 \"[0-9a-f]*\"|sha256 \"$sha\"|" \
                  /tmp/tap/Formula/rootle.rb
           cd /tmp/tap
+          # gh clones without persisting push credentials — authenticate
+          # the remote explicitly or `git push` fails with exit 128.
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/rootledev/homebrew-tap.git"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -am "rootle $ver"
