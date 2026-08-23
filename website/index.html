@@ -68,32 +68,44 @@
   <code>rootle owner/repo</code> jumps straight into a repo.</p>
 </section>
 
-<section>
+<section id="features">
   <h2 class="section">what it does</h2>
-  <div class="grid">
-    <div class="card">
+  <div class="feat-grid">
+    <div class="feat">
+      <div class="num">[01]</div>
       <h3>browse</h3>
       <p>Three miller columns — orgs → repos → trees — with a live syntax-highlighted preview pane: line numbers, theme-following colors, <code>␣ /</code> find-in-file with <code>n</code>/<code>N</code>. No local clone.</p>
+      <div class="keys"><span class="kb">h/l</span><span class="kb">J/K</span><span class="kb">␣ /</span><span class="kb">n/N</span></div>
     </div>
-    <div class="card">
-      <h3>find &amp; grep<span class="key">␣ f</span><span class="key">␣ g</span></h3>
+    <div class="feat">
+      <div class="num">[02]</div>
+      <h3>find &amp; grep</h3>
       <p>Full-screen, Zed-style results: match chips, folded regions, per-file counts. Scope to a repo or search globally.</p>
+      <div class="keys"><span class="kb">␣ f</span><span class="kb">␣ g</span><span class="kb">/</span></div>
     </div>
-    <div class="card">
-      <h3>open &amp; yank<span class="key">↵</span><span class="key">␣ y</span></h3>
+    <div class="feat">
+      <div class="num">[03]</div>
+      <h3>open &amp; yank</h3>
       <p>Any file opens read-only in your editor. Yank the browser URL of anything you're looking at — anchored to the preview cursor line (<code>#L42</code>).</p>
+      <div class="keys"><span class="kb">↵</span><span class="kb">␣ y</span></div>
     </div>
-    <div class="card">
-      <h3>clone<span class="key">v</span><span class="key">:clone</span></h3>
+    <div class="feat">
+      <div class="num">[04]</div>
+      <h3>clone</h3>
       <p>Mark repos, run the wizard. Org selections fan out; destinations land at <code>&lt;dest&gt;/&lt;org&gt;/&lt;repo&gt;</code>.</p>
+      <div class="keys"><span class="kb">v</span><span class="kb">:clone</span></div>
     </div>
-    <div class="card">
-      <h3>configure<span class="key">:settings</span></h3>
-      <p>In-app settings write <code>config.toml</code> and hot-reload themes. The <code>?</code> popup lists every keybinding.</p>
+    <div class="feat">
+      <div class="num">[05]</div>
+      <h3>configure</h3>
+      <p>In-app settings write <code>config.toml</code> and hot-reload themes — code colors follow. The <code>?</code> popup lists every keybinding.</p>
+      <div class="keys"><span class="kb">:settings</span><span class="kb">?</span></div>
     </div>
-    <div class="card">
+    <div class="feat">
+      <div class="num">[06]</div>
       <h3>providers</h3>
       <p>GitHub ships in-tree. Anything else wraps in as a stdio child speaking NDJSON-RPC — <a href="./docs/provider-protocol.html">the protocol</a> is four methods; the <a href="https://github.com/rootledev/rootle/tree/main/skills/rootle-provider">scaffolding skill</a> wraps your backend with you.</p>
+      <div class="keys"><span class="kb">stdio</span><span class="kb">NDJSON-RPC</span></div>
     </div>
   </div>
 </section>
