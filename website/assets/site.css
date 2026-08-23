@@ -130,22 +130,28 @@ footer {
   width: 100%; border: 1px solid var(--border); border-radius: 12px;
   display: block; background: var(--card);
 }
-.grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
-.card {
-  background: var(--card); border: 1px solid var(--border); border-radius: 12px;
-  padding: 18px 20px;
-  transition: border-color 0.15s ease, transform 0.15s ease;
+/* features: one bordered panel, hairline-divided cells (tuicr-style) —
+   number, ❯ title, description, keycaps pinned to the bottom */
+.feat-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 0;
+  border: 1px solid var(--border); border-radius: 12px;
+  overflow: hidden; background: var(--card);
 }
-.card:hover { border-color: var(--blue); transform: translateY(-2px); }
-.card h3 { font-family: var(--mono); font-size: 16px; margin: 0 0 6px; color: var(--text); }
-.card h3 .key {
-  display: inline-block; font-size: 12px; color: var(--blue);
-  background: var(--deep); border: 1px solid var(--border);
-  border-bottom: 2px solid var(--blue); border-radius: 5px;
-  padding: 0 7px; margin-left: 8px; vertical-align: 2px;
+.feat {
+  padding: 20px 22px 24px;
+  border-right: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  display: flex; flex-direction: column; gap: 8px;
+  min-height: 190px;
 }
-.card p { margin: 0; color: var(--dim); font-size: 14px; }
-.card code { border: none; padding: 0 2px; }
+.feat:nth-child(3n) { border-right: none; }
+.feat:nth-last-child(-n+3) { border-bottom: none; }
+.feat .num { color: var(--faint); font-family: var(--mono); font-size: 11px; }
+.feat h3 { margin: 0; font-family: var(--mono); font-weight: 700; font-size: 15px; color: var(--text); }
+.feat h3::before { content: "\276F "; color: var(--blue); }
+.feat p { margin: 0; font-size: 13.5px; color: var(--dim); line-height: 1.5; }
+.feat p code { border: none; padding: 0 2px; }
+.feat .keys { margin-top: auto; display: flex; gap: 6px; flex-wrap: wrap; padding-top: 8px; }
 /* demo: palette bar sits directly above the window */
 .demo .palette-bar { margin: 0 0 14px; }
 
@@ -223,7 +229,12 @@ article.md blockquote {
   .rail-toc { display: none; }
   .rail-palettes { margin-top: 12px; padding: 0; }
   .content { padding: 0 20px; }
-  .grid { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+  .feat-grid { grid-template-columns: 1fr; }
+  .feat, .feat:nth-child(3n) { border-right: none; }
+  .feat:nth-last-child(-n+3) {
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  }
+  .feat:last-child { border-bottom: none; }
 }
 
 /* docs rail: compact palette dots (switch themes from any page) */
@@ -299,22 +310,10 @@ p.alt code { border: none; padding: 0 2px; }
 .palette-bar button.active { border-color: var(--blue); color: var(--blue); }
 .palette-bar .sw { width: 11px; height: 11px; border-radius: 50%; background: var(--sw); }
 
-/* ---- compare table: bordered container, soft row separators ---- */
-table.compare {
-  width: 100%; font-size: 14px;
-  border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
-  background: var(--card); border-collapse: separate; border-spacing: 0;
-}
-table.compare th, table.compare td {
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
-  padding: 8px 10px;
-}
-table.compare tr:last-child td { border-bottom: none; }
-table.compare th {
-  font-family: var(--mono); font-size: 13px; color: var(--blue);
-  text-align: center; background: var(--deep);
-  border-bottom: 1px solid var(--border);
-}
+/* ---- compare table ---- */
+table.compare { width: 100%; border-collapse: collapse; font-size: 14px; }
+table.compare th, table.compare td { border-bottom: 1px solid var(--border); padding: 8px 10px; }
+table.compare th { font-family: var(--mono); font-size: 13px; color: var(--blue); text-align: center; }
 table.compare th:first-child { color: var(--faint); font-weight: 400; text-align: left; }
 table.compare td { color: var(--dim); text-align: center; }
 table.compare td:first-child { color: var(--text); text-align: left; }
