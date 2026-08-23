@@ -634,7 +634,7 @@ fn keybinds_popup_walks_modes_and_closes_without_residue() {
     println!("{screen}");
 
     // Tab walks the modes; the leader table renders its bindings.
-    for _ in 0..4 {
+    for _ in 0..5 {
         app.handle_key(key(KeyCode::Tab));
     }
     let screen = render(&mut app, 100, 30).join("\n");
@@ -972,4 +972,173 @@ fn stale_hit_shows_chip_until_located() {
         "chip clears after locate:\n{screen}"
     );
     assert!(screen.contains("needle here"), "preview renders:\n{screen}");
+}
+
+/// Drill from the repos pane into the repo root and select Cargo.toml
+/// (root lists dirs first: docs, examples, src, then files).
+fn app_on_cargo_toml() -> App {
+    let mut app = browsing_app();
+    app.handle_key(key(KeyCode::Char('l')));
+    for _ in 0..3 {
+        app.handle_key(key(KeyCode::Char('j')));
+    }
+    app
+}
+
+/// Drill into src/ and select lib.rs (src lists layout/, widgets/,
+/// then files).
+fn app_on_lib_rs() -> App {
+    let mut app = browsing_app();
+    app.handle_key(key(KeyCode::Char('l'))); // repo root
+    for _ in 0..2 {
+        app.handle_key(key(KeyCode::Char('j'))); // src
+    }
+    app.handle_key(key(KeyCode::Char('l'))); // into src
+    for _ in 0..2 {
+        app.handle_key(key(KeyCode::Char('j'))); // lib.rs
+    }
+    app
+}
+
+#[test]
+fn preview_shows_gutter_footer_and_scrollbar() {
+    let mut app = app_on_lib_rs();
+    let content = (1..=60)
+        .map(|i| format!("fn f{i}() {{}}\n"))
+        .collect::<String>();
+    app.handle_action(rootle::action::Action::BlobLoaded {
+        sha: "abc1234def5678".into(),
+        name: "lib.rs".into(),
+        bytes: content.into_bytes(),
+    });
+    let rows = render(&mut app, 100, 30);
+    let screen = rows.join("\n");
+    assert!(
+        screen.contains("rust · 60 lines"),
+        "footer missing:\n{screen}"
+    );
+    assert!(screen.contains("┃"), "scrollbar thumb missing:\n{screen}");
+    assert!(screen.contains("1/60"), "readout missing:\n{screen}");
+    assert!(
+        screen.contains("10 fn f10() {}"),
+        "line-number gutter missing:\n{screen}"
+    );
+}
+
+#[test]
+fn find_in_file_flow_highlights_steps_wraps_and_clears() {
+    let mut app = app_on_cargo_toml();
+    app.handle_action(rootle::action::Action::BlobLoaded {
+        sha: "abc1234def5678".into(),
+        name: "Cargo.toml".into(),
+        bytes: b"alpha\nbeta ratatui\ngamma\nratatui delta\n".to_vec(),
+    });
+    // ␣ / opens FIND over the preview.
+    app.handle_key(key(KeyCode::Char(' ')));
+    app.handle_key(key(KeyCode::Char('/')));
+    let screen = render(&mut app, 100, 30).join("\n");
+    assert!(screen.contains("FIND"), "find chip missing:\n{screen}");
+    assert!(
+        screen.contains("Cargo.toml /"),
+        "title query prompt missing:\n{screen}"
+    );
+
+    for c in "ratatui".chars() {
+        app.handle_key(key(KeyCode::Char(c)));
+    }
+    let screen = render(&mut app, 100, 30).join("\n");
+    assert!(screen.contains("/ratatui"), "query in title:\n{screen}");
+    assert!(screen.contains("1/2 · 2/4"), "match readout:\n{screen}");
+
+    app.handle_key(key(KeyCode::Enter)); // commit
+    let screen = render(&mut app, 100, 30).join("\n");
+    assert!(
+        screen.contains("BROWSE"),
+        "commit returns to browse:\n{screen}"
+    );
+    assert!(
+        screen.contains("1/2 · 2/4"),
+        "chips survive commit:\n{screen}"
+    );
+
+    app.handle_key(key(KeyCode::Char('n')));
+    let screen = render(&mut app, 100, 30).join("\n");
+    assert!(screen.contains("2/2 · 4/4"), "n steps forward:\n{screen}");
+    app.handle_key(key(KeyCode::Char('n'))); // wraps to the first match
+    let screen = render(&mut app, 100, 30).join("\n");
+    assert!(screen.contains("1/2 · 2/4"), "n wraps:\n{screen}");
+    app.handle_key(key(KeyCode::Char('N'))); // and back
+    let screen = render(&mut app, 100, 30).join("\n");
+    assert!(screen.contains("2/2 · 4/4"), "N steps back:\n{screen}");
+
+    app.handle_key(key(KeyCode::Esc)); // :nohlsearch
+    let screen = render(&mut app, 100, 30).join("\n");
+    assert!(!screen.contains("2/2 ·"), "esc clears the chips:\n{screen}");
+    assert!(
+        screen.contains("4/4"),
+        "cursor stays on the match line:\n{screen}"
+    );
+}
+
+#[test]
+fn find_cancel_restores_the_cursor_line() {
+    let mut app = app_on_cargo_toml();
+    app.handle_action(rootle::action::Action::BlobLoaded {
+        sha: "abc1234def5678".into(),
+        name: "Cargo.toml".into(),
+        bytes: b"alpha\nbeta ratatui\ngamma\nratatui delta\n".to_vec(),
+    });
+    app.handle_key(key(KeyCode::Char('J'))); // cursor to line 2
+    let screen = render(&mut app, 100, 30).join("\n");
+    assert!(screen.contains("2/4"), "pre-find cursor:\n{screen}");
+
+    app.handle_key(key(KeyCode::Char(' ')));
+    app.handle_key(key(KeyCode::Char('/')));
+    for c in "delta".chars() {
+        app.handle_key(key(KeyCode::Char(c)));
+    }
+    let screen = render(&mut app, 100, 30).join("\n");
+    assert!(screen.contains("1/1 · 4/4"), "live jump:\n{screen}");
+
+    app.handle_key(key(KeyCode::Esc)); // cancel the session
+    let screen = render(&mut app, 100, 30).join("\n");
+    assert!(
+        screen.contains("BROWSE"),
+        "cancel returns to browse:\n{screen}"
+    );
+    assert!(screen.contains("2/4"), "cursor restored:\n{screen}");
+}
+
+#[test]
+fn unfocused_parent_pane_is_dimmed() {
+    use ratatui::style::Modifier;
+    let mut app = browsing_app();
+    app.handle_key(key(KeyCode::Char('l'))); // focus repo root; repos pane unfocused
+    let backend = TestBackend::new(100, 30);
+    let mut terminal = Terminal::new(backend).unwrap();
+    terminal
+        .draw(|f| {
+            let area = f.area();
+            app.render(f, area);
+        })
+        .unwrap();
+    let buf = terminal.backend().buffer();
+    // An unselected repo entry in the unfocused parent pane.
+    let row = (0..buf.area.height)
+        .find(|&y| {
+            (0..buf.area.width)
+                .map(|x| buf[(x, y)].symbol())
+                .collect::<String>()
+                .contains("templates/")
+        })
+        .expect("repo entry row should render");
+    let cell = (0..buf.area.width)
+        .map(|x| buf[(x, row)].clone())
+        .find(|c| c.symbol() == "t")
+        .expect("entry cell");
+    assert!(
+        cell.modifier.contains(Modifier::DIM),
+        "unfocused dir entry should be dimmed, got {:?}",
+        cell.modifier
+    );
 }

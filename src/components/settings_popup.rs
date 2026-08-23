@@ -95,6 +95,12 @@ pub struct SettingsPopup {
 }
 
 impl SettingsPopup {
+    /// The palette being live-previewed (after a theme-row commit),
+    /// if different from the app's committed theme.
+    pub fn preview_theme(&self) -> Option<Theme> {
+        self.preview
+    }
+
     pub fn new(config: &Config, themes: Vec<String>) -> Self {
         let mut names = vec!["catppuccin-mocha".to_string()];
         for t in themes {

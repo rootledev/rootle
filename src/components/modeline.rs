@@ -14,7 +14,7 @@ use ratatui::widgets::Paragraph;
 pub(crate) fn mode_color(mode: Mode, sem: &Semantic) -> Color {
     match mode {
         Mode::Browse => sem.mode_browse,
-        Mode::Search => sem.mode_search,
+        Mode::Search | Mode::Find => sem.mode_search,
         Mode::Insert => sem.mode_insert,
         Mode::Normal => sem.mode_normal,
         Mode::Leader => sem.mode_leader,
