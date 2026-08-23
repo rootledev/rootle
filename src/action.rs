@@ -18,6 +18,16 @@ pub enum Action {
     CommitFilter,
     ClearFilter,
 
+    // Find-in-file (plans/0007 §3): `␣ /` opens FIND over the preview;
+    // n/N cycle a committed search.
+    LeaderFindInFile,
+    /// FIND-mode keystroke changed the query — recompute matches live.
+    UpdateFind,
+    CommitFind,
+    CancelFind,
+    FindNext,
+    FindPrev,
+
     // Leader
     Leader,
     LeaderSearch,

@@ -50,6 +50,9 @@ pub struct App {
     tx: AppTx,
     provider: Arc<dyn Provider>,
     highlighter: Highlighter,
+    /// The syntax roles the highlighter + blob cache are styled with
+    /// (restyle trigger on theme switch).
+    highlight_syntax: crate::theme::Syntax,
     /// Generation counter on search submissions; stale results dropped.
     search_gen: u64,
     /// Same for the global search view (find/grep workers).
@@ -134,7 +137,11 @@ impl App {
             state,
             tx,
             provider,
-            highlighter: Highlighter::new(),
+            highlighter: Highlighter::new(&theme),
+            // The syntax roles the highlighter + blob cache are styled
+            // with; compared against the effective theme to trigger
+            // restyle (settings live preview / commit).
+            highlight_syntax: theme.syntax,
             search_gen: 0,
             view_gen: 0,
             pending_context_sha: None,
@@ -381,6 +388,12 @@ impl App {
                 Outcome::Cancelled => Action::ClearFilter,
                 Outcome::Noop => Action::Noop,
             },
+            Mode::Find => match self.browser.find_input.handle_key(key) {
+                Outcome::Changed => Action::UpdateFind,
+                Outcome::Submitted => Action::CommitFind,
+                Outcome::Cancelled => Action::CancelFind,
+                Outcome::Noop => Action::Noop,
+            },
             Mode::Leader => keymap::leader(key.code),
             _ => Action::Noop,
         }
@@ -493,7 +506,8 @@ impl App {
                 }
                 let text = crate::sanitize::sanitize(&bytes);
                 let lines = self.highlighter.highlight(&name, &text);
-                self.browser.blob_loaded(&sha, lines);
+                let lang = self.highlighter.language(&name);
+                self.browser.blob_loaded(&sha, &name, &lang, text, lines);
             }
             Action::BlobFailed { sha, message } => {
                 self.browser.blob_failed(&sha, &message);
@@ -826,8 +840,42 @@ impl App {
             }
             Action::CommitFilter => self.mode = Mode::Browse,
             Action::ClearFilter => {
-                self.browser.clear_filter();
+                // BROWSE Esc precedence (plans/0007 §3): a committed
+                // find clears first (:nohlsearch), then the list filter.
+                // In SEARCH mode Esc keeps its cancel-the-session role.
+                if self.mode == Mode::Browse && self.browser.preview.find_active() {
+                    self.browser.preview.clear_find();
+                } else {
+                    self.browser.clear_filter();
+                }
                 self.mode = Mode::Browse;
+            }
+            Action::LeaderFindInFile => {
+                self.mode = Mode::Browse; // leader layer down either way
+                if self.browser.preview.findable() {
+                    self.browser.find_input.clear();
+                    self.browser.find_input.submode = crate::components::vim_input::SubMode::Insert;
+                    self.browser.preview.begin_find();
+                    self.mode = Mode::Find;
+                } else {
+                    self.status = Some("find: preview is not a text file".into());
+                }
+            }
+            Action::UpdateFind => {
+                let query = self.browser.find_input.value();
+                self.browser.preview.update_find(query);
+            }
+            Action::CommitFind => self.mode = Mode::Browse,
+            Action::CancelFind => {
+                self.browser.preview.cancel_find();
+                self.browser.find_input.clear();
+                self.mode = Mode::Browse;
+            }
+            Action::FindNext => {
+                self.browser.preview.find_step(1);
+            }
+            Action::FindPrev => {
+                self.browser.preview.find_step(-1);
             }
             Action::MoveUp
             | Action::MoveDown
@@ -874,10 +922,37 @@ impl App {
             self.browser.apply_filter();
         }
 
+        // Theme switches (settings live preview, then commit) restyle
+        // the code the same frame the chrome recolors.
+        self.sync_highlight_theme();
+
         // Any state change can leave a file under the cursor without its
         // blob (navigation, filter commit/clear, tree loads) — drain it
         // uniformly at the end of every route.
         self.maybe_load_blob();
+    }
+
+    /// The theme everything renders with: the settings popup's live
+    /// preview while it's browsing palettes, the committed theme
+    /// otherwise.
+    fn effective_theme(&self) -> Theme {
+        self.settings
+            .as_ref()
+            .and_then(SettingsPopup::preview_theme)
+            .unwrap_or(self.theme)
+    }
+
+    /// Re-highlight cached blobs when the effective theme's syntax
+    /// roles change. Cheap no-op per keystroke otherwise (SyntaxSet is
+    /// loaded once; only the color table rebuilds).
+    fn sync_highlight_theme(&mut self) {
+        let theme = self.effective_theme();
+        if theme.syntax == self.highlight_syntax {
+            return;
+        }
+        self.highlighter.set_theme(&theme);
+        self.browser.restyle_blobs(&self.highlighter);
+        self.highlight_syntax = theme.syntax;
     }
 
     /// If the selected file's blob isn't loaded, fetch it.
@@ -913,38 +988,39 @@ impl App {
     }
 
     pub fn render(&mut self, frame: &mut Frame, area: Rect) {
+        let theme = self.effective_theme();
         let rows = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Min(1), Constraint::Length(1)])
             .split(area);
 
         if let Some(view) = &mut self.search_view {
-            view.render(frame, rows[0], &self.theme);
+            view.render(frame, rows[0], &theme);
             self.modeline.context = view.context();
         } else {
-            self.browser.render(frame, rows[0], &self.theme);
+            self.browser.render(frame, rows[0], &theme);
             self.modeline.context = self.browser.context();
         }
         self.modeline.status = self.status.clone();
         self.modeline
-            .render(frame, rows[1], self.effective_mode(), &self.theme);
+            .render(frame, rows[1], self.effective_mode(), &theme);
 
         if let Some(popup) = &mut self.popup {
-            popup.render(frame, rows[0], &self.theme);
+            popup.render(frame, rows[0], &theme);
         }
         // v0.3/v0.4 overlays, above the base view.
         if let Some(help) = &mut self.help {
-            help.render(frame, rows[0], &self.theme);
+            help.render(frame, rows[0], &theme);
         }
         if let Some(settings) = &mut self.settings {
-            settings.render(frame, rows[0], &self.theme);
+            settings.render(frame, rows[0], &theme);
         }
         if let Some(wizard) = &mut self.wizard {
-            wizard.render(frame, rows[0], &self.theme);
+            wizard.render(frame, rows[0], &theme);
         }
         // Command strip sits on the modeline's doorstep, last.
         if let Some(command_line) = &mut self.command_line {
-            command_line.render(frame, rows[0], &self.theme);
+            command_line.render(frame, rows[0], &theme);
         }
     }
 }

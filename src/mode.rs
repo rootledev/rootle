@@ -5,6 +5,8 @@ pub enum Mode {
     Browse,
     /// Incremental `/` filter on the focused pane.
     Search,
+    /// Vim-style find-in-file over the preview (`␣ /`, plans/0007 §3).
+    Find,
     /// A text input is focused; sub-mode lives on `VimInput`.
     Insert,
     Normal,
@@ -19,6 +21,7 @@ impl Mode {
         match self {
             Mode::Browse => "BROWSE",
             Mode::Search => "SEARCH",
+            Mode::Find => "FIND",
             Mode::Insert => "INSERT",
             Mode::Normal => "NORMAL",
             Mode::Leader => "LEADER",

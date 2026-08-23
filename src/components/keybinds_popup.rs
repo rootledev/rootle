@@ -26,9 +26,10 @@ const SIDEBAR: u16 = 15;
 /// Keycap column inside the content block.
 const KEYCAP: usize = 10;
 
-const MODES: [Mode; 6] = [
+const MODES: [Mode; 7] = [
     Mode::Browse,
     Mode::Search,
+    Mode::Find,
     Mode::Insert,
     Mode::Normal,
     Mode::Leader,
@@ -253,7 +254,7 @@ mod tests {
 
         // Tab walks the modes; the content block shows that mode's
         // bindings (leader has the leader table).
-        for _ in 0..4 {
+        for _ in 0..5 {
             p.handle_key(key(KeyCode::Tab));
         }
         terminal.draw(|f| p.render(f, f.area(), &theme)).unwrap();

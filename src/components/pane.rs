@@ -123,10 +123,28 @@ impl Pane {
 
     pub fn render(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
         let sem = &theme.semantic;
-        let border_style = if self.focused {
+        let focused = self.focused;
+        let border_style = if focused {
             Style::default().fg(sem.border_focused)
         } else {
             Style::default().fg(sem.border_unfocused)
+        };
+        // Unfocused columns read dimmed (yazi/superfile focus cue);
+        // the selection row stays visible but muted.
+        let file_fg = if focused { sem.file } else { sem.subtext0 };
+        let dir_style = if focused {
+            Style::default()
+                .fg(sem.directory)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default()
+                .fg(sem.directory)
+                .add_modifier(Modifier::DIM)
+        };
+        let highlight_style = if focused {
+            Style::default().bg(sem.selection_bg).fg(sem.selection_fg)
+        } else {
+            Style::default().bg(sem.selection_bg)
         };
 
         let title = if self.filter.is_empty() {
@@ -168,26 +186,25 @@ impl Pane {
                             EntryKind::Repo => ("[repo]", sem.badge_repo),
                             _ => ("[org]", sem.badge_org),
                         };
+                        let badge_style = Style::default().fg(color).add_modifier(if focused {
+                            Modifier::BOLD
+                        } else {
+                            Modifier::DIM
+                        });
                         Line::from(vec![
-                            Span::styled(
-                                badge,
-                                Style::default().fg(color).add_modifier(Modifier::BOLD),
-                            ),
+                            Span::styled(badge, badge_style),
                             Span::styled(
                                 format!(" {}", fit(&e.name, width.saturating_sub(8))),
-                                Style::default().fg(sem.text),
+                                Style::default().fg(file_fg),
                             ),
                         ])
                     }
-                    EntryKind::Dir | EntryKind::Repo | EntryKind::Org => Line::from(Span::styled(
-                        fit(&format!("{}/", e.name), width),
-                        Style::default()
-                            .fg(sem.directory)
-                            .add_modifier(Modifier::BOLD),
-                    )),
+                    EntryKind::Dir | EntryKind::Repo | EntryKind::Org => {
+                        Line::from(Span::styled(fit(&format!("{}/", e.name), width), dir_style))
+                    }
                     EntryKind::File => Line::from(Span::styled(
                         fit(&e.name, width),
-                        Style::default().fg(sem.file),
+                        Style::default().fg(file_fg),
                     )),
                 };
                 let line = match checkbox {
@@ -205,7 +222,7 @@ impl Pane {
         let total = self.visible().len();
         let list = List::new(items)
             .block(block)
-            .highlight_style(Style::default().bg(sem.selection_bg).fg(sem.selection_fg))
+            .highlight_style(highlight_style)
             .highlight_symbol("▌");
         frame.render_stateful_widget(list, area, &mut self.state);
         super::scrollbar(

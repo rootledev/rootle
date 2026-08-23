@@ -1,9 +1,9 @@
 //! syntect highlighting mapped onto the active palette (PLAN.md §11).
 //! Pure-Rust fancy-regex backend (musl-static friendly). The syntect
-//! theme is built programmatically from the Mocha palette roles; when
-//! external palettes land, this mapping consumes them.
+//! theme is built from the `Theme`'s syntax roles, so it follows
+//! theme switches (embedded palettes and `themes/<name>.toml` alike).
 
-use ratatui::style::{Modifier, Style as RStyle};
+use ratatui::style::{Color as RColor, Modifier, Style as RStyle};
 use ratatui::text::{Line, Span};
 use syntect::easy::HighlightLines;
 use syntect::highlighting::{
@@ -12,94 +12,111 @@ use syntect::highlighting::{
 };
 use syntect::parsing::SyntaxSet;
 
+use crate::theme::Theme;
+
 pub struct Highlighter {
     syntaxes: SyntaxSet,
     theme: STheme,
 }
 
-fn rgb(hex: u32) -> SColor {
-    SColor {
-        r: (hex >> 16) as u8,
-        g: (hex >> 8) as u8,
-        b: hex as u8,
-        a: 255,
+/// ratatui → syntect color. Roles are always `Rgb` (from_u32); any
+/// other variant degrades to white rather than panicking.
+fn scolor(c: RColor) -> SColor {
+    match c {
+        RColor::Rgb(r, g, b) => SColor { r, g, b, a: 255 },
+        _ => SColor {
+            r: 255,
+            g: 255,
+            b: 255,
+            a: 255,
+        },
     }
 }
 
-/// Build a syntect theme from Catppuccin Mocha (until external palette
-/// files land — then these hexes come from the palette).
-fn mocha_syntect_theme() -> STheme {
-    // Mocha hexes (mirrors theme.rs; will be palette-driven).
-    const BASE: u32 = 0x1e1e2e;
-    const TEXT: u32 = 0xcdd6f4;
-    const OVERLAY: u32 = 0x6c7086;
-    const MAUVE: u32 = 0xcba6f7;
-    const BLUE: u32 = 0x89b4fa;
-    const GREEN: u32 = 0xa6e3a1;
-    const YELLOW: u32 = 0xf9e2af;
-    const PEACH: u32 = 0xfab387;
-    const RED: u32 = 0xf38ba8;
-    const TEAL: u32 = 0x94e2d5;
+/// Build a syntect theme from the app theme's syntax roles. Span
+/// backgrounds stay unset — the terminal/pane background shows through.
+fn syntect_theme(theme: &Theme) -> STheme {
+    let syn = &theme.syntax;
+    let text = scolor(theme.semantic.text);
 
-    let rule = |scope: &str, fg: u32| ThemeItem {
+    let rule = |scope: &str, fg: RColor| ThemeItem {
         scope: scope.parse::<ScopeSelectors>().expect("scope selector"),
         style: StyleModifier {
-            foreground: Some(rgb(fg)),
+            foreground: Some(scolor(fg)),
             background: None,
             font_style: None,
         },
     };
 
     STheme {
-        name: Some("catppuccin-mocha".into()),
+        name: Some("rootle-palette".into()),
         author: Some("rootle".into()),
         settings: ThemeSettings {
-            foreground: Some(rgb(TEXT)),
-            background: Some(rgb(BASE)),
+            foreground: Some(text),
             ..Default::default()
         },
         scopes: vec![
-            rule("keyword, storage", MAUVE),
-            rule("string, string.quoted", GREEN),
-            rule("comment, punctuation.definition.comment", OVERLAY),
+            rule("keyword, storage", syn.keyword),
+            rule("string, string.quoted", syn.string),
+            rule("comment, punctuation.definition.comment", syn.comment),
             rule(
                 "entity.name.function, support.function, meta.function-call",
-                BLUE,
+                syn.function,
             ),
             rule(
                 "entity.name.type, support.type, entity.name.struct, entity.name.enum",
-                YELLOW,
+                syn.type_,
             ),
-            rule("constant.numeric, constant.language", PEACH),
-            rule("entity.name.tag, markup.heading", RED),
-            rule("variable.parameter, variable.other", TEXT),
-            rule("entity.name.namespace, meta.path", TEAL),
-            rule("markup.bold, punctuation.definition.bold", PEACH),
-            rule("markup.italic", MAUVE),
-            rule("markup.raw, markup.fenced_code", GREEN),
-            rule("invalid, invalid.illegal", RED),
+            rule("constant.numeric, constant.language", syn.constant),
+            rule("entity.name.tag, markup.heading", syn.tag),
+            rule("variable.parameter, variable.other", theme.semantic.text),
+            rule("entity.name.namespace, meta.path", syn.namespace),
+            rule("markup.bold, punctuation.definition.bold", syn.constant),
+            rule("markup.italic", syn.keyword),
+            rule("markup.raw, markup.fenced_code", syn.string),
+            rule("invalid, invalid.illegal", syn.invalid),
         ],
     }
 }
 
 impl Default for Highlighter {
     fn default() -> Self {
-        Self::new()
+        Self::new(&Theme::catppuccin_mocha())
     }
 }
 
 impl Highlighter {
-    /// Palette parameter reserved for when external themes land; the
-    /// syntect mapping already takes a `&Theme` so the seam exists.
-    pub fn new() -> Self {
+    /// The syntect theme is derived from the app theme; rebuild the
+    /// highlighter when the effective theme changes.
+    pub fn new(theme: &Theme) -> Self {
         Highlighter {
             syntaxes: SyntaxSet::load_defaults_newlines(),
-            theme: mocha_syntect_theme(),
+            theme: syntect_theme(theme),
         }
+    }
+
+    /// Swap the color table without reloading the syntax set (theme
+    /// switch; the expensive half — the syntax dump — is untouched).
+    pub fn set_theme(&mut self, theme: &Theme) {
+        self.theme = syntect_theme(theme);
+    }
+
+    /// Language label for the preview footer ("rust", "markdown", …).
+    /// Unknown extensions fall back to "text".
+    pub fn language(&self, filename: &str) -> String {
+        self.syntaxes
+            .find_syntax_for_file(filename)
+            .ok()
+            .flatten()
+            .map(|s| s.name.to_lowercase())
+            .unwrap_or_else(|| "text".into())
     }
 
     /// Highlight `text` as the syntax for `filename`'s extension.
     /// Unknown extensions render as plain text (no panic, no highlight).
+    /// Tabs expand to four spaces per span — raw `\t` jumps to terminal
+    /// stops and breaks column alignment (the plain-text preview path
+    /// expands the same way).
     pub fn highlight(&self, filename: &str, text: &str) -> Vec<Line<'static>> {
         let syntax = self
             .syntaxes
@@ -114,7 +131,7 @@ impl Highlighter {
                 let regions = match highlighter.highlight_line(line, &self.syntaxes) {
                     Ok(r) => r,
                     Err(_) => {
-                        return Line::from(Span::raw(line.to_string()));
+                        return Line::from(Span::raw(line.replace('\t', "    ")));
                     }
                 };
                 Line::from(
@@ -127,7 +144,7 @@ impl Highlighter {
                             if style.font_style.contains(FontStyle::BOLD) {
                                 rstyle = rstyle.add_modifier(Modifier::BOLD);
                             }
-                            Span::styled(text.to_string(), rstyle)
+                            Span::styled(text.replace('\t', "    "), rstyle)
                         })
                         .collect::<Vec<_>>(),
                 )
@@ -142,10 +159,10 @@ mod tests {
 
     #[test]
     fn rust_keywords_get_mauve() {
-        let h = Highlighter::new();
+        let h = Highlighter::default();
         let lines = h.highlight("lib.rs", "fn main() {}\n");
         assert_eq!(lines.len(), 1);
-        // "fn" should be colored (mauve 203,166,247), not default text.
+        // "fn" should be colored (mocha mauve 203,166,247), not default text.
         let first = &lines[0].spans[0];
         assert_eq!(
             first.style.fg,
@@ -156,8 +173,39 @@ mod tests {
     }
 
     #[test]
+    fn theme_switch_recolors_keywords() {
+        let dracula = Highlighter::new(&Theme::embedded("dracula").unwrap());
+        let lines = dracula.highlight("lib.rs", "fn main() {}\n");
+        // dracula keyword = pink (255,121,198) — not mocha mauve.
+        assert_eq!(
+            lines[0].spans[0].style.fg,
+            Some(ratatui::style::Color::Rgb(255, 121, 198)),
+            "fn keyword should follow the dracula palette, got {:?}",
+            lines[0].spans[0].style.fg
+        );
+    }
+
+    #[test]
+    fn tabs_expand_inside_spans() {
+        let h = Highlighter::default();
+        let lines = h.highlight("main.rs", "\tfn x() {}\n");
+        let joined: String = lines[0].spans.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(joined, "    fn x() {}");
+        assert!(!joined.contains('\t'));
+    }
+
+    #[test]
+    fn language_label_follows_extension() {
+        let h = Highlighter::default();
+        assert_eq!(h.language("lib.rs"), "rust");
+        // The default syntax set ships no TOML grammar — plain text.
+        assert_eq!(h.language("Cargo.toml"), "text");
+        assert_eq!(h.language("data.xyz123"), "text");
+    }
+
+    #[test]
     fn unknown_extension_renders_plain() {
-        let h = Highlighter::new();
+        let h = Highlighter::default();
         let lines = h.highlight("data.xyz123", "just text\n");
         assert_eq!(lines.len(), 1);
     }

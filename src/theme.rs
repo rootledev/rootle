@@ -10,6 +10,7 @@ use ratatui::style::Color;
 #[derive(Debug, Clone, Copy)]
 pub struct Theme {
     pub semantic: Semantic,
+    pub syntax: Syntax,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -45,6 +46,22 @@ pub struct Semantic {
 
     /// Background of a grep match inside a preview line (fg = crust).
     pub search_match: Color,
+}
+
+/// Syntax-highlight roles, consumed by `highlight.rs` to build the
+/// syntect theme. Kept separate from `Semantic` — chrome colors and
+/// code colors evolve on different axes.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Syntax {
+    pub keyword: Color,
+    pub string: Color,
+    pub comment: Color,
+    pub function: Color,
+    pub type_: Color,
+    pub constant: Color,
+    pub tag: Color,
+    pub namespace: Color,
+    pub invalid: Color,
 }
 
 /// One role override as a (name, hex) pair — the embedded palettes and
@@ -89,24 +106,41 @@ impl Theme {
 
                 search_match: Color::from_u32(0xf9e2af), // yellow
             },
+            syntax: Syntax {
+                keyword: Color::from_u32(0xcba6f7),   // mauve
+                string: Color::from_u32(0xa6e3a1),    // green
+                comment: Color::from_u32(0x6c7086),   // overlay0
+                function: Color::from_u32(0x89b4fa),  // blue
+                type_: Color::from_u32(0xf9e2af),     // yellow
+                constant: Color::from_u32(0xfab387),  // peach
+                tag: Color::from_u32(0xf38ba8),       // red
+                namespace: Color::from_u32(0x94e2d5), // teal
+                invalid: Color::from_u32(0xf38ba8),   // red
+            },
         }
     }
 
     /// The embedded palettes, by name. `None` for unknown names.
     pub fn embedded(name: &str) -> Option<Self> {
-        EMBEDDED.iter().find(|(n, _)| *n == name).map(|(_, roles)| {
-            let mut theme = Self::catppuccin_mocha();
-            for &(role, hex) in *roles {
-                set_role(&mut theme.semantic, role, Color::from_u32(hex));
-            }
-            theme
-        })
+        EMBEDDED
+            .iter()
+            .find(|(n, _, _)| *n == name)
+            .map(|(_, roles, syntax)| {
+                let mut theme = Self::catppuccin_mocha();
+                for &(role, hex) in *roles {
+                    set_role(&mut theme.semantic, role, Color::from_u32(hex));
+                }
+                for &(role, hex) in *syntax {
+                    set_syntax_role(&mut theme.syntax, role, Color::from_u32(hex));
+                }
+                theme
+            })
     }
 
     /// Every theme name the loader can resolve: embedded palettes plus
     /// any `themes/<name>.toml` in the config dir. Settings list.
     pub fn available_names() -> Vec<String> {
-        let mut names: Vec<String> = EMBEDDED.iter().map(|(n, _)| n.to_string()).collect();
+        let mut names: Vec<String> = EMBEDDED.iter().map(|(n, _, _)| n.to_string()).collect();
         if let Some(dir) = dirs::config_dir().map(|d| d.join("rootle").join("themes"))
             && let Ok(entries) = std::fs::read_dir(dir)
         {
@@ -147,16 +181,36 @@ impl Theme {
     }
 }
 
-/// Palette file: only `[semantic]` role overrides for now.
+/// Palette file: `[semantic]` and `[syntax]` role overrides.
 #[derive(Debug, Default, serde::Deserialize)]
 struct ThemeOverrides {
     #[serde(default)]
     semantic: std::collections::HashMap<String, String>,
+    #[serde(default)]
+    syntax: std::collections::HashMap<String, String>,
 }
 
 fn parse_hex(s: &str) -> Option<Color> {
     let hex = s.strip_prefix('#').unwrap_or(s);
     u32::from_str_radix(hex, 16).ok().map(Color::from_u32)
+}
+
+/// One syntax-role assignment; shared by palette files and embedded
+/// palettes. `type` maps to `Syntax::type_` (TOML keys are strings,
+/// so the reserved word is fine on disk).
+fn set_syntax_role(syn: &mut Syntax, role: &str, color: Color) {
+    match role {
+        "keyword" => syn.keyword = color,
+        "string" => syn.string = color,
+        "comment" => syn.comment = color,
+        "function" => syn.function = color,
+        "type" => syn.type_ = color,
+        "constant" => syn.constant = color,
+        "tag" => syn.tag = color,
+        "namespace" => syn.namespace = color,
+        "invalid" => syn.invalid = color,
+        _ => {} // unknown role: ignored, not an error
+    }
 }
 
 /// One role assignment; shared by palette files and embedded palettes.
@@ -197,6 +251,11 @@ impl ThemeOverrides {
         for (role, hex) in self.semantic {
             if let Some(color) = parse_hex(&hex) {
                 set_role(&mut theme.semantic, &role, color);
+            }
+        }
+        for (role, hex) in self.syntax {
+            if let Some(color) = parse_hex(&hex) {
+                set_syntax_role(&mut theme.syntax, &role, color);
             }
         }
     }
@@ -502,19 +561,153 @@ const SOLARIZED_LIGHT: &[RoleValue] = &[
     ("search_match", 0xb58900),
 ];
 
-const EMBEDDED: &[(&str, &[RoleValue])] = &[
-    ("catppuccin-mocha", &[]), // baseline, constructed directly
-    ("dracula", DRACULA),
-    ("gruvbox-dark", GRUVBOX_DARK),
-    ("nord", NORD),
-    ("one-dark", ONE_DARK),
-    ("solarized-dark", SOLARIZED_DARK),
-    ("tokyo-night", TOKYO_NIGHT),
+// ---------------------------------------------------------------------------
+// Syntax tables — one per palette, values from each published spec
+// (Dracula spec, Atom One Dark/Light, gruvbox, nord, tokyo-night,
+// solarized, Catppuccin Latte, GitHub Primer). Limited-palette schemes
+// (gruvbox, solarized, nord) reuse hues across roles by design.
+// ---------------------------------------------------------------------------
+
+const DRACULA_SYNTAX: &[RoleValue] = &[
+    ("keyword", 0xff79c6),   // pink
+    ("string", 0xf1fa8c),    // yellow
+    ("comment", 0x6272a4),   // comment blue-gray
+    ("function", 0x50fa7b),  // green
+    ("type", 0x8be9fd),      // cyan
+    ("constant", 0xbd93f9),  // purple
+    ("tag", 0xff79c6),       // pink
+    ("namespace", 0x8be9fd), // cyan
+    ("invalid", 0xff5555),   // red
+];
+
+const ONE_DARK_SYNTAX: &[RoleValue] = &[
+    ("keyword", 0xc678dd),   // purple (hue-4)
+    ("string", 0x98c379),    // green (hue-2)
+    ("comment", 0x5c6370),   // mono-3
+    ("function", 0x61afef),  // blue (hue-1)
+    ("type", 0xe5c07b),      // yellow (hue-6-2)
+    ("constant", 0xd19a66),  // orange (hue-6)
+    ("tag", 0xe06c75),       // red (hue-5)
+    ("namespace", 0x56b6c2), // cyan (hue-3)
+    ("invalid", 0xe06c75),
+];
+
+const GRUVBOX_DARK_SYNTAX: &[RoleValue] = &[
+    ("keyword", 0xfb4934),   // red
+    ("string", 0xb8bb26),    // green
+    ("comment", 0x928374),   // gray
+    ("function", 0xb8bb26),  // green (gruvbox Function)
+    ("type", 0xfabd2f),      // yellow
+    ("constant", 0xd3869b),  // purple
+    ("tag", 0xfb4934),       // red
+    ("namespace", 0x8ec07c), // aqua
+    ("invalid", 0xfb4934),
+];
+
+const NORD_SYNTAX: &[RoleValue] = &[
+    ("keyword", 0x81a1c1),   // frost nord9
+    ("string", 0xa3be8c),    // aurora green
+    ("comment", 0x616e88),   // polar night brightened
+    ("function", 0x88c0d0),  // frost nord8
+    ("type", 0x8fbcbb),      // frost nord7
+    ("constant", 0xb48ead),  // aurora purple
+    ("tag", 0x81a1c1),       // frost nord9
+    ("namespace", 0x8fbcbb), // frost nord7
+    ("invalid", 0xbf616a),   // aurora red
+];
+
+const TOKYO_NIGHT_SYNTAX: &[RoleValue] = &[
+    ("keyword", 0xbb9af7),   // purple
+    ("string", 0x9ece6a),    // green
+    ("comment", 0x565f89),   // comment
+    ("function", 0x7aa2f7),  // blue
+    ("type", 0x7dcfff),      // cyan
+    ("constant", 0xff9e64),  // orange
+    ("tag", 0xf7768e),       // red
+    ("namespace", 0x7dcfff), // cyan
+    ("invalid", 0xf7768e),
+];
+
+const SOLARIZED_SYNTAX: &[RoleValue] = &[
+    // Accent hues are shared between solarized dark and light; the
+    // semantic tables carry the polarity difference.
+    ("keyword", 0x859900),   // green
+    ("string", 0x2aa198),    // cyan
+    ("comment", 0x586e75),   // base01 (dark) — light overrides below
+    ("function", 0x268bd2),  // blue
+    ("type", 0xb58900),      // yellow
+    ("constant", 0x2aa198),  // cyan (solarized Constant)
+    ("tag", 0x268bd2),       // blue
+    ("namespace", 0x6c71c4), // violet
+    ("invalid", 0xdc322f),   // red
+];
+
+const SOLARIZED_LIGHT_SYNTAX: &[RoleValue] = &[
+    ("keyword", 0x859900),
+    ("string", 0x2aa198),
+    ("comment", 0x93a1a1), // base1 — the light polarity's muted tone
+    ("function", 0x268bd2),
+    ("type", 0xb58900),
+    ("constant", 0x2aa198),
+    ("tag", 0x268bd2),
+    ("namespace", 0x6c71c4),
+    ("invalid", 0xdc322f),
+];
+
+const CATPPUCCIN_LATTE_SYNTAX: &[RoleValue] = &[
+    ("keyword", 0x8839ef),   // mauve
+    ("string", 0x40a02b),    // green
+    ("comment", 0x9ca0b0),   // overlay0
+    ("function", 0x1e66f5),  // blue
+    ("type", 0xdf8e1d),      // yellow
+    ("constant", 0xfe640b),  // peach
+    ("tag", 0xd20f39),       // red
+    ("namespace", 0x179299), // teal
+    ("invalid", 0xd20f39),
+];
+
+const GITHUB_LIGHT_SYNTAX: &[RoleValue] = &[
+    // Primer prettylights (github.com/primer/primitives).
+    ("keyword", 0xcf222e),   // prettylights syntax keyword
+    ("string", 0x0a3069),    // string
+    ("comment", 0x6e7781),   // comment
+    ("function", 0x8250df),  // entity (function)
+    ("type", 0x0550ae),      // constant / class
+    ("constant", 0x0550ae),  // constant
+    ("tag", 0x116329),       // tag
+    ("namespace", 0x953800), // variable-ish orange
+    ("invalid", 0xcf222e),
+];
+
+const ONE_LIGHT_SYNTAX: &[RoleValue] = &[
+    ("keyword", 0xa626a4),   // purple
+    ("string", 0x50a14f),    // green
+    ("comment", 0xa0a1a7),   // mono-3
+    ("function", 0x4078f2),  // blue
+    ("type", 0xc18401),      // yellow
+    ("constant", 0xb76b01),  // orange
+    ("tag", 0xe45649),       // red
+    ("namespace", 0x0184bc), // cyan
+    ("invalid", 0xe45649),
+];
+
+const EMBEDDED: &[(&str, &[RoleValue], &[RoleValue])] = &[
+    ("catppuccin-mocha", &[], &[]), // baseline, constructed directly
+    ("dracula", DRACULA, DRACULA_SYNTAX),
+    ("gruvbox-dark", GRUVBOX_DARK, GRUVBOX_DARK_SYNTAX),
+    ("nord", NORD, NORD_SYNTAX),
+    ("one-dark", ONE_DARK, ONE_DARK_SYNTAX),
+    ("solarized-dark", SOLARIZED_DARK, SOLARIZED_SYNTAX),
+    ("tokyo-night", TOKYO_NIGHT, TOKYO_NIGHT_SYNTAX),
     // light
-    ("catppuccin-latte", CATPPUCCIN_LATTE),
-    ("github-light", GITHUB_LIGHT),
-    ("one-light", ONE_LIGHT),
-    ("solarized-light", SOLARIZED_LIGHT),
+    (
+        "catppuccin-latte",
+        CATPPUCCIN_LATTE,
+        CATPPUCCIN_LATTE_SYNTAX,
+    ),
+    ("github-light", GITHUB_LIGHT, GITHUB_LIGHT_SYNTAX),
+    ("one-light", ONE_LIGHT, ONE_LIGHT_SYNTAX),
+    ("solarized-light", SOLARIZED_LIGHT, SOLARIZED_LIGHT_SYNTAX),
 ];
 
 #[cfg(test)]
@@ -547,7 +740,7 @@ mod tests {
     fn embedded_palettes_all_load_and_differ() {
         let mocha = Theme::catppuccin_mocha();
         let mut bases = vec![mocha.semantic.base];
-        for (name, roles) in EMBEDDED {
+        for (name, roles, _) in EMBEDDED {
             let theme = Theme::embedded(name).expect("embedded theme loads");
             if roles.is_empty() {
                 continue; // mocha baseline
@@ -572,9 +765,53 @@ mod tests {
     }
 
     #[test]
+    fn syntax_overrides_merge_onto_base() {
+        let toml = r##"
+            [semantic]
+            border_focused = "#ff0000"
+            [syntax]
+            keyword = "#123456"
+            type = "#654321"
+            bogus = "#000000"
+        "##;
+        let overrides: ThemeOverrides = toml::from_str(toml).unwrap();
+        let mut theme = Theme::catppuccin_mocha();
+        overrides.apply(&mut theme);
+        assert_eq!(theme.syntax.keyword, Color::from_u32(0x123456));
+        assert_eq!(theme.syntax.type_, Color::from_u32(0x654321));
+        // untouched syntax roles keep mocha defaults
+        assert_eq!(theme.syntax.string, Color::from_u32(0xa6e3a1));
+        // semantic overrides still apply alongside
+        assert_eq!(theme.semantic.border_focused, Color::from_u32(0xff0000));
+    }
+
+    #[test]
+    fn embedded_palettes_have_spec_syntax() {
+        let mocha = Theme::catppuccin_mocha().syntax;
+        for (name, _, syntax) in EMBEDDED {
+            let theme = Theme::embedded(name).expect("embedded theme loads");
+            if syntax.is_empty() {
+                continue; // mocha baseline
+            }
+            // Every palette table is complete — no silent mocha holes.
+            assert_eq!(syntax.len(), 9, "{name} syntax table incomplete");
+            assert_ne!(
+                theme.syntax, mocha,
+                "{name} syntax should differ from mocha"
+            );
+        }
+        // Spot-check spec values (dracula keyword is pink, github-light
+        // keyword is primer red).
+        let dracula = Theme::embedded("dracula").unwrap();
+        assert_eq!(dracula.syntax.keyword, Color::from_u32(0xff79c6));
+        let gh = Theme::embedded("github-light").unwrap();
+        assert_eq!(gh.syntax.keyword, Color::from_u32(0xcf222e));
+    }
+
+    #[test]
     fn available_names_lists_embedded() {
         let names = Theme::available_names();
-        for expected in EMBEDDED.iter().map(|(n, _)| *n) {
+        for expected in EMBEDDED.iter().map(|(n, _, _)| *n) {
             assert!(names.contains(&expected.to_string()), "{expected} missing");
         }
     }

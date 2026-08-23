@@ -70,6 +70,18 @@ impl RepoTree {
     }
 }
 
+/// One fetched blob, cache entry for `Browser::blobs`.
+struct CachedBlob {
+    /// File name (syntax detection for restyle).
+    name: String,
+    /// Language label for the preview footer.
+    lang: String,
+    /// Sanitized raw text — the restyle source of truth.
+    text: String,
+    /// Highlighted lines under the current palette.
+    lines: Vec<Line<'static>>,
+}
+
 pub struct Browser {
     /// Level stack: levels[i] lists the children of the selection in
     /// levels[i-1]. levels[0] = orgs, levels[1] = repos, 2 = repo root,
@@ -78,8 +90,11 @@ pub struct Browser {
     /// Which level owns the keyboard. Default = deepest level.
     focus: usize,
     tree: Option<RepoTree>,
-    /// Highlighted blob content by sha (in-memory, session-scoped).
-    blobs: HashMap<String, Vec<Line<'static>>>,
+    /// Blob content by sha (in-memory, session-scoped): sanitized raw
+    /// text + highlighted lines. Lines are cached so navigation never
+    /// re-highlights; the raw text lets a theme switch restyle
+    /// everything without a refetch.
+    blobs: HashMap<String, CachedBlob>,
     /// Shas with an in-flight fetch (dedupe worker spawns).
     pending_blobs: HashSet<String>,
     /// Set by refresh when the selected file needs a fetch; the app
@@ -88,6 +103,8 @@ pub struct Browser {
     pub preview: Preview,
     /// `/` filter input, owned here, active in SEARCH mode.
     pub filter_input: VimInput,
+    /// `␣ /` find-in-file input, active in FIND mode (plans/0007 §3).
+    pub find_input: VimInput,
     /// VISUAL mode (plans/0004 §1): marked entries, keyed
     /// `"<pane title>/<entry name>"` so marks survive cascades.
     visual: bool,
@@ -123,6 +140,7 @@ impl Browser {
             blob_request: None,
             preview: Preview::new(),
             filter_input: VimInput::transient(),
+            find_input: VimInput::transient(),
             visual: false,
             marks: std::collections::HashSet::new(),
         };
@@ -503,10 +521,35 @@ impl Browser {
             .then_some((sha, name))
     }
 
-    /// Highlighted blob arrived: store and refresh if still selected.
-    pub fn blob_loaded(&mut self, sha: &str, lines: Vec<Line<'static>>) {
-        self.blobs.insert(sha.to_string(), lines);
+    /// Blob arrived: store raw text + highlighted lines, refresh if
+    /// still selected.
+    pub fn blob_loaded(
+        &mut self,
+        sha: &str,
+        name: &str,
+        lang: &str,
+        text: String,
+        lines: Vec<Line<'static>>,
+    ) {
+        self.blobs.insert(
+            sha.to_string(),
+            CachedBlob {
+                name: name.to_string(),
+                lang: lang.to_string(),
+                text,
+                lines,
+            },
+        );
         self.pending_blobs.remove(sha);
+        self.refresh_preview();
+    }
+
+    /// Re-highlight every cached blob under a new palette and refresh
+    /// the visible preview (theme switched, plans/0007 §2).
+    pub fn restyle_blobs(&mut self, highlighter: &crate::highlight::Highlighter) {
+        for blob in self.blobs.values_mut() {
+            blob.lines = highlighter.highlight(&blob.name, &blob.text);
+        }
         self.refresh_preview();
     }
 
@@ -560,9 +603,10 @@ impl Browser {
                 let node = self.tree.as_ref().and_then(|t| t.find(&full)).cloned();
                 match node {
                     Some(node) => {
-                        if let Some(lines) = self.blobs.get(&node.sha) {
-                            let lines = lines.clone();
-                            self.preview.set_highlighted(&entry.name, lines);
+                        if let Some(blob) = self.blobs.get(&node.sha) {
+                            let lines = blob.lines.clone();
+                            let lang = blob.lang.clone();
+                            self.preview.set_highlighted(&entry.name, &lang, lines);
                         } else {
                             if !self.pending_blobs.contains(&node.sha) {
                                 self.blob_request = Some((node.sha.clone(), entry.name.clone()));
@@ -614,5 +658,32 @@ impl Browser {
         let focus = self.focus;
         self.levels[focus].render(frame, cols[1], theme);
         self.preview.render(frame, cols[2], theme);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::highlight::Highlighter;
+    use crate::theme::Theme;
+
+    #[test]
+    fn restyle_blobs_recolors_cached_lines_without_refetch() {
+        let mut b = Browser::new(&[], &[]);
+        let mocha = Highlighter::default();
+        let lines = mocha.highlight("lib.rs", "fn main() {}\n");
+        b.blob_loaded("sha1", "lib.rs", "rust", "fn main() {}\n".into(), lines);
+        // Sanity: cached under mocha (mauve keyword).
+        assert_eq!(
+            b.blobs["sha1"].lines[0].spans[0].style.fg,
+            Some(ratatui::style::Color::Rgb(203, 166, 247))
+        );
+        let dracula = Highlighter::new(&Theme::embedded("dracula").unwrap());
+        b.restyle_blobs(&dracula);
+        assert_eq!(
+            b.blobs["sha1"].lines[0].spans[0].style.fg,
+            Some(ratatui::style::Color::Rgb(255, 121, 198)),
+            "cached lines should follow the new palette from raw text"
+        );
     }
 }
