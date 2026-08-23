@@ -38,7 +38,7 @@
     <pre><span class="p">$</span> curl -fsSL https://rootle.dev/install.sh | sh</pre>
     <button class="copy" data-copy="curl -fsSL https://rootle.dev/install.sh | sh">copy</button>
   </div>
-  <p class="alt">also: <code>brew install rootledev/tap/rootle</code> · <code>cargo install rootle</code> · <code>mise use github:rootledev/rootle</code> · <a href="https://github.com/rootledev/rootle/releases">release tarballs</a> · <span class="chip">status: alpha</span></p>
+  <p class="alt">every install path lives <a href="#install">below</a> · <span class="chip">status: alpha</span></p>
   <div class="cta">
     <a class="primary" href="https://github.com/rootledev/rootle">GitHub ↗</a>
   </div>
@@ -111,13 +111,74 @@
   </table>
 </section>
 
-<section class="outro">
-  <h2 class="section">try it</h2>
-  <div class="install">
-    <pre><span class="p">$</span> curl -fsSL https://rootle.dev/install.sh | sh</pre>
-    <button class="copy" data-copy="curl -fsSL https://rootle.dev/install.sh | sh">copy</button>
+<section id="keys">
+  <h2 class="section">keybindings — first-session cheatsheet · press ? in-app for the rest</h2>
+  <div class="keys-grid">
+    <div class="kg-col">
+      <h5>navigate</h5>
+      <table><tbody>
+        <tr><td><span class="kb">j / k</span></td><td class="desc">down · up</td></tr>
+        <tr><td><span class="kb">h / l</span></td><td class="desc">out · in</td></tr>
+        <tr><td><span class="kb">J / K</span></td><td class="desc">preview line cursor</td></tr>
+        <tr><td><span class="kb">/</span></td><td class="desc">filter any list</td></tr>
+        <tr><td><span class="kb">n / N</span></td><td class="desc">next · prev match</td></tr>
+        <tr><td><span class="kb">v</span></td><td class="desc">visual multi-select</td></tr>
+      </tbody></table>
+    </div>
+    <div class="kg-col">
+      <h5>search</h5>
+      <table><tbody>
+        <tr><td><span class="kb">␣ s</span></td><td class="desc">repo search</td></tr>
+        <tr><td><span class="kb">␣ f</span></td><td class="desc">find file</td></tr>
+        <tr><td><span class="kb">␣ g</span></td><td class="desc">grep</td></tr>
+        <tr><td><span class="kb">␣ /</span></td><td class="desc">find in previewed file</td></tr>
+        <tr><td><span class="kb">enter</span></td><td class="desc">jump to match</td></tr>
+        <tr><td><span class="kb">esc</span></td><td class="desc">cancel · clear</td></tr>
+      </tbody></table>
+    </div>
+    <div class="kg-col">
+      <h5>act</h5>
+      <table><tbody>
+        <tr><td><span class="kb">␣ y</span></td><td class="desc">yank URL (line-anchored)</td></tr>
+        <tr><td><span class="kb">↵</span></td><td class="desc">open in editor</td></tr>
+        <tr><td><span class="kb">:</span></td><td class="desc">command line</td></tr>
+        <tr><td><span class="kb">?</span></td><td class="desc">every keybinding</td></tr>
+        <tr><td><span class="kb">␣ c</span></td><td class="desc">clear marks</td></tr>
+        <tr><td><span class="kb">q</span></td><td class="desc">quit</td></tr>
+      </tbody></table>
+    </div>
   </div>
-  <p class="alt">auth is zero-friction: <code>gh auth login</code> or <code>ROOTLE_TOKEN</code>
+</section>
+
+<section id="install">
+  <h2 class="section">install — pick your weapon · single static binary, no runtime</h2>
+  <div class="install-grid">
+    <div class="inst">
+      <div class="hd"><span class="name">install.sh</span><span class="platform">macOS · Linux · WSL</span></div>
+      <span class="cmd" data-copy="curl -fsSL https://rootle.dev/install.sh | sh"><span class="p">$</span><span class="body">curl -fsSL https://rootle.dev/install.sh | sh</span><span class="copy-hint" data-copy-label>copy</span></span>
+    </div>
+    <div class="inst">
+      <div class="hd"><span class="name">homebrew</span><span class="platform">macOS · Linux</span></div>
+      <span class="cmd" data-copy="brew install rootledev/tap/rootle"><span class="p">$</span><span class="body">brew install rootledev/tap/rootle</span><span class="copy-hint" data-copy-label>copy</span></span>
+    </div>
+    <div class="inst">
+      <div class="hd"><span class="name">cargo</span><span class="platform">every platform</span></div>
+      <span class="cmd" data-copy="cargo install rootle"><span class="p">$</span><span class="body">cargo install rootle</span><span class="copy-hint" data-copy-label>copy</span></span>
+    </div>
+    <div class="inst">
+      <div class="hd"><span class="name">mise</span><span class="platform">macOS · Linux · Windows</span></div>
+      <span class="cmd" data-copy="mise use github:rootledev/rootle"><span class="p">$</span><span class="body">mise use github:rootledev/rootle</span><span class="copy-hint" data-copy-label>copy</span></span>
+    </div>
+    <div class="inst">
+      <div class="hd"><span class="name">from source</span><span class="platform">rust 1.88+</span></div>
+      <span class="cmd" data-copy="git clone https://github.com/rootledev/rootle && cargo install --path ."><span class="p">$</span><span class="body">git clone https://github.com/rootledev/rootle && cargo install --path .</span><span class="copy-hint" data-copy-label>copy</span></span>
+    </div>
+    <div class="inst">
+      <div class="hd"><span class="name">tarballs</span><span class="platform">static musl</span></div>
+      <a class="cmd" href="https://github.com/rootledev/rootle/releases"><span class="p">↗</span><span class="body">github releases — verify + untar</span><span class="copy-hint">v<!--VERSION--></span></a>
+    </div>
+  </div>
+  <p class="note">auth is zero-friction: <code>gh auth login</code> or <code>ROOTLE_TOKEN</code>
   if already set up — everything else works anonymously. Every knob in
   <a href="./docs/settings.html">settings</a>.</p>
 </section>

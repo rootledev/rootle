@@ -182,18 +182,22 @@ article.md .diagram {
 article.md .diagram svg { width: 100%; height: auto; display: block; }
 article.md .diagram svg * { transition: fill 0.25s ease, stroke 0.25s ease; }
 article.md table {
-  width: 100%; border-collapse: collapse; margin: 16px 0;
-  font-size: 14px; display: block; overflow-x: auto;
+  width: 100%; margin: 16px 0; font-size: 14px;
+  display: block; overflow-x: auto;
+  border: 1px solid var(--border); border-radius: 10px;
+  background: var(--card); border-collapse: separate; border-spacing: 0;
 }
 article.md th {
   font-family: var(--mono); font-size: 12px; text-align: left;
-  color: var(--faint); letter-spacing: 0.5px;
-  border-bottom: 2px solid var(--border); padding: 8px 12px 6px;
+  color: var(--dim); letter-spacing: 0.5px; background: var(--deep);
+  border-bottom: 1px solid var(--border); padding: 8px 12px 6px;
 }
 article.md td {
-  color: var(--dim); border-bottom: 1px solid var(--border);
+  color: var(--dim);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
   padding: 8px 12px; vertical-align: top;
 }
+article.md tr:last-child td { border-bottom: none; }
 article.md td:first-child { white-space: nowrap; }
 article.md td code { white-space: normal; }
 article.md hr { border: none; border-top: 1px solid var(--border); margin: 24px 0; }
@@ -261,8 +265,7 @@ article.md blockquote {
 .install .copy.ok { color: var(--green); }
 p.alt { font-size: 13.5px; color: var(--faint); margin: 0 0 22px; }
 p.alt code { border: none; padding: 0 2px; }
-.hero p.alt, .outro { text-align: center; }
-.outro .install { margin-top: 0; }
+.hero p.alt { text-align: center; }
 
 /* ---- demo window chrome ---- */
 .window {
@@ -296,16 +299,81 @@ p.alt code { border: none; padding: 0 2px; }
 .palette-bar button.active { border-color: var(--blue); color: var(--blue); }
 .palette-bar .sw { width: 11px; height: 11px; border-radius: 50%; background: var(--sw); }
 
-/* ---- compare table ---- */
-table.compare { width: 100%; border-collapse: collapse; font-size: 14px; }
-table.compare th, table.compare td { border-bottom: 1px solid var(--border); padding: 8px 10px; }
-table.compare th { font-family: var(--mono); font-size: 13px; color: var(--blue); text-align: center; }
+/* ---- compare table: bordered container, soft row separators ---- */
+table.compare {
+  width: 100%; font-size: 14px;
+  border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
+  background: var(--card); border-collapse: separate; border-spacing: 0;
+}
+table.compare th, table.compare td {
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  padding: 8px 10px;
+}
+table.compare tr:last-child td { border-bottom: none; }
+table.compare th {
+  font-family: var(--mono); font-size: 13px; color: var(--blue);
+  text-align: center; background: var(--deep);
+  border-bottom: 1px solid var(--border);
+}
 table.compare th:first-child { color: var(--faint); font-weight: 400; text-align: left; }
 table.compare td { color: var(--dim); text-align: center; }
 table.compare td:first-child { color: var(--text); text-align: left; }
 table.compare .yes { color: var(--green); }
 table.compare .no { color: var(--faint); }
 table.compare .part { color: var(--yellow); font-size: 13px; }
+
+/* ---- keybindings cheatsheet (three keycap columns, one card) ---- */
+.keys-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 0 28px;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 12px; padding: 20px 24px;
+}
+.kg-col h5 {
+  margin: 0 0 10px; color: var(--blue);
+  font-family: var(--mono); font-weight: 700; font-size: 12px;
+  letter-spacing: 0.5px;
+  border-bottom: 1px dashed var(--border); padding-bottom: 6px;
+}
+.kg-col h5::before { content: "\276F "; color: var(--faint); }
+.kg-col table { width: 100%; border-collapse: collapse; }
+.kg-col tr { border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent); }
+.kg-col tr:last-child { border-bottom: none; }
+.kg-col td { padding: 6px 0; font-size: 12.5px; vertical-align: top; }
+.kg-col td:first-child { width: 96px; }
+.kb {
+  display: inline-block; font-family: var(--mono); font-size: 11.5px;
+  color: var(--text); background: var(--deep);
+  border: 1px solid var(--border); border-radius: 5px; padding: 1px 6px;
+}
+.kg-col .desc { color: var(--dim); font-size: 13px; }
+
+/* ---- install grid: uniform cards, whole command is the copy button ---- */
+.install-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+.inst {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 10px; padding: 14px 16px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.inst .hd { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.inst .name { font-family: var(--mono); font-size: 13.5px; color: var(--text); }
+.inst .platform { font-family: var(--mono); font-size: 11px; color: var(--faint); }
+.inst .cmd {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--deep); border: 1px solid var(--border);
+  border-radius: 6px; padding: 8px 10px;
+  font-family: var(--mono); font-size: 12.5px; color: var(--text);
+  cursor: pointer; white-space: nowrap; text-decoration: none;
+}
+.inst .cmd:hover { border-color: var(--border-strong); }
+.inst .cmd .p { color: var(--blue); user-select: none; }
+.inst .cmd .body { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.inst .cmd .copy-hint { color: var(--faint); font-size: 11px; }
+.inst .cmd .copy-hint.ok { color: var(--green); }
+
+@media (max-width: 880px) {
+  .keys-grid { grid-template-columns: 1fr; gap: 18px; }
+  .install-grid { grid-template-columns: 1fr; }
+}
 
 /* ---- embedded palettes: same values as src/theme.rs, mapped onto the
    site variables (crust→bg, mantle→deep, base→card, surface0→border,
