@@ -31,6 +31,16 @@ REPO = "https://github.com/rootledev/rootle"
 _ASSET_VERSION: str | None = None
 
 
+def app_version() -> str:
+    """The crate version, stamped into the demo window's titlebar. The
+    site always advertises the release the repo carries — version bumps
+    land in the release PR, so main's Cargo.toml is the latest tag."""
+    text = (ROOT / "Cargo.toml").read_text()
+    m = re.search(r'^version = "([^"]+)"', text, re.M)
+    assert m, "Cargo.toml lost its version field"
+    return m.group(1)
+
+
 def asset_version() -> str:
     global _ASSET_VERSION
     if _ASSET_VERSION is None:
@@ -255,7 +265,9 @@ def assemble() -> None:
 
     index = (ROOT / "website" / "index.html").read_text()
     assert "<!--LOGO-->" in index, "index.html lost its <!--LOGO--> placeholder"
+    assert "<!--VERSION-->" in index, "index.html lost its <!--VERSION--> placeholder"
     index = index.replace("<!--LOGO-->", themed_logo())
+    index = index.replace("<!--VERSION-->", app_version())
     index = index.replace("./assets/site.css", f"./assets/site.css?v={asset_version()}")
     index = index.replace("./assets/site.js", f"./assets/site.js?v={asset_version()}")
     (OUT / "index.html").write_text(index)

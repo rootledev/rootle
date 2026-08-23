@@ -56,12 +56,15 @@
     if (copy) {
       var text = copy.getAttribute("data-copy");
       var done = function () {
-        var label = copy.textContent;
-        copy.textContent = "copied";
-        copy.classList.add("ok");
+        // Whole-command copy cards (install grid) carry a nested hint
+        // span — flip that, not the command text itself.
+        var labelEl = copy.querySelector("[data-copy-label]") || copy;
+        var label = labelEl.textContent;
+        labelEl.textContent = "copied";
+        labelEl.classList.add("ok");
         setTimeout(function () {
-          copy.textContent = label;
-          copy.classList.remove("ok");
+          labelEl.textContent = label;
+          labelEl.classList.remove("ok");
         }, 1200);
       };
       if (navigator.clipboard && navigator.clipboard.writeText) {

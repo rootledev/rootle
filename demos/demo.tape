@@ -34,11 +34,27 @@ Enter
 Sleep 1200ms
 
 # --- browse: miller columns + highlighted preview ------------------
-Type "j"
-Sleep 400ms
+# (selection starts on src/ — l drills in, preview shows main.rs with
+# the line-number gutter + lang footer)
 Type "l"
-Sleep 800ms
+Sleep 900ms
 Type "J"
+Sleep 500ms
+
+# --- ␣ / find-in-file: live chips, n/N, match readout --------------
+Space
+Sleep 200ms
+Type "/"
+Sleep 500ms
+Type "render"
+Sleep 1100ms
+Enter
+Sleep 700ms
+Type "n"
+Sleep 700ms
+Escape
+Sleep 500ms
+Type "h"
 Sleep 500ms
 
 # --- ␣ g grep: folded regions, match chips -------------------------
