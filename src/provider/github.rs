@@ -2,7 +2,7 @@
 //! REST `Client` — auth resolution, sha-keyed disk cache, ETag
 //! revalidation all live inside it (PLAN.md §7/§8).
 
-use super::{Capabilities, CodeMatch, Provider, SearchItem, TreeNode, TreeResult};
+use super::{Capabilities, CodeMatch, Provider, ProviderResult, SearchItem, TreeNode, TreeResult};
 use crate::github::Client;
 
 pub struct GitHubProvider {
@@ -64,15 +64,15 @@ impl Provider for GitHubProvider {
             .collect()
     }
 
-    fn search(&self, query: &str) -> Result<Vec<SearchItem>, String> {
+    fn search(&self, query: &str) -> ProviderResult<Vec<SearchItem>> {
         self.client.search(query)
     }
 
-    fn org_repos(&self, org: &str) -> Result<Vec<String>, String> {
+    fn org_repos(&self, org: &str) -> ProviderResult<Vec<String>> {
         self.client.org_repos(org)
     }
 
-    fn fetch_tree(&self, repo: &str) -> Result<TreeResult, String> {
+    fn fetch_tree(&self, repo: &str) -> ProviderResult<TreeResult> {
         let (owner, name) = split_repo(repo)?;
         let (tree, truncated, branch) = self.client.fetch_tree(owner, name)?;
         Ok(TreeResult {
@@ -82,12 +82,12 @@ impl Provider for GitHubProvider {
         })
     }
 
-    fn fetch_blob(&self, repo: &str, sha: &str) -> Result<Vec<u8>, String> {
+    fn fetch_blob(&self, repo: &str, sha: &str) -> ProviderResult<Vec<u8>> {
         let (owner, name) = split_repo(repo)?;
         self.client.fetch_blob(owner, name, sha)
     }
 
-    fn clone_url(&self, repo: &str) -> Result<String, String> {
+    fn clone_url(&self, repo: &str) -> ProviderResult<String> {
         split_repo(repo)?;
         Ok(format!("https://github.com/{repo}.git"))
     }
@@ -99,7 +99,7 @@ impl Provider for GitHubProvider {
         branch: &str,
         line: Option<u32>,
         is_file: bool,
-    ) -> Result<String, String> {
+    ) -> ProviderResult<String> {
         split_repo(repo)?;
         if path.is_empty() {
             return Ok(format!("https://github.com/{repo}"));
@@ -121,30 +121,33 @@ impl Provider for GitHubProvider {
         ))
     }
 
-    fn org_url(&self, org: &str) -> Result<String, String> {
+    fn org_url(&self, org: &str) -> ProviderResult<String> {
         Ok(format!("https://github.com/{org}"))
     }
 
-    fn search_code(&self, q: &str) -> Result<Vec<CodeMatch>, String> {
-        let items = self.client.search_code(q)?;
-        Ok(items
-            .into_iter()
-            .map(|item| CodeMatch {
-                repo: item.repository.full_name,
-                path: item.path,
-                sha: item.sha,
-                branch: item
-                    .repository
-                    .default_branch
-                    .unwrap_or_else(|| "main".into()),
-                matches: item
-                    .text_matches
-                    .iter()
-                    .flat_map(|tm| tm.matches.iter().map(|m| m.text.clone()))
-                    .collect(),
-                located: true,
-            })
-            .collect())
+    fn search_code(&self, q: &str) -> ProviderResult<super::SearchCodeResult> {
+        let (items, truncated) = self.client.search_code(q)?;
+        Ok(super::SearchCodeResult {
+            hits: items
+                .into_iter()
+                .map(|item| CodeMatch {
+                    repo: item.repository.full_name,
+                    path: item.path,
+                    sha: item.sha,
+                    branch: item
+                        .repository
+                        .default_branch
+                        .unwrap_or_else(|| "main".into()),
+                    matches: item
+                        .text_matches
+                        .iter()
+                        .flat_map(|tm| tm.matches.iter().map(|m| m.text.clone()))
+                        .collect(),
+                    located: true,
+                })
+                .collect(),
+            truncated,
+        })
     }
 }
 

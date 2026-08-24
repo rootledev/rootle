@@ -21,6 +21,13 @@ pub struct ProviderConfig {
     pub kind: String,
     /// argv for kind = "stdio"
     pub command: Vec<String>,
+    /// Per-request read deadline in milliseconds (plans/0008 §1): a
+    /// hung backend call fails instead of wedging the provider.
+    pub timeout_ms: u64,
+    /// Child stderr for kind = "stdio" (plans/0008 §4): "null"
+    /// (default, discarded) or "inherit" (pass through — adapter
+    /// debugging without a log file).
+    pub stderr: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -69,6 +76,8 @@ impl Default for ProviderConfig {
         ProviderConfig {
             kind: "github".into(),
             command: Vec::new(),
+            timeout_ms: 30_000,
+            stderr: "null".into(),
         }
     }
 }

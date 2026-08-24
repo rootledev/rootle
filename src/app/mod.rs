@@ -60,6 +60,10 @@ pub struct App {
     /// sha of the lazy hit-context fetch in flight (plans/0006 §1) —
     /// dedupes repeat selections and names the cancel target.
     pending_context_sha: Option<String>,
+    /// Cursor-rest debounce generation (plans/0008 §3): bumped on
+    /// every context request; a timer thread fires only if its
+    /// generation is still current when the cursor rests.
+    context_debounce_gen: std::sync::Arc<std::sync::atomic::AtomicU64>,
     /// One-line status shown in the modeline (searching/loading/error).
     status: Option<String>,
     /// Offline apps (tests) never spawn workers.
@@ -74,6 +78,24 @@ pub struct App {
     /// Queued yank (␣ y): the main loop writes it to the clipboard
     /// outside the draw path (plans/0003 §1).
     pending_clipboard: Option<String>,
+}
+
+/// Render a provider error for the status line (plans/0008 §2):
+/// auth gets a recovery hint, throttling gets its advertised backoff,
+/// everything else is yesterday's plain message.
+pub(crate) fn provider_status(error: &crate::provider::ProviderError) -> String {
+    use crate::provider::ErrorKind;
+    match error.kind {
+        ErrorKind::Auth => format!(
+            "auth failed: {} — refresh provider credentials",
+            error.message
+        ),
+        ErrorKind::RateLimited => match error.retry_after {
+            Some(d) => format!("provider throttled — retry in {}s", d.as_secs()),
+            None => format!("provider throttled: {}", error.message),
+        },
+        _ => error.message.clone(),
+    }
 }
 
 impl App {
@@ -145,6 +167,7 @@ impl App {
             search_gen: 0,
             view_gen: 0,
             pending_context_sha: None,
+            context_debounce_gen: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
             status: None,
             offline,
             should_quit: false,
@@ -195,21 +218,21 @@ impl App {
                     popup.update(&Action::SearchResults { items });
                 }
             }
-            AppEvent::SearchFailed { gen_id, message } => {
+            AppEvent::SearchFailed { gen_id, error } => {
                 if gen_id != self.search_gen {
                     return;
                 }
                 self.status = None;
                 if let Some(popup) = &mut self.popup {
-                    popup.update(&Action::SearchFailed { message });
+                    popup.update(&Action::SearchFailed { error });
                 }
             }
             AppEvent::OrgReposLoaded { org, repos } => {
                 self.status = None;
                 self.browser.org_repos_loaded(&org, repos);
             }
-            AppEvent::OrgReposFailed { org, message } => {
-                self.status = Some(format!("{org}: {message}"));
+            AppEvent::OrgReposFailed { org, error } => {
+                self.status = Some(format!("{org}: {}", provider_status(&error)));
             }
             AppEvent::TreeLoaded {
                 owner,
@@ -229,21 +252,17 @@ impl App {
             AppEvent::BlobLoaded { sha, name, bytes } => {
                 self.handle_action(Action::BlobLoaded { sha, name, bytes });
             }
-            AppEvent::BlobFailed { sha, message } => {
-                self.handle_action(Action::BlobFailed { sha, message });
+            AppEvent::BlobFailed { sha, error } => {
+                self.handle_action(Action::BlobFailed { sha, error });
             }
-            AppEvent::TreeFailed {
-                owner,
-                name,
-                message,
+            AppEvent::TreeFailed { owner, name, error } => {
+                self.handle_action(Action::TreeFailed { owner, name, error });
+            }
+            AppEvent::GlobalSearchResults {
+                gen_id,
+                hits,
+                clipped,
             } => {
-                self.handle_action(Action::TreeFailed {
-                    owner,
-                    name,
-                    message,
-                });
-            }
-            AppEvent::GlobalSearchResults { gen_id, hits } => {
                 if gen_id != self.view_gen {
                     return; // stale submission
                 }
@@ -258,7 +277,7 @@ impl App {
                     .collect();
                 let hits = self.finish_hits(hits, kind, &query);
                 if let Some(view) = &mut self.search_view {
-                    view.update(&Action::GlobalSearchResults { hits });
+                    view.update(&Action::GlobalSearchResults { hits, clipped });
                 }
                 // Bare selected hit (beyond the eager preview cap): ask
                 // for its context lazily (plans/0006 §1).
@@ -270,14 +289,37 @@ impl App {
                     self.handle_action(action);
                 }
             }
-            AppEvent::GlobalSearchFailed { gen_id, message } => {
+            AppEvent::GlobalSearchFailed { gen_id, error } => {
                 if gen_id != self.view_gen {
                     return;
                 }
                 self.status = None;
                 if let Some(view) = &mut self.search_view {
-                    view.update(&Action::GlobalSearchFailed { message });
+                    view.update(&Action::GlobalSearchFailed { error });
                 }
+            }
+            AppEvent::HitContextDebounceFired {
+                timer_gen,
+                hit,
+                query,
+            } => {
+                self.handle_action(Action::HitContextDebounceFired {
+                    timer_gen,
+                    hit,
+                    query,
+                });
+            }
+            AppEvent::HitContextMissing { gen_id, sha } => {
+                if gen_id != self.view_gen {
+                    return; // view moved on
+                }
+                self.handle_action(Action::HitContextMissing { sha });
+            }
+            AppEvent::HitContextFailed { gen_id, sha, error } => {
+                if gen_id != self.view_gen {
+                    return;
+                }
+                self.handle_action(Action::HitContextFailed { sha, error });
             }
             AppEvent::HitContextLoaded {
                 gen_id,
@@ -465,8 +507,8 @@ impl App {
                 self.status = None;
                 self.browser.org_repos_loaded(&org, repos);
             }
-            Action::OrgReposFailed { org, message } => {
-                self.status = Some(format!("{org}: {message}"));
+            Action::OrgReposFailed { org, error } => {
+                self.status = Some(format!("{org}: {}", provider_status(&error)));
             }
             Action::LoadRepoTree { owner, name } => {
                 self.status = Some(format!("loading {owner}/{name} tree…"));
@@ -485,12 +527,8 @@ impl App {
                 self.browser
                     .tree_loaded(&owner, &name, entries, truncated, branch);
             }
-            Action::TreeFailed {
-                owner,
-                name,
-                message,
-            } => {
-                self.status = Some(format!("{owner}/{name}: {message}"));
+            Action::TreeFailed { owner, name, error } => {
+                self.status = Some(format!("{owner}/{name}: {}", provider_status(&error)));
             }
             Action::LoadBlob { sha, name } => {
                 if !self.offline {
@@ -509,8 +547,17 @@ impl App {
                 let lang = self.highlighter.language(&name);
                 self.browser.blob_loaded(&sha, &name, &lang, text, lines);
             }
-            Action::BlobFailed { sha, message } => {
-                self.browser.blob_failed(&sha, &message);
+            Action::BlobFailed { sha, error } => {
+                self.status = Some(provider_status(&error));
+                self.browser.blob_failed(&sha, &error.message);
+            }
+            Action::HitContextFailed { sha: _, error } => {
+                // Auth/throttle surface; anything else stays quiet —
+                // the bare path remains and revisit retries (§2).
+                use crate::provider::ErrorKind;
+                if matches!(error.kind, ErrorKind::Auth | ErrorKind::RateLimited) {
+                    self.status = Some(provider_status(&error));
+                }
             }
             Action::Leader => self.mode = Mode::Leader,
             Action::KeybindsPopup => self.help = Some(KeybindsPopup::new()),
@@ -687,7 +734,10 @@ impl App {
                         crate::components::global_search::mock::hits(*kind, query, extension);
                     let hits = self.finish_hits(hits, *kind, query);
                     if let Some(view) = &mut self.search_view {
-                        view.update(&Action::GlobalSearchResults { hits });
+                        view.update(&Action::GlobalSearchResults {
+                            hits,
+                            clipped: false,
+                        });
                     }
                     self.status = None;
                     // Bare selected hit (beyond the eager preview cap):
@@ -717,23 +767,63 @@ impl App {
                 self.status = None;
             }
             Action::LoadHitContext { hit, query } => {
-                // Dedupe repeat selections; a different pending fetch is
-                // superseded — tell the provider it can stop (v1.1).
+                // Dedupe repeat selections of an in-flight fetch.
                 if self.pending_context_sha.as_deref() == Some(hit.sha.as_str()) {
                     return;
-                }
-                if self.pending_context_sha.is_some() {
-                    self.provider.advise_cancel();
                 }
                 if self.offline {
                     return; // tests inject context via Action directly
                 }
-                let sha = hit.sha.clone();
-                self.pending_context_sha = Some(sha);
-                let gen_id = self.view_gen;
-                self.spawn_hit_context(gen_id, *hit, query);
+                // Cursor-rest debounce (plans/0008 §3): 200ms rearmed
+                // per selection change. Holding j through N hits costs
+                // one provider call — the resting one — instead of N
+                // requests plus N-1 advisory cancels.
+                let timer_gen = self
+                    .context_debounce_gen
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+                    + 1;
+                let shared = self.context_debounce_gen.clone();
+                let tx = self.tx.clone();
+                let hit = *hit;
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(200));
+                    if shared.load(std::sync::atomic::Ordering::SeqCst) == timer_gen {
+                        let _ = tx.send(AppEvent::HitContextDebounceFired {
+                            timer_gen,
+                            hit,
+                            query,
+                        });
+                    }
+                });
             }
-            Action::HitContextLoaded { .. } => {
+            Action::HitContextDebounceFired {
+                timer_gen,
+                hit,
+                query,
+            } => {
+                // The timer thread already generation-checked; re-check
+                // here — another request may have landed while the
+                // event queued.
+                if timer_gen
+                    != self
+                        .context_debounce_gen
+                        .load(std::sync::atomic::Ordering::SeqCst)
+                {
+                    return;
+                }
+                if self.pending_context_sha.as_deref() == Some(hit.sha.as_str()) {
+                    return;
+                }
+                // A different pending fetch is superseded — tell the
+                // provider it can stop (v1.1).
+                if self.pending_context_sha.is_some() {
+                    self.provider.advise_cancel();
+                }
+                self.pending_context_sha = Some(hit.sha.clone());
+                let gen_id = self.view_gen;
+                self.spawn_hit_context(gen_id, hit, query);
+            }
+            Action::HitContextLoaded { .. } | Action::HitContextMissing { .. } => {
                 if let Some(view) = &mut self.search_view {
                     view.update(&action);
                 }
@@ -930,6 +1020,12 @@ impl App {
         // blob (navigation, filter commit/clear, tree loads) — drain it
         // uniformly at the end of every route.
         self.maybe_load_blob();
+
+        // Provider notices (a stdio child's successful restart) ride
+        // the status line once (plans/0008 §5).
+        if let Some(note) = self.provider.take_notice() {
+            self.status = Some(note);
+        }
     }
 
     /// The theme everything renders with: the settings popup's live
@@ -1036,5 +1132,29 @@ pub fn trace(msg: &str) {
         {
             let _ = writeln!(f, "{:?} {msg}", std::time::SystemTime::now());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::provider::{ErrorKind, ProviderError};
+    use std::time::Duration;
+
+    #[test]
+    fn provider_status_renders_per_kind() {
+        let auth = ProviderError::new(ErrorKind::Auth, "bad credentials");
+        let rendered = super::provider_status(&auth);
+        assert!(rendered.contains("bad credentials"));
+        assert!(rendered.contains("refresh provider credentials"));
+
+        let throttled = ProviderError::new(ErrorKind::RateLimited, "slow down")
+            .with_retry_after(Duration::from_secs(37));
+        assert_eq!(
+            super::provider_status(&throttled),
+            "provider throttled — retry in 37s"
+        );
+
+        let plain = ProviderError::other("something broke");
+        assert_eq!(super::provider_status(&plain), "something broke");
     }
 }

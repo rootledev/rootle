@@ -55,13 +55,20 @@ impl App {
                 &scope,
                 &extension,
             ) {
-                Ok(hits) => {
-                    trace(&format!("view search ok gen={gen_id} hits={}", hits.len()));
-                    AppEvent::GlobalSearchResults { gen_id, hits }
+                Ok((hits, clipped)) => {
+                    trace(&format!(
+                        "view search ok gen={gen_id} hits={} clipped={clipped}",
+                        hits.len()
+                    ));
+                    AppEvent::GlobalSearchResults {
+                        gen_id,
+                        hits,
+                        clipped,
+                    }
                 }
-                Err(message) => {
-                    trace(&format!("view search ERR gen={gen_id} {message}"));
-                    AppEvent::GlobalSearchFailed { gen_id, message }
+                Err(error) => {
+                    trace(&format!("view search ERR gen={gen_id} {error}"));
+                    AppEvent::GlobalSearchFailed { gen_id, error }
                 }
             };
             let _ = tx.send(event);
@@ -105,29 +112,32 @@ impl App {
             let mut failed = Vec::new();
             for repo in repos {
                 trace(&format!("clone start {repo}"));
-                let outcome = provider.clone_url(&repo).and_then(|url| {
-                    // dest/org/repo — the org level avoids collisions.
-                    let target = dest.join(&repo);
-                    if target.exists() {
-                        return Err("destination exists".into());
-                    }
-                    std::fs::create_dir_all(target.parent().unwrap_or(&dest))
-                        .map_err(|e| e.to_string())?;
-                    std::process::Command::new("git")
-                        .args(["clone", &url])
-                        .arg(&target)
-                        .stdout(std::process::Stdio::null())
-                        .stderr(std::process::Stdio::null())
-                        .status()
-                        .map_err(|e| e.to_string())
-                        .and_then(|s| {
-                            if s.success() {
-                                Ok(())
-                            } else {
-                                Err("git clone failed".into())
-                            }
-                        })
-                });
+                let outcome = provider
+                    .clone_url(&repo)
+                    .map_err(|e| e.to_string())
+                    .and_then(|url| {
+                        // dest/org/repo — the org level avoids collisions.
+                        let target = dest.join(&repo);
+                        if target.exists() {
+                            return Err("destination exists".into());
+                        }
+                        std::fs::create_dir_all(target.parent().unwrap_or(&dest))
+                            .map_err(|e| e.to_string())?;
+                        std::process::Command::new("git")
+                            .args(["clone", &url])
+                            .arg(&target)
+                            .stdout(std::process::Stdio::null())
+                            .stderr(std::process::Stdio::null())
+                            .status()
+                            .map_err(|e| e.to_string())
+                            .and_then(|s| {
+                                if s.success() {
+                                    Ok(())
+                                } else {
+                                    Err("git clone failed".into())
+                                }
+                            })
+                    });
                 match outcome {
                     Ok(()) => {
                         trace(&format!("clone ok {repo}"));
@@ -156,9 +166,9 @@ impl App {
                     trace(&format!("blob ok {sha} {} bytes", bytes.len()));
                     AppEvent::BlobLoaded { sha, name, bytes }
                 }
-                Err(message) => {
-                    trace(&format!("blob ERR {sha} {message}"));
-                    AppEvent::BlobFailed { sha, message }
+                Err(error) => {
+                    trace(&format!("blob ERR {sha} {error}"));
+                    AppEvent::BlobFailed { sha, error }
                 }
             };
             let _ = tx.send(event);
@@ -177,9 +187,9 @@ impl App {
                     trace(&format!("search ok gen={gen_id} items={}", items.len()));
                     AppEvent::SearchResults { gen_id, items }
                 }
-                Err(message) => {
-                    trace(&format!("search ERR gen={gen_id} {message}"));
-                    AppEvent::SearchFailed { gen_id, message }
+                Err(error) => {
+                    trace(&format!("search ERR gen={gen_id} {error}"));
+                    AppEvent::SearchFailed { gen_id, error }
                 }
             };
             let _ = tx.send(event);
@@ -225,17 +235,18 @@ impl App {
                             }
                         }
                         None => {
-                            // Blob fetched but nothing matched (moved on,
-                            // or binary): nothing to merge — the pending
-                            // marker clears on the next request.
+                            // Blob fetched but nothing matched — the hit
+                            // is unlocatable, not just pending (§4).
                             trace(&format!("hit ctx none gen={gen_id} {sha}"));
-                            return;
+                            AppEvent::HitContextMissing { gen_id, sha }
                         }
                     }
                 }
-                Err(message) => {
-                    trace(&format!("hit ctx ERR gen={gen_id} {sha} {message}"));
-                    return; // quiet: bare path remains, retry on revisit
+                Err(error) => {
+                    trace(&format!("hit ctx ERR gen={gen_id} {sha} {error}"));
+                    // Auth/throttle surface a status line; other kinds
+                    // stay quiet (plans/0008 §2).
+                    AppEvent::HitContextFailed { gen_id, sha, error }
                 }
             };
             let _ = tx.send(event);
@@ -248,7 +259,7 @@ impl App {
         std::thread::spawn(move || {
             let event = match provider.org_repos(&org) {
                 Ok(repos) => AppEvent::OrgReposLoaded { org, repos },
-                Err(message) => AppEvent::OrgReposFailed { org, message },
+                Err(error) => AppEvent::OrgReposFailed { org, error },
             };
             let _ = tx.send(event);
         });
@@ -274,13 +285,9 @@ impl App {
                         branch: tree.branch,
                     }
                 }
-                Err(message) => {
-                    trace(&format!("tree ERR {owner}/{name} {message}"));
-                    AppEvent::TreeFailed {
-                        owner,
-                        name,
-                        message,
-                    }
+                Err(error) => {
+                    trace(&format!("tree ERR {owner}/{name} {error}"));
+                    AppEvent::TreeFailed { owner, name, error }
                 }
             };
             let _ = tx.send(event);

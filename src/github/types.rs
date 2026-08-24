@@ -37,6 +37,8 @@ pub struct RepoMeta {
 /// GET /search/code (Accept: application/vnd.github.text-match+json).
 #[derive(Debug, Deserialize)]
 pub struct SearchCodeResponse {
+    #[serde(default)]
+    pub total_count: u64,
     pub items: Vec<CodeItem>,
 }
 

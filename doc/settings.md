@@ -27,6 +27,8 @@ max_mb = 512            # integer
 [provider]
 kind = "github"         # "github" | "stdio"
 command = []            # list of strings (kind = "stdio")
+timeout_ms = 30000      # per-request read deadline (kind = "stdio")
+# stderr = "inherit"    # pass child stderr through (kind = "stdio")
 ```
 
 ## `[editor]` — opening files
@@ -74,6 +76,8 @@ manage their own caches under `~/.cache/rootle/providers/<name>/`.
 |---|---|---|---|
 | `kind` | `"github"` \| `"stdio"` | `"github"` | `github` = the built-in provider. `stdio` = external child process speaking NDJSON-RPC ([provider-protocol.md](provider-protocol.md)). |
 | `command` | list of strings | `[]` | argv for `kind = "stdio"`; element 0 is the executable, the rest its arguments. Ignored for `github`. |
+| `timeout_ms` | integer | `30000` | Per-request read deadline for `kind = "stdio"`: a hung backend call fails with a timeout instead of wedging the provider. |
+| `stderr` | `"null"` \| `"inherit"` | `"null"` | `inherit` passes the stdio child's stderr through — adapter debugging without a log file. |
 
 Invalid/misfiring stdio configuration falls back to `github` with a
 warning in the status line — a provider misconfiguration never blocks
