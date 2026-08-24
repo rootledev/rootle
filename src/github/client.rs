@@ -2,7 +2,7 @@
 //! via Arc (reqwest::blocking::Client is Sync).
 
 use super::types::{OrgRepoItem, RepoMeta, SearchReposResponse, SearchUsersResponse, TreeResponse};
-use crate::provider::SearchItem;
+use crate::provider::{ErrorKind, ProviderError, ProviderResult, SearchItem};
 use std::process::Command;
 
 const API: &str = "https://api.github.com";
@@ -50,22 +50,22 @@ impl Client {
         self.token.is_none()
     }
 
-    fn get<T: serde::de::DeserializeOwned>(&self, url: &str) -> Result<T, String> {
+    fn get<T: serde::de::DeserializeOwned>(&self, url: &str) -> ProviderResult<T> {
         let mut req = self.http.get(url);
         if let Some(token) = &self.token {
             req = req.bearer_auth(token);
         }
-        let resp = req.send().map_err(|e| e.to_string())?;
-        let status = resp.status();
-        if !status.is_success() {
-            return Err(format!("HTTP {status}"));
+        let resp = req.send().map_err(classify_send)?;
+        if !resp.status().is_success() {
+            return Err(classify_status(resp));
         }
-        resp.json::<T>().map_err(|e| e.to_string())
+        resp.json::<T>()
+            .map_err(|e| ProviderError::other(e.to_string()))
     }
 
     /// Repo search + org search, merged: orgs first, then repos.
     /// Returns provider-level items (the trait boundary type).
-    pub fn search(&self, query: &str) -> Result<Vec<SearchItem>, String> {
+    pub fn search(&self, query: &str) -> ProviderResult<Vec<SearchItem>> {
         let q = urlencoding(query);
         let mut out = Vec::new();
 
@@ -85,7 +85,7 @@ impl Client {
         Ok(out)
     }
 
-    pub fn org_repos(&self, org: &str) -> Result<Vec<String>, String> {
+    pub fn org_repos(&self, org: &str) -> ProviderResult<Vec<String>> {
         let repos: Vec<OrgRepoItem> =
             self.get(&format!("{API}/orgs/{org}/repos?per_page=100&sort=updated"))?;
         Ok(repos.into_iter().map(|r| r.name).collect())
@@ -95,14 +95,20 @@ impl Client {
     /// get a clear error. `q` is the full query string including
     /// qualifiers (`repo:`, `org:`, `extension:`, `path:`); text-match
     /// fragments are requested for previews.
-    pub fn search_code(&self, q: &str) -> Result<Vec<super::types::CodeItem>, String> {
+    pub fn search_code(&self, q: &str) -> ProviderResult<(Vec<super::types::CodeItem>, bool)> {
         if self.is_anonymous() {
-            return Err("code search needs a token — set ROOTLE_TOKEN or log in with `gh`".into());
+            return Err(ProviderError::new(
+                ErrorKind::Auth,
+                "code search needs a token — set ROOTLE_TOKEN or log in with `gh`",
+            ));
         }
         let url = format!("{API}/search/code?q={}&per_page=25", urlencoding(q));
         let resp: super::types::SearchCodeResponse =
             self.get_accept(&url, "application/vnd.github.text-match+json")?;
-        Ok(resp.items)
+        // GitHub caps code search at 1000 results — that is the
+        // provider's own truncation signal (plans/0008 §4), not the
+        // per-page size (that's our client-side clip).
+        Ok((resp.items, resp.total_count > 1000))
     }
 
     /// GET with an explicit Accept header (text-match fragments).
@@ -110,17 +116,17 @@ impl Client {
         &self,
         url: &str,
         accept: &str,
-    ) -> Result<T, String> {
+    ) -> ProviderResult<T> {
         let mut req = self.http.get(url).header("Accept", accept);
         if let Some(token) = &self.token {
             req = req.bearer_auth(token);
         }
-        let resp = req.send().map_err(|e| e.to_string())?;
-        let status = resp.status();
-        if !status.is_success() {
-            return Err(format!("HTTP {status}"));
+        let resp = req.send().map_err(classify_send)?;
+        if !resp.status().is_success() {
+            return Err(classify_status(resp));
         }
-        resp.json::<T>().map_err(|e| e.to_string())
+        resp.json::<T>()
+            .map_err(|e| ProviderError::other(e.to_string()))
     }
 
     /// Fetch a repo's full recursive tree with the sha-keyed cache
@@ -131,14 +137,11 @@ impl Client {
         &self,
         owner: &str,
         repo: &str,
-    ) -> Result<
-        (
-            TreeResponse,
-            /*truncated*/ bool,
-            /*branch*/ String,
-        ),
-        String,
-    > {
+    ) -> ProviderResult<(
+        TreeResponse,
+        /*truncated*/ bool,
+        /*branch*/ String,
+    )> {
         // Cache-first branch resolution: a repo we've opened before
         // costs zero extra calls here (no GET /repos/{o}/{r}).
         let cached_branch = super::cache::cached_branch(owner, repo);
@@ -156,7 +159,7 @@ impl Client {
         match self.fetch_tree_on(owner, repo, &branch) {
             // The default branch was renamed since we cached it:
             // resolve fresh and try once more.
-            Err(e) if cached_branch.is_some() && e.contains("404") => {
+            Err(e) if cached_branch.is_some() && e.kind == ErrorKind::NotFound => {
                 let meta: RepoMeta = self.get(&format!("{API}/repos/{owner}/{repo}"))?;
                 self.fetch_tree_on(owner, repo, &meta.default_branch)
             }
@@ -169,14 +172,11 @@ impl Client {
         owner: &str,
         repo: &str,
         branch: &str,
-    ) -> Result<
-        (
-            TreeResponse,
-            /*truncated*/ bool,
-            /*branch*/ String,
-        ),
-        String,
-    > {
+    ) -> ProviderResult<(
+        TreeResponse,
+        /*truncated*/ bool,
+        /*branch*/ String,
+    )> {
         let cached_ref = super::cache::read_ref(owner, repo, branch);
         let url = format!("{API}/repos/{owner}/{repo}/git/trees/{branch}?recursive=1");
 
@@ -184,12 +184,13 @@ impl Client {
         match self.get_conditional::<TreeResponse>(&url, etag.as_deref())? {
             Conditional::NotModified => {
                 let sha = cached_ref.expect("304 without a cached ref").tree_sha;
-                let tree = super::cache::read_tree(&sha)
-                    .ok_or_else(|| format!("304 but tree {sha} missing from cache"))?;
+                let tree = super::cache::read_tree(&sha).ok_or_else(|| {
+                    ProviderError::other(format!("304 but tree {sha} missing from cache"))
+                })?;
                 Ok((tree.clone(), tree.truncated, branch.to_string()))
             }
             Conditional::Fresh { body, etag } => {
-                super::cache::write_tree(&body).map_err(|e| e.to_string())?;
+                super::cache::write_tree(&body).map_err(|e| ProviderError::other(e.to_string()))?;
                 super::cache::write_ref(
                     owner,
                     repo,
@@ -199,7 +200,7 @@ impl Client {
                         etag,
                     },
                 )
-                .map_err(|e| e.to_string())?;
+                .map_err(|e| ProviderError::other(e.to_string()))?;
                 let truncated = body.truncated;
                 Ok((body, truncated, branch.to_string()))
             }
@@ -208,7 +209,7 @@ impl Client {
 
     /// Fetch a blob by git sha, cache-first (blobs are immutable).
     /// Files over 1 MiB are rejected — too heavy for a preview pane.
-    pub fn fetch_blob(&self, owner: &str, repo: &str, sha: &str) -> Result<Vec<u8>, String> {
+    pub fn fetch_blob(&self, owner: &str, repo: &str, sha: &str) -> ProviderResult<Vec<u8>> {
         if let Some(bytes) = super::cache::read_blob(sha) {
             return Ok(bytes);
         }
@@ -220,7 +221,10 @@ impl Client {
         let url = format!("{API}/repos/{owner}/{repo}/git/blobs/{sha}");
         let blob: BlobResponse = self.get(&url)?;
         if blob.size > 1024 * 1024 {
-            return Err(format!("file too large to preview ({} bytes)", blob.size));
+            return Err(ProviderError::other(format!(
+                "file too large to preview ({} bytes)",
+                blob.size
+            )));
         }
         use base64::Engine;
         let clean: String = blob
@@ -230,7 +234,7 @@ impl Client {
             .collect();
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(clean)
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| ProviderError::other(e.to_string()))?;
         let _ = super::cache::write_blob(sha, &bytes);
         Ok(bytes)
     }
@@ -239,7 +243,7 @@ impl Client {
         &self,
         url: &str,
         etag: Option<&str>,
-    ) -> Result<Conditional<T>, String> {
+    ) -> ProviderResult<Conditional<T>> {
         let mut req = self.http.get(url);
         if let Some(token) = &self.token {
             req = req.bearer_auth(token);
@@ -247,20 +251,22 @@ impl Client {
         if let Some(etag) = etag {
             req = req.header("If-None-Match", etag);
         }
-        let resp = req.send().map_err(|e| e.to_string())?;
+        let resp = req.send().map_err(classify_send)?;
         let status = resp.status();
         if status == reqwest::StatusCode::NOT_MODIFIED {
             return Ok(Conditional::NotModified);
         }
         if !status.is_success() {
-            return Err(format!("HTTP {status}"));
+            return Err(classify_status(resp));
         }
         let etag = resp
             .headers()
             .get("etag")
             .and_then(|v| v.to_str().ok())
             .map(str::to_string);
-        let body = resp.json::<T>().map_err(|e| e.to_string())?;
+        let body = resp
+            .json::<T>()
+            .map_err(|e| ProviderError::other(e.to_string()))?;
         Ok(Conditional::Fresh { body, etag })
     }
 }
@@ -268,6 +274,49 @@ impl Client {
 enum Conditional<T> {
     NotModified,
     Fresh { body: T, etag: Option<String> },
+}
+
+/// Classify a transport-level failure (plans/0008 §2).
+fn classify_send(e: reqwest::Error) -> ProviderError {
+    let kind = if e.is_timeout() {
+        ErrorKind::Timeout
+    } else {
+        ErrorKind::Network
+    };
+    ProviderError::new(kind, e.to_string())
+}
+
+/// Classify a non-2xx reply into the error taxonomy: 401/403 → auth
+/// (403 with an exhausted rate limit is throttling, not auth), 404 →
+/// not_found, 429 → rate_limited (Retry-After rides along), 5xx →
+/// provider, anything else → other.
+fn classify_status(resp: reqwest::blocking::Response) -> ProviderError {
+    let status = resp.status();
+    let retry_after = resp
+        .headers()
+        .get("retry-after")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse::<u64>().ok())
+        .map(std::time::Duration::from_secs);
+    let remaining_zero = resp
+        .headers()
+        .get("x-ratelimit-remaining")
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v == "0");
+    let kind = match status.as_u16() {
+        401 => ErrorKind::Auth,
+        403 if remaining_zero => ErrorKind::RateLimited,
+        403 => ErrorKind::Auth,
+        404 => ErrorKind::NotFound,
+        429 => ErrorKind::RateLimited,
+        500..=599 => ErrorKind::Provider,
+        _ => ErrorKind::Other,
+    };
+    let error = ProviderError::new(kind, format!("HTTP {status}"));
+    match retry_after {
+        Some(d) => error.with_retry_after(d),
+        None => error,
+    }
 }
 
 fn gh_token() -> Option<String> {

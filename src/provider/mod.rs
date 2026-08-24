@@ -16,6 +16,71 @@ pub mod stdio;
 
 use std::sync::Arc;
 
+/// Structured provider error (plans/0008 §2): the protocol v1.1
+/// `data.kind` taxonomy carried from the wire to the UI instead of a
+/// bare string. Unknown or absent kinds degrade to `Other`, which
+/// renders exactly like the old unstructured toast.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderError {
+    pub kind: ErrorKind,
+    pub message: String,
+    /// `rate_limited`: the provider's advertised backoff, if any.
+    pub retry_after: Option<std::time::Duration>,
+}
+
+/// The v1.1 `data.kind` open enum. Wire-unknown kinds map to `Other`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ErrorKind {
+    Auth,
+    RateLimited,
+    NotFound,
+    Network,
+    Timeout,
+    Provider,
+    Other,
+}
+
+impl ProviderError {
+    pub fn new(kind: ErrorKind, message: impl Into<String>) -> Self {
+        ProviderError {
+            kind,
+            message: message.into(),
+            retry_after: None,
+        }
+    }
+
+    pub fn other(message: impl Into<String>) -> Self {
+        Self::new(ErrorKind::Other, message)
+    }
+
+    pub fn with_retry_after(mut self, retry: std::time::Duration) -> Self {
+        self.retry_after = Some(retry);
+        self
+    }
+}
+
+impl std::fmt::Display for ProviderError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for ProviderError {}
+
+impl From<String> for ProviderError {
+    fn from(message: String) -> Self {
+        Self::other(message)
+    }
+}
+
+impl From<&str> for ProviderError {
+    fn from(message: &str) -> Self {
+        Self::other(message)
+    }
+}
+
+pub type ProviderResult<T> = std::result::Result<T, ProviderError>;
+
 /// What a provider supports; the UI degrades on `false`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Capabilities {
@@ -63,6 +128,15 @@ pub struct CodeMatch {
     pub located: bool,
 }
 
+/// Code-search page plus the provider's own truncation signal
+/// (plans/0008 §4): a backend that caps its result set says so;
+/// absent on the wire means `false` (complete).
+#[derive(Debug, Clone)]
+pub struct SearchCodeResult {
+    pub hits: Vec<CodeMatch>,
+    pub truncated: bool,
+}
+
 /// The backend contract. Blocking; calls run on worker threads.
 pub trait Provider: Send + Sync {
     fn name(&self) -> &str;
@@ -74,15 +148,15 @@ pub trait Provider: Send + Sync {
     }
 
     /// Repo + org search for the launch popup (orgs first).
-    fn search(&self, query: &str) -> Result<Vec<SearchItem>, String>;
+    fn search(&self, query: &str) -> ProviderResult<Vec<SearchItem>>;
     /// Repo names of an org/group.
-    fn org_repos(&self, org: &str) -> Result<Vec<String>, String>;
+    fn org_repos(&self, org: &str) -> ProviderResult<Vec<String>>;
     /// Full recursive tree of a repo's default branch.
-    fn fetch_tree(&self, repo: &str) -> Result<TreeResult, String>;
+    fn fetch_tree(&self, repo: &str) -> ProviderResult<TreeResult>;
     /// Blob bytes by content id.
-    fn fetch_blob(&self, repo: &str, sha: &str) -> Result<Vec<u8>, String>;
+    fn fetch_blob(&self, repo: &str, sha: &str) -> ProviderResult<Vec<u8>>;
     /// Code search; `q` is the full query string with qualifiers.
-    fn search_code(&self, q: &str) -> Result<Vec<CodeMatch>, String>;
+    fn search_code(&self, q: &str) -> ProviderResult<SearchCodeResult>;
 
     /// Advisory cancellation (protocol v1.1): tells the backend the
     /// caller no longer needs the in-flight request. Best-effort —
@@ -90,8 +164,15 @@ pub trait Provider: Send + Sync {
     /// to cancel (in-process providers drop work via generations).
     fn advise_cancel(&self) {}
 
+    /// One-shot UI notice for the status line (plans/0008 §5) — e.g.
+    /// a stdio child's successful restart. Drained once per route.
+    /// Default: nothing to say.
+    fn take_notice(&self) -> Option<String> {
+        None
+    }
+
     /// URL `git clone` accepts for a repo (clone wizard, plans/0004).
-    fn clone_url(&self, repo: &str) -> Result<String, String>;
+    fn clone_url(&self, repo: &str) -> ProviderResult<String>;
     /// Browser URL for yank (␣ y): repo root, or a path inside it.
     /// `is_file` picks the grammar (GitHub: blob vs tree); `line`
     /// adds a fragment when Some. `branch` may be empty (the provider
@@ -103,10 +184,10 @@ pub trait Provider: Send + Sync {
         branch: &str,
         line: Option<u32>,
         is_file: bool,
-    ) -> Result<String, String>;
+    ) -> ProviderResult<String>;
 
     /// Browser URL for an org/group page.
-    fn org_url(&self, org: &str) -> Result<String, String>;
+    fn org_url(&self, org: &str) -> ProviderResult<String>;
 }
 
 /// Build the configured provider. Invalid/unsupported config falls
@@ -118,7 +199,11 @@ pub fn build(config: &crate::config::Config) -> (Arc<dyn Provider>, Option<Strin
             Arc::new(github::GitHubProvider::new(config.cache.max_mb)),
             None,
         ),
-        "stdio" => match stdio::StdioProvider::spawn(&config.provider.command) {
+        "stdio" => match stdio::StdioProvider::spawn_with_stderr(
+            &config.provider.command,
+            std::time::Duration::from_millis(config.provider.timeout_ms),
+            config.provider.stderr == "inherit",
+        ) {
             Ok(p) => (Arc::new(p), None),
             Err(e) => (
                 Arc::new(github::GitHubProvider::new(config.cache.max_mb)),
@@ -145,22 +230,22 @@ pub fn offline() -> Arc<dyn Provider> {
                 code_search: false,
             }
         }
-        fn search(&self, _: &str) -> Result<Vec<SearchItem>, String> {
+        fn search(&self, _: &str) -> ProviderResult<Vec<SearchItem>> {
             Err("offline".into())
         }
-        fn org_repos(&self, _: &str) -> Result<Vec<String>, String> {
+        fn org_repos(&self, _: &str) -> ProviderResult<Vec<String>> {
             Err("offline".into())
         }
-        fn fetch_tree(&self, _: &str) -> Result<TreeResult, String> {
+        fn fetch_tree(&self, _: &str) -> ProviderResult<TreeResult> {
             Err("offline".into())
         }
-        fn fetch_blob(&self, _: &str, _: &str) -> Result<Vec<u8>, String> {
+        fn fetch_blob(&self, _: &str, _: &str) -> ProviderResult<Vec<u8>> {
             Err("offline".into())
         }
-        fn search_code(&self, _: &str) -> Result<Vec<CodeMatch>, String> {
+        fn search_code(&self, _: &str) -> ProviderResult<SearchCodeResult> {
             Err("offline".into())
         }
-        fn clone_url(&self, _: &str) -> Result<String, String> {
+        fn clone_url(&self, _: &str) -> ProviderResult<String> {
             Err("offline".into())
         }
         fn web_url(
@@ -170,10 +255,10 @@ pub fn offline() -> Arc<dyn Provider> {
             _: &str,
             _: Option<u32>,
             _: bool,
-        ) -> Result<String, String> {
+        ) -> ProviderResult<String> {
             Err("offline".into())
         }
-        fn org_url(&self, _: &str) -> Result<String, String> {
+        fn org_url(&self, _: &str) -> ProviderResult<String> {
             Err("offline".into())
         }
     }

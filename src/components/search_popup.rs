@@ -95,9 +95,9 @@ impl SearchPopup {
                 self.results = Pane::new("results", entries);
                 self.results.show_badges = true;
             }
-            Action::SearchFailed { message } => {
+            Action::SearchFailed { error } => {
                 self.pending = false;
-                self.error = Some(message.clone());
+                self.error = Some(crate::app::provider_status(error));
                 self.results = Pane::new("results", vec![]);
                 self.results.show_badges = true;
             }

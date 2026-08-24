@@ -1,7 +1,7 @@
 //! App events from background workers (GitHub API calls run on worker
 //! threads; results return over this channel into the event loop).
 
-use crate::provider::SearchItem;
+use crate::provider::{ProviderError, SearchItem};
 
 #[derive(Debug)]
 pub enum AppEvent {
@@ -11,7 +11,7 @@ pub enum AppEvent {
     },
     SearchFailed {
         gen_id: u64,
-        message: String,
+        error: ProviderError,
     },
     OrgReposLoaded {
         org: String,
@@ -19,7 +19,7 @@ pub enum AppEvent {
     },
     OrgReposFailed {
         org: String,
-        message: String,
+        error: ProviderError,
     },
     TreeLoaded {
         owner: String,
@@ -31,7 +31,7 @@ pub enum AppEvent {
     TreeFailed {
         owner: String,
         name: String,
-        message: String,
+        error: ProviderError,
     },
     BlobLoaded {
         sha: String,
@@ -40,17 +40,19 @@ pub enum AppEvent {
     },
     BlobFailed {
         sha: String,
-        message: String,
+        error: ProviderError,
     },
     /// Global search view results (plans/0002 §4): raw hits from the
     /// worker, styled on the UI thread.
     GlobalSearchResults {
         gen_id: u64,
         hits: Vec<crate::components::global_search::RawHit>,
+        /// Provider-truncated or client-capped (plans/0008 §4).
+        clipped: bool,
     },
     GlobalSearchFailed {
         gen_id: u64,
-        message: String,
+        error: ProviderError,
     },
     /// Lazy per-hit context (plans/0006 §1): blob fetched + located on
     /// a worker for the selected bare hit.
@@ -63,6 +65,29 @@ pub enum AppEvent {
         preview: Vec<(u32, String)>,
         match_count: u32,
         query: String,
+    },
+    /// Lazy context fetch found no match text in the blob
+    /// (plans/0008 §4): the hit flips to `unlocatable` instead of
+    /// rendering stale forever.
+    HitContextMissing {
+        gen_id: u64,
+        sha: String,
+    },
+    /// Cursor-rest debounce fired (plans/0008 §3): rapid selection
+    /// moves collapse into this one dispatch for the hit the cursor
+    /// finally rested on.
+    HitContextDebounceFired {
+        timer_gen: u64,
+        hit: crate::components::global_search::SearchHit,
+        query: String,
+    },
+    /// Lazy context fetch failed (plans/0008 §2): auth/throttle
+    /// surfaces a status line; other kinds stay quiet (bare path
+    /// remains, retry on revisit).
+    HitContextFailed {
+        gen_id: u64,
+        sha: String,
+        error: ProviderError,
     },
     CloneDone {
         ok: Vec<String>,

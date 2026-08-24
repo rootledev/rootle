@@ -951,7 +951,10 @@ fn stale_hit_shows_chip_until_located() {
     );
     stale.sha = "deadbee".into();
     stale.stale = true;
-    app.handle_action(rootle::action::Action::GlobalSearchResults { hits: vec![stale] });
+    app.handle_action(rootle::action::Action::GlobalSearchResults {
+        hits: vec![stale],
+        clipped: false,
+    });
     let screen = render(&mut app, 100, 30).join("\n");
     assert!(
         screen.contains("stale"),
@@ -1140,5 +1143,72 @@ fn unfocused_parent_pane_is_dimmed() {
         cell.modifier.contains(Modifier::DIM),
         "unfocused dir entry should be dimmed, got {:?}",
         cell.modifier
+    );
+}
+
+#[test]
+fn unlocatable_hit_flips_from_stale_to_its_own_chip() {
+    let mut app = browsing_app();
+    app.handle_key(key(KeyCode::Char(' ')));
+    app.handle_key(key(KeyCode::Char('g')));
+    for c in "query".chars() {
+        app.handle_key(key(KeyCode::Char(c)));
+    }
+    app.handle_key(key(KeyCode::Enter));
+    let mut hit = rootle::components::global_search::SearchHit::plain(
+        "owner/repo",
+        "src/place.rs",
+        1,
+        vec![],
+        0,
+        String::new(),
+    );
+    hit.sha = "deadbee".into();
+    hit.stale = true;
+    app.handle_action(rootle::action::Action::GlobalSearchResults {
+        hits: vec![hit],
+        clipped: false,
+    });
+    let screen = render(&mut app, 100, 30).join("\n");
+    assert!(screen.contains("stale"), "stale chip renders:\n{screen}");
+
+    // The blob arrived but the match text isn't in it (plans/0008 §4):
+    // the hit stops pretending it's just stale.
+    app.handle_action(rootle::action::Action::HitContextMissing {
+        sha: "deadbee".into(),
+    });
+    let screen = render(&mut app, 100, 30).join("\n");
+    assert!(
+        screen.contains("unlocatable"),
+        "unlocatable chip renders:\n{screen}"
+    );
+    assert!(!screen.contains("stale"), "stale chip clears:\n{screen}");
+}
+
+#[test]
+fn clipped_result_set_says_so_in_the_title() {
+    let mut app = browsing_app();
+    app.handle_key(key(KeyCode::Char(' ')));
+    app.handle_key(key(KeyCode::Char('g')));
+    for c in "query".chars() {
+        app.handle_key(key(KeyCode::Char(c)));
+    }
+    app.handle_key(key(KeyCode::Enter));
+    let hit = rootle::components::global_search::SearchHit::plain(
+        "owner/repo",
+        "src/place.rs",
+        1,
+        vec![],
+        0,
+        String::new(),
+    );
+    app.handle_action(rootle::action::Action::GlobalSearchResults {
+        hits: vec![hit],
+        clipped: true,
+    });
+    let screen = render(&mut app, 100, 30).join("\n");
+    assert!(
+        screen.contains("clipped"),
+        "clipped note should render in the results title:\n{screen}"
     );
 }

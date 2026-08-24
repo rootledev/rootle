@@ -71,9 +71,12 @@ pub enum Action {
     },
     GlobalSearchResults {
         hits: Vec<crate::components::global_search::SearchHit>,
+        /// Provider-truncated or client-capped result set (plans/0008
+        /// §4) — complete and clipped sets are distinguishable.
+        clipped: bool,
     },
     GlobalSearchFailed {
-        message: String,
+        error: crate::provider::ProviderError,
     },
     /// Cursor landed on a hit without preview lines but with a sha —
     /// fetch its blob and locate the context lazily (plans/0006 §1).
@@ -97,7 +100,7 @@ pub enum Action {
         items: Vec<crate::provider::SearchItem>,
     },
     SearchFailed {
-        message: String,
+        error: crate::provider::ProviderError,
     },
 
     // Org loading
@@ -109,7 +112,7 @@ pub enum Action {
     },
     OrgReposFailed {
         org: String,
-        message: String,
+        error: crate::provider::ProviderError,
     },
 
     // Repo tree loading
@@ -127,7 +130,7 @@ pub enum Action {
     TreeFailed {
         owner: String,
         name: String,
-        message: String,
+        error: crate::provider::ProviderError,
     },
 
     // Blob preview
@@ -142,7 +145,23 @@ pub enum Action {
     },
     BlobFailed {
         sha: String,
-        message: String,
+        error: crate::provider::ProviderError,
+    },
+    /// Lazy hit-context fetch failed (plans/0008 §2).
+    HitContextFailed {
+        sha: String,
+        error: crate::provider::ProviderError,
+    },
+    /// Blob fetched but the match text isn't in it (plans/0008 §4).
+    HitContextMissing {
+        sha: String,
+    },
+    /// Cursor-rest debounce fired (plans/0008 §3): dispatch the lazy
+    /// context fetch for the hit the cursor finally rested on.
+    HitContextDebounceFired {
+        timer_gen: u64,
+        hit: crate::components::global_search::SearchHit,
+        query: String,
     },
 
     // Selection outcomes

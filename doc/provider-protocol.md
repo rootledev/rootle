@@ -1,4 +1,4 @@
-# The rootle provider protocol, v1.1
+# The rootle provider protocol, v1.2
 
 rootle talks to source-control backends through one seam (`trait
 Provider`, `src/provider/mod.rs`). The built-in `github` provider is
@@ -16,15 +16,27 @@ else as an NDJSON-RPC stdio child](architecture.svg)
 
 - rootle spawns the provider once per app: `command[0]` is the program,
   the rest are arguments. stdin/stdout are pipes; **stderr is
-  discarded**. The child dies with rootle (the handle is held for Drop).
+  discarded** unless `[provider] stderr = "inherit"` (v1.2, adapter
+  debugging). The child dies with rootle (the handle is held for Drop).
 - Each message is one line of JSON on stdin/stdout. Requests carry
   `jsonrpc`, a numeric `id`, `method`, `params`. Replies echo the id
   and carry either `result` or `error`.
-- Requests are serialized under a mutex and matched by id; rootle skips
+- **Transport (v1.2):** a dedicated reader thread owns the child's
+  stdout and routes replies by id; requests may be in flight
+  concurrently and replies MAY arrive out of order. rootle skips
   non-JSON lines and replies whose id doesn't match (notifications are
-  tolerated). A closed stdout fails every call ("provider closed its
-  output"). There is no restart policy in v1 — a dead child surfaces
-  per-call errors as status-line toasts.
+  tolerated). Every request has a read deadline
+  (`[provider] timeout_ms`, default 30s): a reply that never comes
+  fails that one call with a `timeout`-kinded error — the transport
+  and the child stay usable, and the late reply is discarded when it
+  finally arrives.
+- **Restart (v1.2):** a closed stdout fails every in-flight call
+  ("provider closed its output") and marks the transport dead. The
+  next request respawns the child with bounded backoff
+  (1s → 2s → 5s → 30s cap) and re-runs `initialize` before proceeding;
+  the status line notes the restart. A provider that crashes is
+  therefore self-healing — keep startup cheap and stateless where
+  possible.
 - **Reader tolerance (normative, both directions):** unknown fields in
   requests, replies, and results MUST be ignored, and unsolicited
   notifications MUST be ignored. v1.1 additions are additive for exactly
@@ -66,7 +78,7 @@ Optional/missing fields noted per method; everything else is required.
 | `repo/clone_url` | `{"repo"}` | `{"clone_url":"…"}` |
 | `repo/web_url` | `{"repo","path","branch","line"}` | `{"url":"…"}` |
 | `org/url` | `{"org"}` | `{"url":"…"}` |
-| `search/code` | `{"q"}` | `{"items":[…]}` |
+| `search/code` | `{"q"}` | `{"items":[…], "truncated"?:bool}` |
 
 Details:
 
@@ -92,6 +104,10 @@ Details:
   per-item `located` (bool, default `true`): `false` means the provider
   knows its index is stale for this hit — the UI shows a `stale` chip
   instead of line numbers until client-side locating self-heals it.
+  Optional top-level `truncated` (bool, v1.2, default `false`): `true`
+  means the provider capped its own result set — the UI marks the
+  results as clipped so a complete set is distinguishable from a cut
+  one.
 
 ## Content ids
 
@@ -146,6 +162,12 @@ Unknown kinds degrade to the message toast — never error on them.
 `code` stays any positive int of the provider's choosing (the JSON-RPC
 standard `-32xxx` codes remain reserved for protocol-level errors).
 
+**Rendering (v1.2 — kinds are wired, not just parsed):** `auth` shows
+the message with a refresh-credentials hint; `rate_limited` shows a
+throttled notice with the backoff seconds. rootle also *generates*
+kinds host-side: `timeout` when the read deadline fires, `provider`
+when the child dies.
+
 ## Configuration
 
 `~/.config/rootle/config.toml` (or a file passed to `rootle --config`):
@@ -154,6 +176,8 @@ standard `-32xxx` codes remain reserved for protocol-level errors).
 [provider]
 kind = "stdio"
 command = ["python3", "/path/to/fs_provider.py", "/path/to/code"]
+timeout_ms = 30000      # v1.2: per-request read deadline (default 30s)
+# stderr = "inherit"    # v1.2: pass child stderr through (default "null")
 ```
 
 `kind = "github"` (the default) uses the built-in provider. An empty

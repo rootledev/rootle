@@ -109,6 +109,10 @@ pub struct SearchHit {
     pub body: String,
     /// v1.1: provider flagged the placement stale (`located: false`).
     pub stale: bool,
+    /// v1.2 (plans/0008 §4): the blob was fetched but the match text
+    /// isn't in it — non-literal matches (stemmed/semantic) or moved
+    /// content. Distinct from `stale`: this never self-heals.
+    pub unlocatable: bool,
 }
 
 impl SearchHit {
@@ -134,6 +138,7 @@ impl SearchHit {
             match_count,
             body,
             stale: false,
+            unlocatable: false,
         }
     }
 
@@ -219,6 +224,9 @@ pub struct GlobalSearch {
     pending: bool,
     error: Option<String>,
     submitted_once: bool,
+    /// Result set is incomplete — provider-truncated or client-capped
+    /// at HIT_CAP (plans/0008 §4); shown in the results title.
+    clipped: bool,
 }
 
 impl GlobalSearch {
@@ -268,6 +276,7 @@ impl GlobalSearch {
             filter_value: String::new(),
             selected: 0,
             scroll: 0,
+            clipped: false,
             pending: false,
             error: None,
             submitted_once: false,
@@ -462,16 +471,17 @@ impl GlobalSearch {
                 self.selected = 0;
                 self.scroll = 0;
             }
-            Action::GlobalSearchResults { hits } => {
+            Action::GlobalSearchResults { hits, clipped } => {
                 self.pending = false;
+                self.clipped = *clipped;
                 self.hits = hits.clone();
                 self.selected = 0;
                 self.scroll = 0;
                 self.clamp_selection();
             }
-            Action::GlobalSearchFailed { message } => {
+            Action::GlobalSearchFailed { error } => {
                 self.pending = false;
-                self.error = Some(message.clone());
+                self.error = Some(crate::app::provider_status(error));
                 self.hits = vec![];
             }
             // v1.1 lazy context landed (plans/0006 §1): merge by
@@ -496,6 +506,15 @@ impl GlobalSearch {
                     hit.preview = preview.clone();
                     hit.match_count = *match_count;
                     hit.stale = false;
+                }
+            }
+            // v1.2 (plans/0008 §4): the blob answered but the match
+            // text isn't in it — flip to unlocatable (never
+            // self-heals) instead of rendering stale forever.
+            Action::HitContextMissing { sha } => {
+                for hit in self.hits.iter_mut().filter(|h| &h.sha == sha) {
+                    hit.stale = false;
+                    hit.unlocatable = true;
                 }
             }
             _ => {}
@@ -793,7 +812,8 @@ impl GlobalSearch {
         } else if self.hits.is_empty() && self.submitted_once {
             " results — no matches ".into()
         } else if self.submitted_once {
-            format!(" results — {} ", self.visible().len())
+            let suffix = if self.clipped { " · clipped" } else { "" };
+            format!(" results — {}{suffix} ", self.visible().len())
         } else {
             " results ".into()
         };
@@ -869,7 +889,9 @@ impl GlobalSearch {
         // file-find hits show the first line number instead. A stale
         // hit (v1.1 located:false) says so until client-side locating
         // self-heals it.
-        let meta = if hit.stale {
+        let meta = if hit.unlocatable {
+            "unlocatable".to_string()
+        } else if hit.stale {
             "stale".to_string()
         } else if hit.match_count > 0 {
             format!(
@@ -1231,6 +1253,12 @@ const HIT_CAP: usize = 25;
 
 /// Build the `/search/code` query: file find matches paths, grep
 /// matches content; scope/ext map to GitHub qualifiers.
+///
+/// PROTOCOL SURFACE (plans/0008 §4): the qualifier strings emitted
+/// here (`path:`, `repo:`, `org:`, `extension:`) are what external
+/// stdio providers receive verbatim in `search/code`'s `q` — adapter
+/// authors translate them to their backend's grammar, and any change
+/// here is a wire change that belongs in doc/provider-protocol.md.
 fn code_query(kind: SearchKind, query: &str, scope_label: &str, extension: &str) -> String {
     let mut q = match kind {
         SearchKind::Grep => query.to_string(),
@@ -1256,7 +1284,7 @@ pub fn run_view_search(
     query: &str,
     scope_label: &str,
     extension: &str,
-) -> Result<Vec<RawHit>, String> {
+) -> crate::provider::ProviderResult<(Vec<RawHit>, bool)> {
     if kind == SearchKind::FileFind && scope_label.starts_with("repo:") {
         return tree_file_find(provider, query, &scope_label["repo:".len()..], extension);
     }
@@ -1271,7 +1299,7 @@ fn tree_file_find(
     query: &str,
     repo_full: &str,
     extension: &str,
-) -> Result<Vec<RawHit>, String> {
+) -> crate::provider::ProviderResult<(Vec<RawHit>, bool)> {
     let tree = provider.fetch_tree(repo_full)?;
     let branch = tree.branch;
     let needles: Vec<String> = query
@@ -1308,9 +1336,10 @@ fn tree_file_find(
     }
     // Best matches first; the stable sort keeps tree order on ties.
     scored.sort_by_key(|(score, _)| std::cmp::Reverse(*score));
+    let client_capped = scored.len() > HIT_CAP;
     let mut hits: Vec<RawHit> = scored.into_iter().take(HIT_CAP).map(|(_, h)| h).collect();
     add_blob_heads(provider, &mut hits);
-    Ok(hits)
+    Ok((hits, client_capped))
 }
 
 /// GitHub-"go to file"-style match (behavior verified against
@@ -1383,11 +1412,12 @@ fn code_search(
     query: &str,
     scope_label: &str,
     extension: &str,
-) -> Result<Vec<RawHit>, String> {
+) -> crate::provider::ProviderResult<(Vec<RawHit>, bool)> {
     let q = code_query(kind, query, scope_label, extension);
-    let items = provider.search_code(&q)?;
+    let result = provider.search_code(&q)?;
+    let client_capped = result.hits.len() > HIT_CAP;
     let mut hits: Vec<RawHit> = Vec::new();
-    for item in items.into_iter().take(HIT_CAP) {
+    for item in result.hits.into_iter().take(HIT_CAP) {
         let needles = item.matches.clone();
         let mut hit = RawHit {
             repo: item.repo,
@@ -1416,7 +1446,10 @@ fn code_search(
     if kind == SearchKind::FileFind {
         add_blob_heads(provider, &mut hits);
     }
-    Ok(hits)
+    // Clipped = the provider capped its set, or we capped it at
+    // HIT_CAP client-side (plans/0008 §4) — either way the user
+    // should know the set is incomplete.
+    Ok((hits, result.truncated || client_capped))
 }
 
 /// (first match line, preview lines, matched-line count).
@@ -1536,6 +1569,7 @@ mod tests {
         view.update(&action);
         view.update(&Action::GlobalSearchResults {
             hits: mock::hits(SearchKind::Grep, query, ""),
+            clipped: false,
         });
     }
 
