@@ -45,12 +45,11 @@ def test_preview_cursor_anchors_yank(tmp_path: Path) -> None:
         tui.expect("local/alpha")
         tui.key("ENTER")
         tui.expect("main.rs")  # tree loaded, main.rs selected+previewed
-        screen = tui.expect("fn main() {")
-        assert "1/8" in screen  # preview readout: cursor line 1 of 8
+        tui.expect("fn main() {")
+        tui.expect("1/8")  # preview readout: cursor line 1 of 8
         tui.send("J")
         tui.send("J")
-        screen = tui.screen()
-        assert "3/8" in screen, screen
+        tui.expect("3/8")
         tui.send(" ")
         tui.send("y")
         tui.expect("yanked")
