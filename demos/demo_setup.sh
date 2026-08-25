@@ -1,5 +1,5 @@
 #!/bin/sh
-# Demo fixture for doc/demo.tape: a two-repo "code root" served by the
+# Demo fixture for demos/demo.tape: a two-repo "code root" served by the
 # fs stdio provider, plus the provider config. Idempotent.
 set -eu
 

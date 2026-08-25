@@ -1,10 +1,12 @@
 name: demo
 
 # Re-render the demo GIFs whenever the app or the demo tooling changes —
-# README and the website always show the current look. One render per
-# embedded palette: catppuccin-mocha is the canonical doc/demo.gif
-# (README hero); the rest land in doc/img/demo-<theme>.gif for the
-# site's palette picker.
+# the README and the website always show the current look. One render
+# per embedded palette: catppuccin-mocha is the canonical demo.gif
+# (README hero); the rest land in img/demo-<theme>.gif for the site's
+# palette picker. Renders publish to the SITE repo
+# (rootledev/rootledev.github.io) as a bot PR — the code repo stays
+# free of GIF weight and artifact noise.
 on:
   workflow_dispatch:
   push:
@@ -17,8 +19,7 @@ on:
       - "Cargo.lock"
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
   # The release service requires VERSION; the tape only needs the binary
@@ -69,8 +70,10 @@ jobs:
         env:
           THEME: ${{ matrix.theme }}
         run: |
-          out="doc/demo.gif"
-          [ "$THEME" = "catppuccin-mocha" ] || out="doc/img/demo-$THEME.gif"
+          # Renders land in gitignored staging (demos/out/); the publish
+          # job carries them to the site repo.
+          out="demos/out/demo.gif"
+          [ "$THEME" = "catppuccin-mocha" ] || out="demos/out/demo-$THEME.gif"
           # VHS paints the window remainder (rows×cell < Height) with the
           # tape theme's background — map each palette to its VHS theme
           # or light renders get a dark band.
@@ -87,6 +90,7 @@ jobs:
             one-light)         vhs_theme="AtomOneLight" ;;
             solarized-light)   vhs_theme="Builtin Solarized Light" ;;
           esac
+          mkdir -p demos/out
           sed -e "s|^Output .*|Output $out|" \
               -e "s|^Set Theme .*|Set Theme \"$vhs_theme\"|" \
               -e "s|--config /tmp/rootle-demo/provider.toml|--theme $THEME --config /tmp/rootle-demo/provider.toml|" \
@@ -102,17 +106,23 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: demo-gif-${{ matrix.theme }}
-          # Exactly the file this job rendered — globbing doc/demo.gif
-          # here would also match the committed (stale) one and race the
-          # canonical GIF in the merged download.
-          path: ${{ matrix.theme == 'catppuccin-mocha' && 'doc/demo.gif' || format('doc/img/demo-{0}.gif', matrix.theme) }}
+          # Exactly the file this job rendered.
+          path: demos/out/${{ matrix.theme == 'catppuccin-mocha' && 'demo.gif' || format('demo-{0}.gif', matrix.theme) }}
           if-no-files-found: error
 
+  # Land the renders in the site repo (img/) as a reused bot PR. The
+  # site deploys itself on merge. Needs SITE_REPO_TOKEN (fine-grained
+  # PAT: contents:write + pull-requests:write on
+  # rootledev/rootledev.github.io) — same shape as HOMEBREW_TAP_TOKEN.
   publish:
     needs: render
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - name: Checkout site repo
+        uses: actions/checkout@v7
+        with:
+          repository: rootledev/rootledev.github.io
+          token: ${{ secrets.SITE_REPO_TOKEN }}
 
       - uses: actions/download-artifact@v8
         with:
@@ -121,49 +131,42 @@ jobs:
           merge-multiple: true
 
       - name: Place GIFs
-        # download-artifact may keep directory structure under the
-        # merged dir; copy by basename regardless of layout.
         run: |
-          mkdir -p doc/img
+          mkdir -p img
           find /tmp/gifs -name '*.gif' | while read -r f; do
-            base="$(basename "$f")"
-            if [ "$base" = "demo.gif" ]; then
-              cp "$f" doc/demo.gif
-            else
-              cp "$f" "doc/img/$base"
-            fi
+            cp "$f" "img/$(basename "$f")"
           done
-          ls -la doc/demo.gif doc/img/
+          ls -la img/
 
       # Idempotent: an unchanged render commits nothing, so this never
-      # loops. main is protected, so changed artifacts land as a PR on
-      # a fixed branch (force-pushed, one open PR at a time) instead of
-      # a direct push. The PR is reused — every render rewrites the body
-      # with the source SHA so it never looks stale; the [bot] marker in
-      # the title makes its provenance unambiguous.
+      # loops. The PR is reused — every render force-pushes the
+      # demo/artifacts branch and rewrites the body with the source SHA;
+      # the [bot] marker makes its provenance unambiguous. The site's
+      # pages workflow deploys on merge.
       - name: Open artifacts PR if renders changed
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.SITE_REPO_TOKEN }}
+          APP_SHA: ${{ github.sha }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add doc/demo.gif doc/img/
+          git add img/
           git diff --cached --quiet && exit 0
           changed="$(git diff --cached --name-only | sed 's/^/- /')"
           git checkout -B demo/artifacts
           git commit -m "docs: refresh demo GIFs"
           git push -f origin demo/artifacts
           title="chore(demo): refresh demo GIFs [bot]"
-          body="Re-rendered demo artifacts from the demo workflow.
+          body="Re-rendered demo artifacts from the app repo's demo workflow.
 
-          - rendered from: \`main@${GITHUB_SHA:0:8}\`
+          - rendered from: \`rootledev/rootle@${APP_SHA:0:8}\`
           - at: $(date -u '+%Y-%m-%d %H:%M UTC')
 
           $changed
 
-          Docs-only: bot PRs don't trigger CI (GITHUB_TOKEN), so merge with the
-          admin override. This PR is reused: every render force-pushes the
-          demo/artifacts branch and rewrites this body."
+          Merge to deploy (pages.yml redeploys this repo). This PR is
+          reused: every render force-pushes demo/artifacts and rewrites
+          this body."
           if gh pr view demo/artifacts --json state -q .state 2>/dev/null | grep -q OPEN; then
             gh pr edit demo/artifacts --title "$title" --body "$body"
           else

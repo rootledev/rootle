@@ -1,10 +1,11 @@
-# rootle demo tape — renders doc/demo.gif. Requires docker:
-#   docker run --rm -v "$PWD:/vhs" -w /vhs ghcr.io/charmbracelet/vhs doc/demo.tape
+# rootle demo tape — renders demos/out/demo.gif (gitignored staging;
+# the demo workflow publishes renders to the site repo). Requires
+# docker: run it via the VHS image with the repo mounted at /vhs.
 # The app under test is ./dist/rootle-linux-x86_64-musl (CI builds it;
 # locally, demo_setup.sh falls back to a debug build).
 # the fs stdio provider serves a temp fixture built by demo_setup.sh.
 
-Output doc/demo.gif
+Output demos/out/demo.gif
 
 Set Shell "bash"
 Set FontSize 18
