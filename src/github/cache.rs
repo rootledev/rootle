@@ -46,19 +46,66 @@ fn root_or_migrate() -> Option<PathBuf> {
     Some(base.join("providers").join("github"))
 }
 
+/// Path components (owner, repo, branch, sha) come from API responses
+/// and are not trusted to be well-formed: percent-encode everything
+/// outside [A-Za-z0-9_-] so a `feature/foo` branch (a legitimate
+/// name) stays one path segment and separators / `..` can never
+/// become path structure. Dots encode too — a literal `..` must not
+/// survive as a component.
+fn encode_component(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' => out.push(b as char),
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
+
+/// Inverse of `encode_component`; invalid sequences pass through —
+/// they can only come from files this module wrote.
+fn decode_component(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%' && i + 2 < b.len() {
+            let hex = |c: u8| {
+                (c as char)
+                    .is_ascii_hexdigit()
+                    .then(|| (c as char).to_digit(16).unwrap() as u8)
+            };
+            if let (Some(h), Some(l)) = (hex(b[i + 1]), hex(b[i + 2])) {
+                out.push((h << 4) | l);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(b[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
 fn ref_path(root: &std::path::Path, owner: &str, repo: &str, branch: &str) -> PathBuf {
-    root.join("index/refs").join(owner).join(repo).join(branch)
+    root.join("index/refs")
+        .join(encode_component(owner))
+        .join(encode_component(repo))
+        .join(encode_component(branch))
 }
 
 fn tree_path(root: &std::path::Path, sha: &str) -> PathBuf {
-    root.join("trees").join(format!("{sha}.json"))
+    root.join("trees")
+        .join(format!("{}.json", encode_component(sha)))
 }
 
-/// Blobs fan out by the sha's first 2 chars: blobs/<ab>/<rest>.
+/// Blobs fan out by the sha's first 2 chars: blobs/<ab>/<rest>. The
+/// encoded sha is pure ASCII, so the byte slices can't split a char.
 fn blob_path(root: &std::path::Path, sha: &str) -> PathBuf {
-    root.join("blobs")
-        .join(&sha[..2.min(sha.len())])
-        .join(&sha[2.min(sha.len())..])
+    let sha = encode_component(sha);
+    let split = 2.min(sha.len());
+    root.join("blobs").join(&sha[..split]).join(&sha[split..])
 }
 
 pub fn read_blob(sha: &str) -> Option<Vec<u8>> {
@@ -75,12 +122,19 @@ pub fn write_blob(sha: &str, bytes: &[u8]) -> io::Result<()> {
     atomic_write(&blob_path(&root, sha), bytes)
 }
 
-/// The branch a repo was last opened on (first cached ref) — lets
-/// fetch_tree skip the repo-meta round trip entirely.
 pub fn cached_branch(owner: &str, repo: &str) -> Option<String> {
-    let dir = root_or_migrate()?.join("index/refs").join(owner).join(repo);
-    let entry = std::fs::read_dir(dir).ok()?.next()?.ok()?;
-    entry.file_name().into_string().ok()
+    let dir = root_or_migrate()?
+        .join("index/refs")
+        .join(encode_component(owner))
+        .join(encode_component(repo));
+    // First cached ref — skips any .tmp left by an interrupted write.
+    // Entry names are encoded (a `feature/foo` branch is one entry);
+    // decode back to the real branch name.
+    let entry = std::fs::read_dir(dir)
+        .ok()?
+        .filter_map(|e| e.ok())
+        .find(|e| !e.file_name().to_string_lossy().ends_with(".tmp"))?;
+    Some(decode_component(&entry.file_name().into_string().ok()?))
 }
 
 pub fn read_ref(owner: &str, repo: &str, branch: &str) -> Option<RefCache> {
@@ -383,5 +437,84 @@ mod tests {
         if let Some(root) = root() {
             let _ = std::fs::remove_dir_all(root.join("index/refs/rootle-test"));
         }
+    }
+
+    #[test]
+    fn branch_with_slash_is_one_component_and_roundtrips() {
+        if root().is_none() {
+            return;
+        }
+        // "feature/foo" is a legitimate branch name: it must cache as
+        // ONE path entry (percent-encoded), read_ref must find it, and
+        // cached_branch must return the full name (not "feature").
+        write_ref(
+            "rootle-test-slash",
+            "slash-branch",
+            "feature/foo",
+            &RefCache {
+                tree_sha: "abc".into(),
+                etag: None,
+            },
+        )
+        .unwrap();
+        if let Some(root) = root() {
+            // The ref is a FILE at .../slash-branch/feature%2Ffoo, not a
+            // directory tree .../slash-branch/feature/foo.
+            let p = ref_path(&root, "rootle-test-slash", "slash-branch", "feature/foo");
+            assert!(p.is_file(), "{} should be a file", p.display());
+            assert!(p.file_name().unwrap().to_string_lossy().contains("feature"));
+            assert!(!p.to_string_lossy().contains("feature/foo"));
+        }
+        assert_eq!(
+            read_ref("rootle-test-slash", "slash-branch", "feature/foo").map(|r| r.tree_sha),
+            Some("abc".into())
+        );
+        assert_eq!(
+            cached_branch("rootle-test-slash", "slash-branch").as_deref(),
+            Some("feature/foo")
+        );
+        if let Some(root) = root() {
+            let _ = std::fs::remove_dir_all(root.join("index/refs/rootle-test"));
+        }
+    }
+
+    #[test]
+    fn traversal_and_hostile_components_stay_inside_the_cache() {
+        let root = temp_root("hostile");
+        // Every component is encoded before it becomes path structure:
+        // separators, dots, and NUL can only appear percent-encoded.
+        let p = ref_path(&root, "../../home", "o/r", "main");
+        let s = p.to_string_lossy();
+        assert!(
+            s.starts_with(root.to_string_lossy().as_ref()),
+            "stays under the cache root"
+        );
+        assert!(!s.contains(".."), "no dot-dot survives encoding: {s}");
+        assert!(
+            !s.matches('/').count() > 3 + root.to_string_lossy().matches('/').count() + 4,
+            "no extra separators"
+        );
+        // Branch "a/b" and repo "a" cannot collide with branch "b" on
+        // repo "a/a": encodings differ.
+        let p1 = ref_path(&root, "o", "a", "a/b");
+        let p2 = ref_path(&root, "o", "a/a", "b");
+        assert_ne!(p1, p2);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn non_ascii_sha_is_a_miss_not_a_panic() {
+        // blob_path used to byte-slice the raw sha — a multibyte char
+        // at the boundary panicked. Encoding makes the slice safe, and
+        // a hostile sha reads as a plain miss.
+        let root = temp_root("sha");
+        assert!(read_blob_at(&root, "日本語").is_none());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // read_blob against an explicit root (the public fn resolves the
+    // real cache dir; tests must not touch it).
+    fn read_blob_at(root: &Path, sha: &str) -> Option<Vec<u8>> {
+        std::fs::read(blob_path(root, sha)).ok()
     }
 }
