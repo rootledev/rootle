@@ -97,12 +97,18 @@ Details:
 - `search/repos` — `items` defaults to `[]`. An item with `full_name`
   is a repo; else `org` is an org; items with neither are dropped.
 - `org/repos` — `repos` defaults to `[]` (repo names, not full paths).
-- `repo/tree` — one entry per path, recursive over the default branch:
+- `repo/tree` — one entry per path, recursive over the default branch.
+  Pagination is the adapter's job: backends that page (GitLab keyset,
+  GitHub none) are aggregated up to an adapter-chosen budget, with
+  `truncated: true` past it — the wire stays unpaginated:
   `{"path":"src/main.rs","type":"blob","sha":"…","size":123}` where
   `type` is `"blob"` or `"tree"` (`"tree"` renders as a directory);
   `size` is optional and blobs only. `entries` defaults to `[]`,
   `truncated` to `false`, `branch` to `"main"`.
-- `repo/blob` — `bytes_b64` is standard-base64 file content.
+- `repo/blob` — `bytes_b64` is standard-base64 file content. rootle
+  refuses blobs over 1 MiB at its boundary regardless of provider
+  (preview-pane policy); adapters MAY refuse earlier with a
+  `provider`-kinded error.
 - `repo/web_url` — build the browser URL for a repo root (`path` empty),
   a path (tree/blob grammar is the provider's), appending a line
   fragment when `line` is a number (`line` is JSON `null` when absent;
@@ -195,6 +201,13 @@ timeout_ms = 30000      # v1.2: per-request read deadline (default 30s)
 `kind = "github"` (the default) uses the built-in provider. An empty
 command, a failed spawn, or an unknown kind falls back to GitHub with
 a warning on the status line — misconfiguration never blocks startup.
+
+**Credential & instance conventions (recommended, not parsed):** the
+child inherits rootle's environment — read tokens from a
+backend-specific env var (`GITLAB_TOKEN`, …) **lazily, on first use**,
+never at startup (the restart obligations above); instance/hostname
+selection belongs in argv (`--instance URL`). The fs reference adapter
+and the GitLab adapter (`rootle-gitlab`) both follow this shape.
 
 Try the reference adapter against a directory of repos:
 

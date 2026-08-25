@@ -30,7 +30,9 @@ record the answer — the scaffold and the tests encode them.
 
 **Identity & content ids (the contract that breaks caches if wrong)**
 4. Repo id scheme: rootle treats repos as opaque `"group/project"`
-   strings. What is yours? (Must contain exactly one `/`.)
+   strings. What is yours? (One or more `/` — nested groups like
+   `group/sub/project` are legal; every rootle parse site splits on
+   the FIRST slash, org = first component.)
 5. **Content ids (`sha`)**: can you hash file content (sha256 of
    bytes)? REQUIRED: the id MUST change when content changes and MUST
    NOT change when it doesn't. If your backend has no such id, the

@@ -36,6 +36,33 @@ def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def list_repos(root: str) -> list[str]:
+    """Repo names under ORG, nested paths included ("nested/sub"):
+    a directory is a repo when it holds files directly; directories
+    with only subdirectories keep descending (bounded). Multi-slash
+    ids are legal — rootle treats repos as opaque strings."""
+    def walk(dir: str, rel: str, depth: int) -> list[str]:
+        out: list[str] = []
+        for d in sorted(os.listdir(dir)):
+            full = os.path.join(dir, d)
+            if not os.path.isdir(full) or d in SKIP_DIRS:
+                continue
+            child_rel = f"{rel}/{d}" if rel else d
+            entries = os.listdir(full)
+            has_file = any(os.path.isfile(os.path.join(full, e)) for e in entries)
+            is_worktree = ".git" in entries
+            if has_file or is_worktree:
+                # A directory with files — or a git worktree, whose root
+                # may hold only subdirs — is a repo (a forge project
+                # root); never descend into one.
+                out.append(child_rel)
+            elif depth < 3:
+                out.extend(walk(full, child_rel, depth + 1))
+        return out
+
+    return walk(root, "", 0)
+
+
 def repo_dir(root: str, repo: str) -> str:
     if "/" not in repo:
         raise ValueError(f"bad repo id {repo!r}")
@@ -141,22 +168,16 @@ def handle(root: str, method: str, params: dict) -> dict:
         }
     if method == "search/repos":
         query = params.get("query", "").lower()
-        items = []
-        for d in sorted(os.listdir(root)):
-            full = os.path.join(root, d)
-            if os.path.isdir(full) and d not in SKIP_DIRS and query in d.lower():
-                items.append({"full_name": f"{ORG}/{d}"})
+        items = [
+            {"full_name": f"{ORG}/{d}"}
+            for d in list_repos(root)
+            if query in d.lower()
+        ]
         if not items:
             items.append({"org": ORG})
         return {"items": items[:20]}
     if method == "org/repos":
-        return {
-            "repos": [
-                d
-                for d in sorted(os.listdir(root))
-                if os.path.isdir(os.path.join(root, d)) and d not in SKIP_DIRS
-            ]
-        }
+        return {"repos": list_repos(root)}
     if method == "repo/tree":
         repo = params["repo"]
         return {
