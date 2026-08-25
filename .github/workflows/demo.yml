@@ -110,10 +110,14 @@ jobs:
           path: demos/out/${{ matrix.theme == 'catppuccin-mocha' && 'demo.gif' || format('demo-{0}.gif', matrix.theme) }}
           if-no-files-found: error
 
-  # Land the renders in the site repo (img/) as a reused bot PR. The
-  # site deploys itself on merge. Needs SITE_REPO_TOKEN (fine-grained
-  # PAT: contents:write + pull-requests:write on
-  # rootledev/rootledev.github.io) — same shape as HOMEBREW_TAP_TOKEN.
+  # Land the renders in the site repo (img/) as a direct commit on its
+  # main — the site repo is unprotected and the pages workflow deploys
+  # on push, so a PR there would be ceremony. Idempotent: an unchanged
+  # render commits nothing, so this never loops (a site-repo push
+  # doesn't re-trigger this workflow either — it watches this repo's
+  # src/demos/e2e). Needs SITE_REPO_TOKEN (fine-grained PAT:
+  # contents:write on rootledev/rootledev.github.io) — same shape as
+  # HOMEBREW_TAP_TOKEN.
   publish:
     needs: render
     runs-on: ubuntu-latest
@@ -138,37 +142,15 @@ jobs:
           done
           ls -la img/
 
-      # Idempotent: an unchanged render commits nothing, so this never
-      # loops. The PR is reused — every render force-pushes the
-      # demo/artifacts branch and rewrites the body with the source SHA;
-      # the [bot] marker makes its provenance unambiguous. The site's
-      # pages workflow deploys on merge.
-      - name: Open artifacts PR if renders changed
+      - name: Commit if renders changed
         env:
-          GH_TOKEN: ${{ secrets.SITE_REPO_TOKEN }}
           APP_SHA: ${{ github.sha }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add img/
-          git diff --cached --quiet && exit 0
+          git diff --cached --quiet && { echo "no render changes"; exit 0; }
           changed="$(git diff --cached --name-only | sed 's/^/- /')"
-          git checkout -B demo/artifacts
-          git commit -m "docs: refresh demo GIFs"
-          git push -f origin demo/artifacts
-          title="chore(demo): refresh demo GIFs [bot]"
-          body="Re-rendered demo artifacts from the app repo's demo workflow.
-
-          - rendered from: \`rootledev/rootle@${APP_SHA:0:8}\`
-          - at: $(date -u '+%Y-%m-%d %H:%M UTC')
-
-          $changed
-
-          Merge to deploy (pages.yml redeploys this repo). This PR is
-          reused: every render force-pushes demo/artifacts and rewrites
-          this body."
-          if gh pr view demo/artifacts --json state -q .state 2>/dev/null | grep -q OPEN; then
-            gh pr edit demo/artifacts --title "$title" --body "$body"
-          else
-            gh pr create --base main --head demo/artifacts --title "$title" --body "$body"
-          fi
+          git commit -m "docs: refresh demo GIFs (rootle@${APP_SHA:0:8})"
+          git push origin main
+          echo "pushed:$changed"

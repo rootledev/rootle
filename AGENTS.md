@@ -56,9 +56,9 @@ docker or `sudo`.
 - `main` is protected: PRs only, `test` check required. As the repo
   owner you merge with the admin override.
 - The `demo` workflow re-renders the demo GIFs (one per palette) when
-  `src/`, `demos/`, or `e2e/` change and opens a `demo/artifacts` PR on
-  the SITE repo (needs the `SITE_REPO_TOKEN` secret) — merge there to
-  redeploy the site. Renders stage in gitignored `demos/out/`.
+  `src/`, `demos/`, or `e2e/` change and commits them to the site
+  repo's `img/` (needs the `SITE_REPO_TOKEN` secret) — the site
+  redeploys itself on push. Renders stage in gitignored `demos/out/`.
 - The site (rootle.dev) is its own repo:
   `rootledev/rootledev.github.io` — landing (`website/`), user docs
   (`doc/`: settings, themes), demo GIFs (`img/`). Editing that repo is
