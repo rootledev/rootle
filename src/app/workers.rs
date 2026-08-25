@@ -6,6 +6,34 @@
 use super::{App, trace};
 use crate::components::global_search::SearchKind;
 use crate::event::AppEvent;
+use crate::provider::{ErrorKind, ProviderError, ProviderResult};
+
+/// Blobs over 1 MiB never enter the app, whatever the provider: the
+/// preview pane rejects them anyway, and no backend (in-tree or stdio)
+/// should be able to push a giant payload through the pipe. The
+/// uniform guarantee lives here, at the boundary, not in each provider
+/// (plans/0009 R1).
+const BLOB_CAP: usize = 1024 * 1024;
+
+/// fetch_blob with the uniform cap; every blob path in the app goes
+/// through this.
+fn fetch_blob_capped(
+    provider: &dyn crate::provider::Provider,
+    repo: &str,
+    sha: &str,
+) -> ProviderResult<Vec<u8>> {
+    let bytes = provider.fetch_blob(repo, sha)?;
+    if bytes.len() > BLOB_CAP {
+        return Err(ProviderError::new(
+            ErrorKind::Provider,
+            format!(
+                "blob {sha} is {} KiB — over the 1 MiB preview cap",
+                bytes.len() / 1024
+            ),
+        ));
+    }
+    Ok(bytes)
+}
 
 impl App {
     /// Style raw hits at the UI boundary: syntect highlight + grep
@@ -161,7 +189,8 @@ impl App {
         let tx = self.tx.clone();
         std::thread::spawn(move || {
             trace(&format!("blob start {sha}"));
-            let event = match provider.fetch_blob(&format!("{owner}/{repo}"), &sha) {
+            let event = match fetch_blob_capped(provider.as_ref(), &format!("{owner}/{repo}"), &sha)
+            {
                 Ok(bytes) => {
                     trace(&format!("blob ok {sha} {} bytes", bytes.len()));
                     AppEvent::BlobLoaded { sha, name, bytes }
@@ -214,7 +243,7 @@ impl App {
                 "hit ctx start gen={gen_id} {} sha={sha}",
                 hit.path
             ));
-            let event = match provider.fetch_blob(&hit.repo, &sha) {
+            let event = match fetch_blob_capped(provider.as_ref(), &hit.repo, &sha) {
                 Ok(bytes) => {
                     let needles: Vec<String> =
                         query.split_whitespace().map(str::to_string).collect();

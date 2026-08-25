@@ -50,7 +50,11 @@ def make_fs_root(tmp: Path) -> Path:
     )
     (alpha / "README.md").write_text("# alpha\nrender docs\n")
     beta = root / "beta"
-    beta.mkdir(parents=True)
+    # Nested repo: group/subgroup/project shape (multi-slash ids).
+    deep = root / "nested" / "sub" / "deep"
+    deep.mkdir(parents=True)
+    (deep / "lib.rs").write_text("pub fn deep_fn() -> u32 {\n    42\n}\n")
+    beta.mkdir()
     (beta / "notes.txt").write_text("nothing to see\n")
     return root
 

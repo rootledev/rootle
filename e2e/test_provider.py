@@ -64,6 +64,23 @@ def test_fs_provider_grep_over_stdio(provider_tui: Tui) -> None:
     tui.expect("matches")  # folded match-count badge
     tui.expect("fn render() -> &'static str {")  # located region
 
+def test_nested_repo_ids_are_opaque(provider_tui: Tui) -> None:
+    """Multi-slash repo ids (GitLab's group/subgroup/project shape)
+    flow through search, the browser, and the preview untouched —
+    plans/0009 R2: the UI never parses repo strings."""
+    tui = provider_tui
+    tui.type_query("deep")
+    tui.key("ENTER")
+    tui.expect("[repo]")
+    tui.expect("local/nested/sub/deep")
+
+    tui.key("ENTER")
+    tui.expect("lib.rs")
+    # Preview is the blob from the nested repo (content hash).
+    tui.send("l")
+    tui.expect("deep_fn")
+    tui.expect("42")
+
 
 def test_provider_process_is_spawned_and_child(provider_tui: Tui) -> None:
     """The stdio child must exist while the app runs and die with it
