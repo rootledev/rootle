@@ -197,16 +197,14 @@ impl Provider for StdioProvider {
             return;
         }
         let line = cancel_notification(id);
-        let Ok(mut process) = self.process.lock() else {
-            return;
-        };
+        let mut process = self.process.lock();
         let _ = writeln!(process.stdin, "{line}");
         let _ = process.stdin.flush();
     }
 
     /// One-shot restart notice for the status line (plans/0008 §5).
     fn take_notice(&self) -> Option<String> {
-        self.notice.lock().expect("notice poisoned").take()
+        self.notice.lock().take()
     }
 }
 

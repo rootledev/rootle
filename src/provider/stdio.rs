@@ -22,9 +22,10 @@
 //! leaves a notice (`take_notice`) for the status line.
 
 use super::{Capabilities, ErrorKind, ProviderError, ProviderResult};
+use parking_lot::Mutex;
 use serde_json::{Value, json};
-use std::sync::atomic::AtomicU64;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
@@ -34,7 +35,7 @@ mod wire;
 #[cfg(test)]
 mod tests;
 
-use transport::{Process, Shared, StderrMode, backoff_for, reader_loop, spawn_process};
+use transport::{Lifecycle, Process, Shared, StderrMode, backoff_for, reader_loop, spawn_process};
 
 /// Default per-request read deadline; `[provider] timeout_ms`.
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_millis(30_000);
@@ -42,12 +43,12 @@ pub const DEFAULT_TIMEOUT: Duration = Duration::from_millis(30_000);
 pub struct StdioProvider {
     name: String,
     capabilities: Capabilities,
-    /// Child + its stdin, swapped on respawn. Writes take this lock:
+    /// Child + its stdin, swapped on rebuild. Writes take this lock:
     /// an advisory cancel (v1.1) must not queue behind another writer.
     process: Mutex<Process>,
-    /// Id allocation + reply routing + liveness, shared with the
+    /// Id allocation + reply routing + lifecycle, shared with the
     /// reader thread(s).
-    shared: Arc<Mutex<Shared>>,
+    shared: Arc<Shared>,
     /// Request id currently in flight (0 = none) — advisory-cancel
     /// bookkeeping only; with pipelined requests it names one of them,
     /// which is fine (cancel is best-effort by contract).
@@ -59,9 +60,13 @@ pub struct StdioProvider {
     env: Vec<(String, String)>,
     stderr_mode: StderrMode,
     reader: Mutex<Option<JoinHandle<()>>>,
-    /// One-shot UI notice (a successful restart), drained via
-    /// `take_notice` (plans/0008 §5).
+    /// One-shot UI notice (a successful restart, a config warning),
+    /// drained via `take_notice` (plans/0008 §5).
     notice: Mutex<Option<String>>,
+    /// Set by Drop: a rebuild sleeping in backoff checks this before
+    /// spawning a replacement, so dropping the provider mid-recovery
+    /// can't leak an orphan child after the app is gone.
+    closed: AtomicBool,
 }
 
 impl Drop for StdioProvider {
@@ -69,13 +74,11 @@ impl Drop for StdioProvider {
     /// (kill first — stdin EOF alone is timing-dependent; the dead
     /// stdout then lets the reader thread exit and be joined).
     fn drop(&mut self) {
-        if let Ok(process) = self.process.get_mut() {
-            let _ = process.child.kill();
-            let _ = process.child.wait();
-        }
-        if let Ok(mut reader) = self.reader.lock()
-            && let Some(handle) = reader.take()
-        {
+        self.closed.store(true, Ordering::Release);
+        let process = self.process.get_mut();
+        let _ = process.child.kill();
+        let _ = process.child.wait();
+        if let Some(handle) = self.reader.lock().take() {
             let _ = handle.join();
         }
     }
@@ -120,7 +123,7 @@ impl StdioProvider {
         stderr_mode: StderrMode,
     ) -> ProviderResult<Self> {
         let (process, stdout) = spawn_process(command, env, stderr_mode)?;
-        let shared = Arc::new(Mutex::new(Shared::default()));
+        let shared = Arc::new(Shared::default());
         let reader = std::thread::spawn({
             let shared = Arc::clone(&shared);
             move || reader_loop(stdout, shared)
@@ -143,6 +146,7 @@ impl StdioProvider {
             stderr_mode,
             reader: Mutex::new(Some(reader)),
             notice: Mutex::new(None),
+            closed: AtomicBool::new(false),
         };
         // Same deadline as any request: a provider that hangs on
         // startup fails into the github fallback instead of blocking
@@ -151,9 +155,11 @@ impl StdioProvider {
         provider.initialize_from(reply)
     }
 
-    /// The v1 handshake. Also the liveness proof after a respawn.
+    /// The v1 handshake. Also the liveness proof after a rebuild: it
+    /// runs ungated so the rebuilder can validate the fresh child
+    /// while the transport sits in `Respawning`.
     fn handshake(&self) -> ProviderResult<Value> {
-        let reply = self.round_trip("initialize", json!({ "protocol": 1 }))?;
+        let reply = self.exchange("initialize", json!({ "protocol": 1 }), false)?;
         let protocol = reply.get("protocol").and_then(Value::as_u64).unwrap_or(1);
         if protocol != 1 {
             return Err(ProviderError::new(
@@ -180,35 +186,80 @@ impl StdioProvider {
         Ok(self)
     }
 
-    /// One NDJSON-RPC round trip with liveness: respawn first if the
+    /// One NDJSON-RPC round trip with liveness: rebuild first if the
     /// reader thread reported EOF (plans/0008 §5).
     fn request(&self, method: &str, params: Value) -> ProviderResult<Value> {
         self.ensure_alive()?;
-        self.round_trip(method, params)
+        self.exchange(method, params, true)
     }
 
-    /// Fast-path alive check; on death, one serialized respawn attempt
-    /// per request. A failed attempt leaves the transport dead — the
-    /// next request retries on a longer backoff, so a backend that
-    /// recovers (fresh credentials, network back) rejoins on its own.
+    /// The recovery gate. `Alive` proceeds; the first caller to see
+    /// `Dead` becomes the rebuilder (state → `Respawning`, lock
+    /// released before any sleeping); callers arriving while a rebuild
+    /// is in flight wait on the condvar — the mutex stays free, so id
+    /// allocation and reply routing never queue behind a backoff
+    /// sleep. A waiter that wakes to `Dead` fails immediately with the
+    /// attempt's stored error: at most ONE caller ever pays for a
+    /// given rebuild attempt, and nobody chains into a second sleep.
+    /// A fresh caller arriving after a failed attempt starts the next
+    /// one on the longer backoff — a backend that recovers (fresh
+    /// credentials, network back) rejoins on its own.
     fn ensure_alive(&self) -> ProviderResult<()> {
-        if !self.shared.lock().expect("provider shared poisoned").dead {
-            return Ok(());
+        let mut routing = self.shared.routing.lock();
+        let mut waited = false;
+        loop {
+            match routing.lifecycle {
+                Lifecycle::Alive => return Ok(()),
+                Lifecycle::Respawning => {
+                    waited = true;
+                    // Reacquires `routing` on wake; the loop re-reads
+                    // the state (spurious wakeups are fine).
+                    self.shared.changed.wait(&mut routing);
+                }
+                Lifecycle::Dead if waited => {
+                    let reason = routing.restart_error.clone();
+                    drop(routing);
+                    return Err(match reason {
+                        Some(why) => ProviderError::new(
+                            ErrorKind::Provider,
+                            format!("provider restart failed: {why}"),
+                        ),
+                        None => ProviderError::new(
+                            ErrorKind::Provider,
+                            "provider restarting — try again",
+                        ),
+                    });
+                }
+                Lifecycle::Dead => {
+                    routing.lifecycle = Lifecycle::Respawning;
+                    routing.restart_error = None;
+                    let attempt = routing.restarts + 1;
+                    drop(routing);
+                    return self.rebuild(attempt);
+                }
+            }
         }
-        self.respawn()
     }
 
-    fn respawn(&self) -> ProviderResult<()> {
-        let mut shared = self.shared.lock().expect("provider shared poisoned");
-        if !shared.dead {
-            return Ok(()); // another request beat us to it
-        }
-        let attempt = shared.restarts + 1;
-        // Sleeping under the lock serializes concurrent callers into
-        // one respawn — intended (plans/0008 §5).
+    /// Rebuild the child after transport death: backoff sleep, reap
+    /// the dead reader, spawn the replacement, then prove it with the
+    /// v1 handshake — only a validated child flips the transport back
+    /// to `Alive`, so no request ever runs against an unproven
+    /// process. Runs with no locks held; `Respawning` (set by the
+    /// caller) makes other threads wait rather than pile onto the
+    /// mutex.
+    fn rebuild(&self, attempt: u32) -> ProviderResult<()> {
         std::thread::sleep(backoff_for(attempt));
+        if self.closed.load(Ordering::Acquire) {
+            // Dropped mid-recovery (app exit): don't spawn a child
+            // nobody will ever kill. Still publish the outcome so any
+            // waiter wakes and fails instead of waiting forever.
+            let err = ProviderError::other("provider dropped during restart");
+            self.finish_rebuild(attempt, Err(&err));
+            return Err(err);
+        }
         // Reap the dead reader before replacing the process.
-        if let Some(handle) = self.reader.lock().expect("reader poisoned").take() {
+        if let Some(handle) = self.reader.lock().take() {
             let _ = handle.join();
         }
         let env: Vec<(&str, &str)> = self
@@ -221,22 +272,40 @@ impl StdioProvider {
             let shared = Arc::clone(&self.shared);
             move || reader_loop(stdout, shared)
         });
-        *self.process.lock().expect("provider process poisoned") = process;
-        *self.reader.lock().expect("reader poisoned") = Some(reader);
-        shared.dead = false;
-        shared.restarts = attempt;
-        drop(shared);
+        *self.process.lock() = process;
+        *self.reader.lock() = Some(reader);
 
-        // The handshake is the liveness proof; on failure the
-        // transport flips back to dead and the request fails here.
-        if let Err(e) = self.handshake() {
-            self.shared.lock().expect("provider shared poisoned").dead = true;
-            return Err(e);
+        // The handshake is the liveness proof. On failure the
+        // transport returns to Dead; the next fresh request retries on
+        // the longer backoff.
+        let proof = self.handshake();
+        if proof.is_ok() {
+            *self.notice.lock() = Some(format!(
+                "provider restarted (attempt {attempt}, backoff {}s)",
+                backoff_for(attempt).as_secs()
+            ));
         }
-        *self.notice.lock().expect("notice poisoned") = Some(format!(
-            "provider restarted (attempt {attempt}, backoff {}s)",
-            backoff_for(attempt).as_secs()
-        ));
-        Ok(())
+        let outcome: Result<(), &ProviderError> = proof.as_ref().map(|_| ());
+        self.finish_rebuild(attempt, outcome);
+        proof.map(|_| ())
+    }
+
+    /// Publish a rebuild's outcome under the lock and wake every
+    /// waiter.
+    fn finish_rebuild(&self, attempt: u32, outcome: Result<(), &ProviderError>) {
+        let mut routing = self.shared.routing.lock();
+        match outcome {
+            Ok(()) => {
+                routing.lifecycle = Lifecycle::Alive;
+                routing.restarts = attempt;
+                routing.restart_error = None;
+            }
+            Err(e) => {
+                routing.lifecycle = Lifecycle::Dead;
+                routing.restart_error = Some(e.message.clone());
+            }
+        }
+        drop(routing);
+        self.shared.changed.notify_all();
     }
 }

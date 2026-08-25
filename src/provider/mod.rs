@@ -199,17 +199,31 @@ pub fn build(config: &crate::config::Config) -> (Arc<dyn Provider>, Option<Strin
             Arc::new(github::GitHubProvider::new(config.cache.max_mb)),
             None,
         ),
-        "stdio" => match stdio::StdioProvider::spawn_with_stderr(
-            &config.provider.command,
-            std::time::Duration::from_millis(config.provider.timeout_ms),
-            config.provider.stderr == "inherit",
-        ) {
-            Ok(p) => (Arc::new(p), None),
-            Err(e) => (
-                Arc::new(github::GitHubProvider::new(config.cache.max_mb)),
-                Some(format!("provider stdio failed ({e}); fell back to github")),
-            ),
-        },
+        "stdio" => {
+            // Recognized values: unset/empty, "null" (discard), and
+            // "inherit" (pass through). Anything else discards with a
+            // warning — a typo shouldn't silently disable debugging.
+            let stderr = config.provider.stderr.trim();
+            let inherit = stderr == "inherit";
+            let warn = if inherit || stderr.is_empty() || stderr == "null" {
+                None
+            } else {
+                Some(format!(
+                    "provider stderr {stderr:?} not recognized (use \"inherit\" or \"null\"); discarding child stderr"
+                ))
+            };
+            match stdio::StdioProvider::spawn_with_stderr(
+                &config.provider.command,
+                std::time::Duration::from_millis(config.provider.timeout_ms),
+                inherit,
+            ) {
+                Ok(p) => (Arc::new(p), warn),
+                Err(e) => (
+                    Arc::new(github::GitHubProvider::new(config.cache.max_mb)),
+                    Some(format!("provider stdio failed ({e}); fell back to github")),
+                ),
+            }
+        }
         other => (
             Arc::new(github::GitHubProvider::new(config.cache.max_mb)),
             Some(format!("unknown provider kind {other:?}; using github")),

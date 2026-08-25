@@ -32,11 +32,23 @@ else as an NDJSON-RPC stdio child](architecture.svg)
   finally arrives.
 - **Restart (v1.2):** a closed stdout fails every in-flight call
   ("provider closed its output") and marks the transport dead. The
-  next request respawns the child with bounded backoff
-  (1s → 2s → 5s → 30s cap) and re-runs `initialize` before proceeding;
-  the status line notes the restart. A provider that crashes is
-  therefore self-healing — keep startup cheap and stateless where
-  possible.
+  next request rebuilds the child with bounded backoff
+  (1s → 2s → 5s → 30s cap) and re-runs `initialize` before
+  proceeding — only a child that passed the handshake serves
+  requests, and the status line notes the restart. Concurrency: at
+  most one caller waits out a given rebuild attempt; others either
+  ride the validated result or fail fast with the attempt's error.
+  `timeout_ms` is a per-round-trip read deadline, not an end-to-end
+  bound — a request that triggers a rebuild can additionally wait one
+  backoff interval plus one handshake round trip before its own
+  attempt.
+- **Restart obligations (provider side):** the child may be killed
+  and re-`initialize`d an unbounded number of times within one
+  session — rootle kills it on exit and restarts it after any death.
+  Startup MUST therefore be cheap and idempotent; fetch credentials
+  lazily (first use, not at spawn) and cache them — and anything else
+  worth keeping — on disk, keyed by the content ids above. In-memory
+  state dies with every generation.
 - **Reader tolerance (normative, both directions):** unknown fields in
   requests, replies, and results MUST be ignored, and unsolicited
   notifications MUST be ignored. v1.1 additions are additive for exactly
@@ -177,9 +189,9 @@ when the child dies.
 kind = "stdio"
 command = ["python3", "/path/to/fs_provider.py", "/path/to/code"]
 timeout_ms = 30000      # v1.2: per-request read deadline (default 30s)
-# stderr = "inherit"    # v1.2: pass child stderr through (default "null")
-```
-
+# stderr = "inherit"    # v1.2: pass child stderr through. Recognized:
+                       # "inherit" | "null" (default); anything else
+                       # warns on the status line and discards.
 `kind = "github"` (the default) uses the built-in provider. An empty
 command, a failed spawn, or an unknown kind falls back to GitHub with
 a warning on the status line — misconfiguration never blocks startup.

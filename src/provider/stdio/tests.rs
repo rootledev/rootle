@@ -8,6 +8,7 @@ use super::StdioProvider;
 use crate::provider::{ErrorKind, Provider, ProviderError};
 use serde_json::json;
 use std::io::{BufRead, Write};
+use std::sync::Arc;
 use std::time::Duration;
 
 #[test]
@@ -18,6 +19,9 @@ fn fake_provider_child() {
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout();
     let mut handshaken = false;
+    // "swap-2-3": id 2's reply is held back until id 3 arrives, then
+    // answered after it — replies arrive out of request order.
+    let mut stashed: Option<u64> = None;
     for line in stdin.lock().lines() {
         let line = line.expect("child read");
         let id: u64 = serde_json::from_str::<serde_json::Value>(&line).unwrap()["id"]
@@ -36,6 +40,24 @@ fn fake_provider_child() {
             continue;
         }
         match mode.as_str() {
+            // Out-of-order replies: hold id 2 back; when id 3 lands,
+            // answer 3 first, then the stashed 2. The child is
+            // strictly sequential — deferring is the only way its
+            // replies can overtake.
+            "swap-2-3" => {
+                if id == 2 {
+                    stashed = Some(id);
+                } else {
+                    writeln!(stdout, r#"{{"jsonrpc":"2.0","id":{id},"result":{{}}}}"#).unwrap();
+                    stdout.flush().unwrap();
+                    if let Some(held) = stashed.take() {
+                        std::thread::sleep(Duration::from_millis(300));
+                        writeln!(stdout, r#"{{"jsonrpc":"2.0","id":{held},"result":{{}}}}"#)
+                            .unwrap();
+                        stdout.flush().unwrap();
+                    }
+                }
+            }
             // Swallow id 2 without replying but keep serving later
             // requests — models a single lost/hung backend call.
             "hang-on-2" if id == 2 => {}
@@ -183,4 +205,127 @@ fn restart_recovers_after_child_death() {
         "notice names the restart, got: {notice}"
     );
     assert!(provider.take_notice().is_none(), "notice is one-shot");
+}
+
+/// S2, now load-bearing: two requests in flight at once, replies
+/// arriving OUT of request order (id 3 answers before the stashed
+/// id 2). The per-id reply slots must route each reply to its own
+/// caller — B completes while A is still waiting.
+#[test]
+fn concurrent_requests_route_out_of_order_replies() {
+    let provider = std::sync::Arc::new(fake("swap-2-3", Duration::from_secs(5)));
+    let (tx, rx) = std::sync::mpsc::channel::<(&'static str, std::time::Instant)>();
+
+    let a = {
+        let provider = Arc::clone(&provider);
+        let tx = tx.clone();
+        std::thread::spawn(move || {
+            provider
+                .request("a/first", json!({}))
+                .expect("request A (stashed reply) must still be answered");
+            tx.send(("A", std::time::Instant::now())).unwrap();
+        })
+    };
+    // Give A's line time to reach the child so it holds id 2 back.
+    std::thread::sleep(Duration::from_millis(150));
+    let b = {
+        let provider = Arc::clone(&provider);
+        std::thread::spawn(move || {
+            provider
+                .request("b/second", json!({}))
+                .expect("request B must be answered immediately");
+            tx.send(("B", std::time::Instant::now())).unwrap();
+        })
+    };
+    a.join().expect("A panics");
+    b.join().expect("B panics");
+
+    let order: Vec<&str> = rx.iter().map(|(who, _)| who).collect();
+    assert_eq!(
+        order,
+        vec!["B", "A"],
+        "id-routed slots must deliver the fast reply (B) before the delayed one (A)"
+    );
+}
+
+/// R1/R2: a request arriving while a rebuild is in flight waits on
+/// the condvar (not the mutex), and proceeds only once the replacement
+/// child has PASSED the initialize handshake.
+#[test]
+fn waiter_during_rebuild_proceeds_on_validated_transport() {
+    let provider = Arc::new(fake("die-on-2", Duration::from_secs(5)));
+    // Kill generation 1 (id 2).
+    provider
+        .request("repo/tree", json!({ "repo": "o/r" }))
+        .expect_err("dead child must fail the request");
+
+    // The rebuilder: discovers Dead, sleeps the 1s backoff, spawns
+    // generation 2, handshakes.
+    let rebuilder = {
+        let p = Arc::clone(&provider);
+        std::thread::spawn(move || {
+            p.request("org/repos", json!({ "org": "o" }))
+                .expect("rebuild must recover the transport");
+        })
+    };
+    // Rebuilder is now parked in its backoff; this caller must see
+    // Respawning and WAIT for the validated transport, not fail, not
+    // run against the unvalidated child.
+    std::thread::sleep(Duration::from_millis(200));
+    let waiter_start = std::time::Instant::now();
+    provider
+        .request("repo/tree", json!({ "repo": "o/r" }))
+        .expect("waiter must succeed on the rebuilt transport");
+    rebuilder.join().expect("rebuilder panics");
+    assert!(
+        waiter_start.elapsed() < Duration::from_secs(4),
+        "waiter rides the in-flight rebuild instead of chaining sleeps"
+    );
+}
+
+/// R1: a waiter that wakes to a FAILED rebuild fails immediately with
+/// the attempt's reason — it must not start (and sleep through) a
+/// second backoff ladder of its own. Drives the state machine
+/// directly so the timing is deterministic.
+#[test]
+fn failed_rebuild_fails_waiters_without_resleeping() {
+    use crate::provider::ErrorKind;
+
+    let provider = Arc::new(fake("die-on-2", Duration::from_secs(5)));
+    // Kill generation 1 so no live child interferes.
+    provider
+        .request("repo/tree", json!({ "repo": "o/r" }))
+        .expect_err("dead child must fail the request");
+
+    // Park the machine in Respawning, then fail the attempt from a
+    // side thread — exactly what a rebuild whose handshake fails does.
+    {
+        let mut routing = provider.shared.routing.lock();
+        assert_eq!(routing.lifecycle, super::transport::Lifecycle::Dead);
+        routing.lifecycle = super::transport::Lifecycle::Respawning;
+    }
+    let notifier = {
+        let p = Arc::clone(&provider);
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(300));
+            let err = crate::provider::ProviderError::new(ErrorKind::Provider, "handshake boom");
+            p.finish_rebuild(1, Err(&err));
+        })
+    };
+
+    let start = std::time::Instant::now();
+    let err = provider
+        .ensure_alive()
+        .expect_err("waiter must fail when the rebuild fails");
+    notifier.join().unwrap();
+    assert_eq!(err.kind, ErrorKind::Provider);
+    assert!(
+        err.message.contains("handshake boom"),
+        "waiter sees the attempt's stored reason, got: {err}"
+    );
+    assert!(
+        start.elapsed() < Duration::from_secs(2),
+        "waiter woke and failed fast (no second backoff sleep); took {:?}",
+        start.elapsed()
+    );
 }
