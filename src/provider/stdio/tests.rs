@@ -329,3 +329,77 @@ fn failed_rebuild_fails_waiters_without_resleeping() {
         start.elapsed()
     );
 }
+
+/// The one rebuild failure mode the fixtures can't reach organically
+/// (every fake reuses this test binary as the provider, which always
+/// exists): the spawn itself failing. The outcome must publish like
+/// every other failure — a spawn error that returns early leaves the
+/// machine in Respawning forever, and every future caller parks on the
+/// condvar with nobody left to signal it.
+#[test]
+fn failed_spawn_publishes_failure_and_stays_recoverable() {
+    let mut provider = fake("die-on-2", Duration::from_secs(5));
+    // Kill generation 1 so the next request rebuilds.
+    provider
+        .request("repo/tree", json!({ "repo": "o/r" }))
+        .expect_err("dead child must fail the request");
+
+    // Now break the command: the rebuild attempt can't even spawn.
+    provider.command = vec!["/nonexistent/rootle-test-provider".into()];
+    let err = provider
+        .request("org/repos", json!({ "org": "o" }))
+        .expect_err("unspawneable provider must fail the rebuild");
+    assert!(
+        err.message.contains("spawn"),
+        "expected the spawn error, got: {err}"
+    );
+    let routing = provider.shared.routing.lock();
+    assert_eq!(
+        routing.lifecycle,
+        super::transport::Lifecycle::Dead,
+        "a failed spawn must land in Dead (recoverable), not wedge in Respawning"
+    );
+    assert!(
+        routing
+            .restart_error
+            .as_deref()
+            .is_some_and(|e| e.contains("spawn")),
+        "waiters must see the spawn failure as the stored reason"
+    );
+}
+
+/// The Drop guard: a rebuild sleeping in backoff when the provider is
+/// dropped must not spawn a replacement child (nobody would ever kill
+/// it) and must still publish its outcome so waiters wake and fail.
+#[test]
+fn closed_provider_rebuild_does_not_spawn_and_publishes() {
+    use crate::provider::ErrorKind;
+
+    let provider = Arc::new(fake("die-on-2", Duration::from_secs(5)));
+    // Kill generation 1, then simulate drop-mid-recovery.
+    provider
+        .request("repo/tree", json!({ "repo": "o/r" }))
+        .expect_err("dead child must fail the request");
+    provider
+        .closed
+        .store(true, std::sync::atomic::Ordering::Release);
+
+    let err = provider
+        .rebuild(1)
+        .expect_err("closed provider must fail the rebuild");
+    assert_eq!(err.kind, ErrorKind::Other);
+    assert!(err.message.contains("dropped"), "got: {err}");
+    let routing = provider.shared.routing.lock();
+    assert_eq!(
+        routing.lifecycle,
+        super::transport::Lifecycle::Dead,
+        "closed rebuild must land in Dead, not wedge in Respawning"
+    );
+    assert!(
+        routing
+            .restart_error
+            .as_deref()
+            .is_some_and(|e| e.contains("dropped")),
+        "the outcome is published so parked waiters wake and fail"
+    );
+}
