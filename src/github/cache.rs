@@ -474,7 +474,7 @@ mod tests {
             Some("feature/foo")
         );
         if let Some(root) = root() {
-            let _ = std::fs::remove_dir_all(root.join("index/refs/rootle-test"));
+            let _ = std::fs::remove_dir_all(root.join("index/refs/rootle-test-slash"));
         }
     }
 
