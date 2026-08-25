@@ -21,7 +21,10 @@ provider/
   mod.rs       trait Provider + shared types + build()/offline()
   github.rs    GitHub impl (auth chain: ROOTLE_TOKEN → GITHUB_TOKEN →
                `gh auth token` → anonymous)
-  stdio.rs     external providers: NDJSON-RPC child over stdio
+  stdio.rs     external providers: lifecycle (spawn, handshake,
+               respawn-with-backoff)
+  stdio/       transport.rs (child process, reader thread, reply
+               routing), wire.rs (Provider methods → round trips)
 github/        GitHub-only internals: REST client, wire models, and
                the content-addressed disk cache (provider-internal —
                the TUI never touches it)
