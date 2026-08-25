@@ -50,6 +50,9 @@ sha2 = "0.11"
 signal-hook = "0.4"
 filetime = "0.2.29"
 clap = { version = "4.6.6", features = ["derive"] }
+flate2 = "1.1.9"
+tar = "0.4.46"
+thiserror = "2.0.20"
 
 [profile.release]
 lto = "fat"

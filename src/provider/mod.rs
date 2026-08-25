@@ -12,6 +12,7 @@
 //!   no GitHub URL grammar outside the GitHub impl.
 
 pub mod github;
+pub mod manager;
 pub mod stdio;
 
 use std::sync::Arc;
