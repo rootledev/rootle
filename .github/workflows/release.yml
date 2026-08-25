@@ -7,27 +7,103 @@ on:
 permissions:
   contents: write
 
+# Two tags cut at once race the homebrew-tap push — serialize; the
+# newer tag waits (the gripsack lesson).
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
-  release:
-    runs-on: ubuntu-latest
+  # Per-platform binaries: linux + macOS, both arches (Windows is out
+  # by design — WSL is the story there). The docker musl path needs no
+  # cross config: rust:alpine is multi-arch, so the same compose build
+  # produces aarch64 musl natively on the arm runner. macOS builds
+  # natively on matching runners.
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: x86_64-unknown-linux-musl, runner: ubuntu-latest, docker: true }
+          - { target: aarch64-unknown-linux-musl, runner: ubuntu-24.04-arm, docker: true }
+          - { target: x86_64-apple-darwin, runner: macos-13 }
+          - { target: aarch64-apple-darwin, runner: macos-14 }
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
 
-      - name: Build static musl binary
-        run: docker compose run --build --rm -e "VERSION=${GITHUB_REF_NAME#v}" release
+      - name: Build (linux musl, docker)
+        if: matrix.docker
+        run: |
+          docker compose run --build --rm \
+            -e "VERSION=${GITHUB_REF_NAME#v}" \
+            -e "TARGET=${{ matrix.target }}" release
 
-      # Smoke: prove the tarball extracts to a static, runnable binary
-      # and the published checksum matches.
-      - name: Verify binary
+      - name: Build (macOS, native)
+        if: ${{ !matrix.docker }}
+        run: |
+          rustup target add ${{ matrix.target }}
+          cargo build --release --locked --target ${{ matrix.target }}
+          VERSION="${GITHUB_REF_NAME#v}"
+          PKG="rootle-$VERSION-${{ matrix.target }}"
+          staging="$(mktemp -d)"
+          mkdir -p "$staging/$PKG"
+          install -m755 "target/${{ matrix.target }}/release/rootle" "$staging/$PKG/rootle"
+          mkdir -p dist
+          tar -czf "dist/$PKG.tar.gz" -C "$staging" "$PKG"
+          (cd dist && shasum -a 256 "$PKG.tar.gz" > "$PKG.tar.gz.sha256")
+
+      # Smoke: prove the tarball extracts to a runnable binary and the
+      # published checksum matches. Linux must be fully static; macOS
+      # may link system libs only.
+      - name: "Verify (linux: fully static)"
+        if: matrix.docker
         run: |
           cd dist
           sha256sum -c rootle-*.tar.gz.sha256
           tmp="$(mktemp -d)"
-          tar -xzf rootle-*-x86_64-unknown-linux-musl.tar.gz -C "$tmp"
+          tar -xzf rootle-*-${{ matrix.target }}.tar.gz -C "$tmp"
           bin="$(find "$tmp" -type f -name rootle | head -1)"
           file "$bin"
           ! ldd "$bin" 2>&1 | grep -q "=>"
           "$bin" --version
+
+      - name: "Verify (macOS: system libs only)"
+        if: ${{ !matrix.docker }}
+        run: |
+          cd dist
+          shasum -a 256 -c rootle-*.tar.gz.sha256
+          tmp="$(mktemp -d)"
+          tar -xzf rootle-*-${{ matrix.target }}.tar.gz -C "$tmp"
+          bin="$(find "$tmp" -type f -name rootle | head -1)"
+          file "$bin"
+          otool -L "$bin"
+          ! otool -L "$bin" | grep -qvE "libSystem|libiconv|CoreFoundation|Security|SystemConfiguration"
+          "$bin" --version
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist-${{ matrix.target }}
+          path: dist/*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: dist-*
+          path: dist
+          merge-multiple: true
+
+      - name: Verify all four platform tarballs are present
+        run: |
+          ls -la dist/
+          count="$(ls dist/rootle-*.tar.gz | wc -l)"
+          test "$count" -eq 4 || {
+            echo "::error::expected 4 platform tarballs, got $count"; exit 1; }
 
       # crates.io before the GitHub release: it is the irreversible
       # artifact. The guard fails a mistagged release instead of

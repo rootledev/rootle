@@ -71,8 +71,17 @@ case "$OS/$ARCH" in
     Linux/x86_64|Linux/amd64)
         TARGET="x86_64-unknown-linux-musl"
         ;;
+    Linux/aarch64|Linux/arm64)
+        TARGET="aarch64-unknown-linux-musl"
+        ;;
+    Darwin/x86_64)
+        TARGET="x86_64-apple-darwin"
+        ;;
+    Darwin/arm64)
+        TARGET="aarch64-apple-darwin"
+        ;;
     *)
-        err "no prebuilt binary for $OS/$ARCH yet — use brew: brew install rootledev/tap/rootle (builds from source), or cargo install $BIN"
+        err "no prebuilt binary for $OS/$ARCH — use brew: brew install rootledev/tap/rootle (builds from source), or cargo install $BIN"
         ;;
 esac
 
