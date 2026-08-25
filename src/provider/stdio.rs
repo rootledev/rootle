@@ -65,7 +65,10 @@ pub struct StdioProvider {
     notice: Mutex<Option<String>>,
     /// Set by Drop: a rebuild sleeping in backoff checks this before
     /// spawning a replacement, so dropping the provider mid-recovery
-    /// can't leak an orphan child after the app is gone.
+    /// can't leak an orphan child after the app is gone. Drop can't
+    /// race an in-flight rebuild only because every worker clones the
+    /// `Arc<dyn Provider>` before moving into its thread (the strong
+    /// count can't hit zero mid-call) — keep that convention.
     closed: AtomicBool,
 }
 
@@ -267,7 +270,18 @@ impl StdioProvider {
             .iter()
             .map(|(k, v)| (k.as_str(), v.as_str()))
             .collect();
-        let (process, stdout) = spawn_process(&self.command, &env, self.stderr_mode)?;
+        let (process, stdout) = match spawn_process(&self.command, &env, self.stderr_mode) {
+            Ok(pair) => pair,
+            Err(e) => {
+                // A failed spawn is a failed rebuild like any other:
+                // publish it and wake the waiters, or the machine
+                // wedges in Respawning and every future caller parks
+                // on a condvar nobody will ever signal (one error
+                // toast, then an app that silently fetches nothing).
+                self.finish_rebuild(attempt, Err(&e));
+                return Err(e);
+            }
+        };
         let reader = std::thread::spawn({
             let shared = Arc::clone(&self.shared);
             move || reader_loop(stdout, shared)
