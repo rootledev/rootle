@@ -115,8 +115,9 @@ gitignored `demos/out/`; the published GIFs live in the site repo
 [rootle-demo-capture](../.agents/skills/rootle-demo-capture/SKILL.md)
 skill; re-capture when any shown surface changes — or let the `demo`
 workflow (`.github/workflows/demo.yml`) do it: on pushes touching
-`src/`, `demos/`, or `e2e/` it rebuilds, re-renders, and opens a
-`demo/artifacts` PR on the site repo with the refreshed GIFs.
+`src/`, `demos/`, or `e2e/` it rebuilds, re-renders, and commits
+the refreshed GIFs to the site repo's `img/` — the site redeploys on
+push.
 
 ## Skills (`.agents/skills/`)
 

@@ -15,8 +15,8 @@ One tape, eleven renders — one per embedded palette:
 Local renders land in gitignored `demos/out/`; the published GIFs live
 in the site repo (`rootledev/rootledev.github.io`, `img/`). The `demo`
 workflow renders all of them on pushes touching `src/`, `demos/`, or
-`e2e/` and opens a `demo/artifacts` PR on the site repo — prefer
-letting CI do it. To render locally:
+`e2e/` and commits them to the site repo's `img/` — prefer letting CI
+do it. To render locally:
 
 ```
 docker compose run --build --rm -e VERSION=0.0.0-demo release   # binary for the tape
@@ -64,5 +64,5 @@ Gotchas (all were hit, all cost time):
 - Tape changes: verify the sed transform still matches after editing
   the `Output` or launch lines.
 
-Land the artifacts via the `demo/artifacts` PR on the site repo —
-never hand-edit GIFs.
+Let the workflow land the artifacts in the site repo — never
+hand-edit GIFs.
