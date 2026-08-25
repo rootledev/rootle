@@ -26,7 +26,9 @@ jobs:
         include:
           - { target: x86_64-unknown-linux-musl, runner: ubuntu-latest, docker: true }
           - { target: aarch64-unknown-linux-musl, runner: ubuntu-24.04-arm, docker: true }
-          - { target: x86_64-apple-darwin, runner: macos-13 }
+          # both darwin targets on the arm runner — x86_64 cross-compiles
+          # with the stock Xcode (no macos-13 queue, which can idle 20-60min)
+          - { target: x86_64-apple-darwin, runner: macos-14, cross: true }
           - { target: aarch64-apple-darwin, runner: macos-14 }
     runs-on: ${{ matrix.runner }}
     steps:
@@ -128,10 +130,15 @@ jobs:
             --title "rootle $tag" \
             --generate-notes
 
-      # Keep the tap in sync: bump the formula's version + crate sha256.
+      # Keep the tap in sync, both halves:
+      # - Formula/rootle.rb builds from the crate (linux brew / source
+      #   people)
+      # - Casks/rootle.rb installs the prebuilt per-arch macOS binaries
+      #   (no rust toolchain on the user's machine — the better macOS
+      #   path; arm + intel sha256 pairs from this release's tarballs)
       # Needs HOMEBREW_TAP_TOKEN (PAT, contents:write on the tap repo) —
       # GITHUB_TOKEN is repo-scoped and can't push to homebrew-tap.
-      - name: Bump homebrew formula
+      - name: Bump homebrew formula + cask
         env:
           GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
@@ -141,13 +148,32 @@ jobs:
           sed -i -e "s|rootle-[0-9.]*\.crate|rootle-$ver.crate|" \
                  -e "s|sha256 \"[0-9a-f]*\"|sha256 \"$sha\"|" \
                  /tmp/tap/Formula/rootle.rb
+          mkdir -p /tmp/tap/Casks
+          sha_arm="$(cut -d' ' -f1 "dist/rootle-$ver-aarch64-apple-darwin.tar.gz.sha256")"
+          sha_x64="$(cut -d' ' -f1 "dist/rootle-$ver-x86_64-apple-darwin.tar.gz.sha256")"
+          cat > /tmp/tap/Casks/rootle.rb <<EOF
+          cask "rootle" do
+            version "$ver"
+
+            arch arm: "aarch64", intel: "x86_64"
+            sha256 arm: "$sha_arm", intel: "$sha_x64"
+
+            url "https://github.com/rootledev/rootle/releases/download/v#{version}/rootle-#{version}-#{arch}-apple-darwin.tar.gz"
+            name "rootle"
+            desc "modal TUI for browsing remote source-control systems from the terminal"
+            homepage "https://rootle.dev"
+
+            binary "rootle-#{version}-#{arch}-apple-darwin/rootle"
+          end
+          EOF
           cd /tmp/tap
           # gh clones without persisting push credentials — authenticate
           # the remote explicitly or `git push` fails with exit 128.
           git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/rootledev/homebrew-tap.git"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -am "rootle $ver"
+          git add Formula/rootle.rb Casks/rootle.rb
+          git commit -m "rootle $ver"
           git push
 
       # Redeploy the site so the landing's version chip and install.sh
