@@ -35,7 +35,10 @@ services:
       - |
         set -e
         VERSION="$${VERSION:?set VERSION to the release version, e.g. -e VERSION=0.3.0}"
-        TARGET="x86_64-unknown-linux-musl"
+        # Package triple — the release matrix overrides it per runner;
+        # the build itself is native to the container (rust:alpine is
+        # multi-arch, so an arm runner natively emits aarch64 musl).
+        TARGET="$${TARGET:-x86_64-unknown-linux-musl}"
         PKG="rootle-$$VERSION-$$TARGET"
         cargo build --release --locked \
         && strip target/release/rootle \

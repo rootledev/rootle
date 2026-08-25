@@ -1,7 +1,9 @@
 # syntax=docker/dockerfile:1
 # Multi-stage musl static build (PLAN.md §13).
-# rust:alpine's host triple IS x86_64-unknown-linux-musl, so plain
-# `cargo build` already produces a static musl binary.
+# rust:alpine's host triple is the platform's musl native target
+# (x86_64 on amd64, aarch64 on arm), so plain `cargo build` already
+# produces a static musl binary — the release matrix relies on this
+# for native arm builds with zero cross config.
 
 FROM rust:alpine AS builder
 RUN apk add --no-cache musl-dev \
