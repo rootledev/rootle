@@ -17,6 +17,16 @@ pub trait Component {
 }
 ```
 
+## Layout: file per component, sibling submodules
+
+A component is one file in `src/components/`. If it grows several
+concerns, keep `foo.rs` as the surface (state struct, `update`,
+accessors, re-exports) and add private submodules in the sibling
+`foo/` directory — `keys.rs`, `render.rs`, `model.rs`, worker I/O —
+splitting along concern seams (see house-style.md "Component layout"
+and the existing splits: `global_search/`, `settings_popup/`,
+`preview/find.rs`, `browser/tree.rs`). Tests move with their code.
+
 ## Checklist for a new component `foo.rs`
 
 1. **State struct** — plain fields, no global access. Components never

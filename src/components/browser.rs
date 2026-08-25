@@ -16,59 +16,9 @@ use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::text::Line;
 use std::collections::{HashMap, HashSet};
 
-/// A repo's full recursive tree, paths relative to the repo root.
-pub struct RepoTree {
-    pub owner: String,
-    pub name: String,
-    pub truncated: bool,
-    /// Default branch (yank URLs, blob links).
-    pub branch: String,
-    entries: Vec<TreeNode>,
-}
+mod tree;
 
-impl RepoTree {
-    /// Direct children of `path` ("" = root), dirs first, then files,
-    /// alphabetical within each group.
-    pub fn children(&self, path: &str) -> Vec<Entry> {
-        let prefix = if path.is_empty() {
-            String::new()
-        } else {
-            format!("{path}/")
-        };
-        let mut dirs = Vec::new();
-        let mut files = Vec::new();
-        for node in &self.entries {
-            let Some(rest) = node.path.strip_prefix(&prefix) else {
-                continue;
-            };
-            if rest.is_empty() || rest.contains('/') {
-                continue;
-            }
-            let entry = Entry::new(
-                rest,
-                if node.is_dir {
-                    EntryKind::Dir
-                } else {
-                    EntryKind::File
-                },
-            );
-            if node.is_dir {
-                dirs.push(entry);
-            } else {
-                files.push(entry);
-            }
-        }
-        let by_name = |a: &Entry, b: &Entry| a.name.cmp(&b.name);
-        dirs.sort_by(by_name);
-        files.sort_by(by_name);
-        dirs.extend(files);
-        dirs
-    }
-
-    pub fn find(&self, path: &str) -> Option<&TreeNode> {
-        self.entries.iter().find(|e| e.path == path)
-    }
-}
+pub use tree::RepoTree;
 
 /// One fetched blob, cache entry for `Browser::blobs`.
 struct CachedBlob {
@@ -292,14 +242,13 @@ impl Browser {
         if current_repo.as_deref() != Some(name) {
             return;
         }
-        self.tree = Some(RepoTree {
-            owner: owner.to_string(),
-            name: name.to_string(),
+        self.tree = Some(RepoTree::new(
+            owner.to_string(),
+            name.to_string(),
             truncated,
             branch,
             entries,
-        });
-        // Rebuild from the repos level: all dir columns were mock/empty.
+        ));
         self.levels.truncate(2);
         self.focus = 1;
         self.cascade();

@@ -14,6 +14,31 @@ fn update(&mut self, action: &Action);
 fn render(&mut self, frame: &mut Frame, area: Rect, theme: &Theme);
 ```
 
+
+## Component layout: file per component, sibling submodules
+
+One component = one file in `src/components/` (helix's `ui/`, gitui's
+`popups/` convention). A cohesive component of a few hundred lines is
+fine there. When a component carries several concerns, the file stays
+as the public surface — state struct, `update`, accessors — and
+private submodules hang off the sibling directory:
+
+```
+global_search.rs        state + update + re-exports
+global_search/keys.rs   handle_key + focus/scope/filter logic
+global_search/render.rs drawing (fields row, result blocks, popup)
+global_search/model.rs  SearchKind/Scope/SearchHit data model
+global_search/backend.rs worker-side search (run_view_search & co)
+global_search/mock.rs   the offline producer (pub mod — app injects it)
+```
+
+The same rule decomposed `settings_popup` (sections/render),
+`preview` (find), `browser` (tree), and `provider/stdio`
+(transport/wire). Split along concern seams (keys vs render vs model
+vs worker I/O), never mechanically; tests live next to the code they
+exercise. Private struct fields stay private — submodules are
+descendants and see them; nothing outside the component does.
+
 ## Action flow is unidirectional
 
 Keys become `Action`s (`src/action.rs`); `App::handle_action`
