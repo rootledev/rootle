@@ -252,12 +252,24 @@ impl StdioProvider {
     /// caller) makes other threads wait rather than pile onto the
     /// mutex.
     fn rebuild(&self, attempt: u32) -> ProviderResult<()> {
+        // Armed for the whole body: if any path out of here panics
+        // (the reader `thread::spawn` under thread exhaustion) or a
+        // future exit path forgets to publish, the guard's Drop
+        // publishes a failed rebuild — "Respawning always resolves"
+        // holds structurally, not by enumerating exits (the spawn
+        // `?` bug was one branch out of three forgetting).
+        let mut guard = RebuildGuard {
+            provider: self,
+            attempt,
+            armed: true,
+        };
         std::thread::sleep(backoff_for(attempt));
         if self.closed.load(Ordering::Acquire) {
             // Dropped mid-recovery (app exit): don't spawn a child
             // nobody will ever kill. Still publish the outcome so any
             // waiter wakes and fails instead of waiting forever.
             let err = ProviderError::other("provider dropped during restart");
+            guard.armed = false;
             self.finish_rebuild(attempt, Err(&err));
             return Err(err);
         }
@@ -278,10 +290,13 @@ impl StdioProvider {
                 // wedges in Respawning and every future caller parks
                 // on a condvar nobody will ever signal (one error
                 // toast, then an app that silently fetches nothing).
+                guard.armed = false;
                 self.finish_rebuild(attempt, Err(&e));
                 return Err(e);
             }
         };
+        // Panics here (thread exhaustion) unwind past everything —
+        // the guard publishes.
         let reader = std::thread::spawn({
             let shared = Arc::clone(&self.shared);
             move || reader_loop(stdout, shared)
@@ -300,6 +315,7 @@ impl StdioProvider {
             ));
         }
         let outcome: Result<(), &ProviderError> = proof.as_ref().map(|_| ());
+        guard.armed = false;
         self.finish_rebuild(attempt, outcome);
         proof.map(|_| ())
     }
@@ -321,5 +337,26 @@ impl StdioProvider {
         }
         drop(routing);
         self.shared.changed.notify_all();
+    }
+}
+
+/// The structural half of the recovery machine: while armed, a Drop
+/// publishes a failed rebuild. `rebuild` disarms exactly around its
+/// `finish_rebuild` calls; anything that leaves the function any other
+/// way — an early return that forgets, a panic mid-body — still
+/// resolves `Respawning`, so no waiter can park on a condvar nobody
+/// will ever signal.
+struct RebuildGuard<'a> {
+    provider: &'a StdioProvider,
+    attempt: u32,
+    armed: bool,
+}
+
+impl Drop for RebuildGuard<'_> {
+    fn drop(&mut self) {
+        if self.armed {
+            let err = ProviderError::other("rebuild aborted unexpectedly");
+            self.provider.finish_rebuild(self.attempt, Err(&err));
+        }
     }
 }

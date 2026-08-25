@@ -403,3 +403,40 @@ fn closed_provider_rebuild_does_not_spawn_and_publishes() {
         "the outcome is published so parked waiters wake and fail"
     );
 }
+
+/// The structural guarantee: any exit from rebuild() that doesn't
+/// disarm the guard — today only a panic — still resolves Respawning.
+/// Drives the guard directly (panic injection isn't reachable here).
+#[test]
+fn armed_rebuild_guard_publishes_failure_on_drop() {
+    let provider = fake("die-on-2", Duration::from_secs(5));
+    provider
+        .request("repo/tree", json!({ "repo": "o/r" }))
+        .expect_err("dead child must fail the request");
+    {
+        let mut routing = provider.shared.routing.lock();
+        assert_eq!(routing.lifecycle, super::transport::Lifecycle::Dead);
+        routing.lifecycle = super::transport::Lifecycle::Respawning;
+    }
+    // An "exit path" that never calls finish_rebuild: drop the armed
+    // guard, exactly what unwinding out of rebuild() does.
+    let guard = super::RebuildGuard {
+        provider: &provider,
+        attempt: 1,
+        armed: true,
+    };
+    drop(guard);
+    let routing = provider.shared.routing.lock();
+    assert_eq!(
+        routing.lifecycle,
+        super::transport::Lifecycle::Dead,
+        "an aborted rebuild must resolve Respawning, not wedge it"
+    );
+    assert!(
+        routing
+            .restart_error
+            .as_deref()
+            .is_some_and(|e| e.contains("aborted")),
+        "waiters must see the abort as the stored reason"
+    );
+}

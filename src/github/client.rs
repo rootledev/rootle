@@ -184,27 +184,64 @@ impl Client {
         match self.get_conditional::<TreeResponse>(&url, etag.as_deref())? {
             Conditional::NotModified => {
                 let sha = cached_ref.expect("304 without a cached ref").tree_sha;
-                let tree = super::cache::read_tree(&sha).ok_or_else(|| {
-                    ProviderError::other(format!("304 but tree {sha} missing from cache"))
-                })?;
-                Ok((tree.clone(), tree.truncated, branch.to_string()))
+                match super::cache::read_tree(&sha) {
+                    Some(tree) => Ok((tree.clone(), tree.truncated, branch.to_string())),
+                    None => {
+                        // A cache read that cannot be satisfied is a
+                        // miss, not an error. The startup orphan sweep
+                        // can race a fetch's tree-then-ref write order
+                        // and delete a tree its ref already points at;
+                        // the etag then 304s forever against a missing
+                        // body (sticky unopenable repo). Refetch
+                        // unconditionally — the cache is only an
+                        // optimization, and this re-stores the tree
+                        // and ref, healing both.
+                        crate::app::trace(&format!(
+                            "304 but tree {sha} missing from cache; refetching"
+                        ));
+                        let Conditional::Fresh { body, etag } =
+                            self.get_conditional::<TreeResponse>(&url, None)?
+                        else {
+                            return Err(ProviderError::other(
+                                "unconditional revalidation returned 304",
+                            ));
+                        };
+                        self.store_tree(owner, repo, branch, body, etag)
+                    }
+                }
             }
-            Conditional::Fresh { body, etag } => {
-                super::cache::write_tree(&body).map_err(|e| ProviderError::other(e.to_string()))?;
-                super::cache::write_ref(
-                    owner,
-                    repo,
-                    branch,
-                    &super::cache::RefCache {
-                        tree_sha: body.sha.clone(),
-                        etag,
-                    },
-                )
-                .map_err(|e| ProviderError::other(e.to_string()))?;
-                let truncated = body.truncated;
-                Ok((body, truncated, branch.to_string()))
-            }
+            Conditional::Fresh { body, etag } => self.store_tree(owner, repo, branch, body, etag),
         }
+    }
+
+    /// Persist a fetched tree + its ref (tree first — durable before
+    /// discoverable; the sweep race above is absorbed by the miss
+    /// fallback).
+    fn store_tree(
+        &self,
+        owner: &str,
+        repo: &str,
+        branch: &str,
+        body: TreeResponse,
+        etag: Option<String>,
+    ) -> ProviderResult<(
+        TreeResponse,
+        /*truncated*/ bool,
+        /*branch*/ String,
+    )> {
+        super::cache::write_tree(&body).map_err(|e| ProviderError::other(e.to_string()))?;
+        super::cache::write_ref(
+            owner,
+            repo,
+            branch,
+            &super::cache::RefCache {
+                tree_sha: body.sha.clone(),
+                etag,
+            },
+        )
+        .map_err(|e| ProviderError::other(e.to_string()))?;
+        let truncated = body.truncated;
+        Ok((body, truncated, branch.to_string()))
     }
 
     /// Fetch a blob by git sha, cache-first (blobs are immutable).
