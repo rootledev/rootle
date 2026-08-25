@@ -197,15 +197,17 @@ pub trait Provider: Send + Sync {
     fn org_url(&self, org: &str) -> ProviderResult<String>;
 }
 
-/// The provider's cache-subtree name from its argv: the binary's file
-/// stem minus the `rootle-` prefix (rootle-gitlab → gitlab; falls back
-/// to the whole stem).
+/// The provider's cache-subtree name from its argv: the binary's full
+/// file stem (rootle-gitlab → rootle-gitlab) — matching the protocol
+/// doc's `providers/<name>/` convention adapters document as their
+/// default, so the handshake's cache_dir and the adapter's own
+/// default are the same directory.
 fn name_from_command(command: &[String]) -> String {
-    let stem = command
+    command
         .first()
         .and_then(|c| std::path::Path::new(c).file_stem().and_then(|s| s.to_str()))
-        .unwrap_or("provider");
-    stem.strip_prefix("rootle-").unwrap_or(stem).to_string()
+        .unwrap_or("provider")
+        .to_string()
 }
 
 /// Build the configured provider. Invalid/unsupported config falls
