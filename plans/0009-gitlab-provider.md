@@ -127,11 +127,11 @@ pattern, published to crates.io.
 | # | Delivers | Status |
 |---|---|---|
 | M0 | this plan | **done** |
-| M1 | rootle-side R1–R4 | pending |
-| M2 | adapter skeleton: loop + initialize + search/repos + org/repos, wiremock CI green | pending |
-| M3 | browse surface: tree (pagination + truncated), blob, clone_url, web_url, org/url | pending |
-| M4 | search/code: grammar translation, startline locating, capabilities downgrade | pending |
-| M5 | hardening: taxonomy, rate-limit surfacing, lazy auth, disk cache, restart-cheap startup | pending |
+| M1 | rootle-side R1–R4 | **done** |
+| M2 | adapter skeleton: loop + initialize + search/repos + org/repos, wiremock CI green | **done** (rootledev/rootle-gitlab, CI + audit green) |
+| M3 | browse surface: tree (pagination + truncated), blob, clone_url, web_url, org/url | **done** |
+| M4 | search/code: grammar translation, startline locating, capabilities downgrade | **done** |
+| M5 | hardening: taxonomy, rate-limit surfacing, lazy auth, disk cache, restart-cheap startup | **done** |
 | M6 | live validation vs gitlab.com (token; dispatch-only CI job) + rootle PTY e2e through the adapter | pending |
 | M7 | ship: crates.io + 4-target matrix; site providers page + READMEs point at it | pending |
 
