@@ -2028,6 +2028,7 @@ dependencies = [
  "crossterm",
  "dirs",
  "filetime",
+ "flate2",
  "parking_lot",
  "ratatui",
  "reqwest",
@@ -2036,6 +2037,8 @@ dependencies = [
  "sha2 0.11.0",
  "signal-hook 0.4.4",
  "syntect",
+ "tar",
+ "thiserror 2.0.20",
  "toml",
  "unicode-width",
 ]
@@ -2496,6 +2499,17 @@ dependencies = [
  "thiserror 2.0.20",
  "walkdir",
  "yaml-rust",
+]
+
+[[package]]
+name = "tar"
+version = "0.4.46"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3f6221d9a6003c78398e3b239969f352578258df48c8eb051caadae0015bc840"
+dependencies = [
+ "filetime",
+ "libc",
+ "xattr",
 ]
 
 [[package]]
@@ -3228,6 +3242,16 @@ name = "writeable"
 version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
+
+[[package]]
+name = "xattr"
+version = "1.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32e45ad4206f6d2479085147f02bc2ef834ac85886624a23575ae137c8aa8156"
+dependencies = [
+ "libc",
+ "rustix",
+]
 
 [[package]]
 name = "yaml-rust"

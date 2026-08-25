@@ -10,7 +10,7 @@ use ratatui::crossterm::{
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
 use rootle::app::App;
-use rootle::cli::Cli;
+use rootle::cli::{Cli, ProviderCommand};
 use rootle::config::Config;
 use rootle::theme::Theme;
 use std::io::{self, stdout};
@@ -19,6 +19,13 @@ use std::time::Duration;
 fn main() -> io::Result<()> {
     // clap handles --version/-V (release pipeline smoke check) and --help.
     let cli = Cli::parse();
+
+    // Provider manager (plans/0010 M3): subcommands run and exit —
+    // the TUI never starts.
+    if let Some(cmd) = &cli.provider {
+        run_provider(cmd);
+        return Ok(());
+    }
 
     // A full-screen TUI's colors are semantic (mode chips, dirs vs
     // files), not decoration — ignore NO_COLOR like vim/helix do.
@@ -173,4 +180,115 @@ fn run_editor(
         let _ = event::read()?;
     }
     Ok(())
+}
+
+/// Dispatch the provider subcommand tree (plans/0010 M3).
+fn run_provider(cmd: &ProviderCommand) {
+    use rootle::provider::manager::{Manager, Ref};
+
+    let manager = match Manager::new() {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("rootle provider: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    let result: std::result::Result<(), rootle::provider::manager::ManagerError> = match cmd {
+        ProviderCommand::Install {
+            ref_,
+            pin,
+            force,
+            path,
+        } => {
+            if let Some(path) = path {
+                // --path: local binary install (gh's `gh extension
+                // install .` model); ref_ carries the name.
+                manager.install_path(ref_, path).map(|_| ())
+            } else {
+                let mut r = match Ref::parse(ref_) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        eprintln!("{e}");
+                        std::process::exit(1);
+                    }
+                };
+                if *pin && r.tag.is_none() {
+                    // Pin to the latest at install time.
+                    eprintln!("--pin without @tag: pinning to the latest release");
+                }
+                r.tag = r.tag.take(); // no-op, keeps the Option alive
+                manager.install(&r, *force).map(|_| ())
+            }
+        }
+        ProviderCommand::List { json } => {
+            let installed = manager.list();
+            if *json {
+                let rows: Vec<serde_json::Value> = installed
+                    .iter()
+                    .map(|i| {
+                        serde_json::json!({
+                            "name": i.receipt.name,
+                            "version": i.receipt.tag,
+                            "pinned": i.receipt.pinned,
+                            "source": i.receipt.source,
+                            "active": i.active,
+                        })
+                    })
+                    .collect();
+                println!("{}", serde_json::to_string_pretty(&rows).unwrap());
+            } else {
+                if installed.is_empty() {
+                    println!("no providers installed — try `rootle provider install gitlab`");
+                    return;
+                }
+                for i in &installed {
+                    let marker = if i.active { " ← ACTIVE" } else { "" };
+                    let pin = if i.receipt.pinned { " [pinned]" } else { "" };
+                    println!(
+                        "  {} {}{} from {}{}",
+                        i.receipt.name, i.receipt.tag, pin, i.receipt.source, marker
+                    );
+                }
+            }
+            Ok(())
+        }
+        ProviderCommand::Update { name } => match manager.update(name.as_deref()) {
+            Ok(stale) => {
+                if stale.is_empty() {
+                    println!("all providers current");
+                } else {
+                    for (name, from, to) in stale {
+                        println!(
+                            "  {name}: {from} → {to} (upgrade with `rootle provider upgrade {name}`)"
+                        );
+                    }
+                }
+                Ok(())
+            }
+            Err(e) => Err(e),
+        },
+        ProviderCommand::Upgrade {
+            name,
+            all,
+            dry_run,
+            force,
+        } => {
+            let target = if *all { None } else { name.as_deref() };
+            if !*all && name.is_none() {
+                eprintln!("specify a provider name or --all");
+                std::process::exit(1);
+            }
+            manager.upgrade(target, *dry_run, *force)
+        }
+        ProviderCommand::Pin { name, tag } => manager.pin(name, tag.clone()),
+        ProviderCommand::Unpin { name } => manager.unpin(name),
+        ProviderCommand::Remove { name } => manager.remove(name),
+        ProviderCommand::Use { name, extra } => manager.activate(name, extra),
+    };
+
+    if let Err(e) = result {
+        eprintln!("rootle provider: {e}");
+        std::process::exit(1);
+    }
 }
