@@ -132,7 +132,7 @@ pattern, published to crates.io.
 | M3 | browse surface: tree (pagination + truncated), blob, clone_url, web_url, org/url | **done** |
 | M4 | search/code: grammar translation, startline locating, capabilities downgrade | **done** |
 | M5 | hardening: taxonomy, rate-limit surfacing, lazy auth, disk cache, restart-cheap startup | **done** |
-| M6 | live validation vs gitlab.com (token; dispatch-only CI job) + rootle PTY e2e through the adapter | pending |
+| M6 | live validation vs gitlab.com (token; dispatch-only CI job) + rootle PTY e2e through the adapter | **done** (protocol surface from CI; full PTY browse locally; live finding: null default_branch tolerance) |
 | M7 | ship: crates.io + 4-target matrix; site providers page + READMEs point at it | pending |
 
 ## Testing access
