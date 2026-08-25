@@ -171,6 +171,13 @@ pub trait Provider: Send + Sync {
         None
     }
 
+    /// Cache usage the provider reported at initialize (bytes), when
+    /// it participates in the advisory cache budget (protocol v1.2) —
+    /// surfaced in :settings next to the provider row.
+    fn cache_usage(&self) -> Option<u64> {
+        None
+    }
+
     /// URL `git clone` accepts for a repo (clone wizard, plans/0004).
     fn clone_url(&self, repo: &str) -> ProviderResult<String>;
     /// Browser URL for yank (␣ y): repo root, or a path inside it.
@@ -188,6 +195,17 @@ pub trait Provider: Send + Sync {
 
     /// Browser URL for an org/group page.
     fn org_url(&self, org: &str) -> ProviderResult<String>;
+}
+
+/// The provider's cache-subtree name from its argv: the binary's file
+/// stem minus the `rootle-` prefix (rootle-gitlab → gitlab; falls back
+/// to the whole stem).
+fn name_from_command(command: &[String]) -> String {
+    let stem = command
+        .first()
+        .and_then(|c| std::path::Path::new(c).file_stem().and_then(|s| s.to_str()))
+        .unwrap_or("provider");
+    stem.strip_prefix("rootle-").unwrap_or(stem).to_string()
 }
 
 /// Build the configured provider. Invalid/unsupported config falls
@@ -212,10 +230,21 @@ pub fn build(config: &crate::config::Config) -> (Arc<dyn Provider>, Option<Strin
                     "provider stderr {stderr:?} not recognized (use \"inherit\" or \"null\"); discarding child stderr"
                 ))
             };
-            match stdio::StdioProvider::spawn_with_stderr(
+            // The user's cache budget and this provider's subtree
+            // travel in every initialize (protocol v1.2, advisory) —
+            // one [cache] max_mb knob governs every backend.
+            let cache_bytes = config.cache.max_mb as u64 * 1024 * 1024;
+            let cache_dir = dirs::cache_dir().map(|d| {
+                d.join("rootle")
+                    .join("providers")
+                    .join(name_from_command(&config.provider.command))
+            });
+            match stdio::StdioProvider::spawn_with_cache(
                 &config.provider.command,
                 std::time::Duration::from_millis(config.provider.timeout_ms),
                 inherit,
+                cache_bytes,
+                cache_dir,
             ) {
                 Ok(p) => (Arc::new(p), warn),
                 Err(e) => (

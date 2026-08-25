@@ -27,18 +27,37 @@ fn fake_provider_child() {
         let id: u64 = serde_json::from_str::<serde_json::Value>(&line).unwrap()["id"]
             .as_u64()
             .unwrap_or(0);
-        // The first message of every process generation is the
-        // initialize handshake (respawns keep incrementing ids).
-        if !handshaken {
+        let method: String = serde_json::from_str::<serde_json::Value>(&line).unwrap()["method"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
+        // initialize may arrive on every process generation AND again
+        // when rootle re-handshakes with fresh advisory params — a
+        // conforming provider answers each one (restart obligations).
+        if method == "initialize" {
             handshaken = true;
-            writeln!(
-                stdout,
-                r#"{{"jsonrpc":"2.0","id":{id},"result":{{"protocol":1,"name":"fake"}}}}"#
-            )
-            .unwrap();
+            let params: serde_json::Value = serde_json::from_str(&line).unwrap();
+            if mode == "echo-init"
+                && params
+                    .get("params")
+                    .is_some_and(|p| p.get("cache_bytes").is_some())
+            {
+                writeln!(
+                    stdout,
+                    r#"{{"jsonrpc":"2.0","id":{id},"result":{{"protocol":1,"name":"fake","cache":{{"bytes":218}}}}}}"#
+                )
+                .unwrap();
+            } else {
+                writeln!(
+                    stdout,
+                    r#"{{"jsonrpc":"2.0","id":{id},"result":{{"protocol":1,"name":"fake"}}}}"#
+                )
+                .unwrap();
+            }
             stdout.flush().unwrap();
             continue;
         }
+        let _ = handshaken;
         match mode.as_str() {
             // Out-of-order replies: hold id 2 back; when id 3 lands,
             // answer 3 first, then the stashed 2. The child is
@@ -93,6 +112,29 @@ fn fake_provider_child() {
             }
         }
     }
+}
+
+/// The child also echoes the initialize params it received (mode
+/// "echo-init"), so the handshake contract is observable end to end.
+#[test]
+fn initialize_carries_the_cache_budget_and_records_usage() {
+    let exe = std::env::current_exe().expect("test binary path");
+    let argv = vec![
+        exe.to_string_lossy().into_owned(),
+        "provider::stdio::tests::fake_provider_child".to_string(),
+        "--exact".to_string(),
+        "--nocapture".to_string(),
+    ];
+    unsafe { std::env::set_var("ROOTLE_FAKE_PROVIDER", "echo-init") };
+    let provider = StdioProvider::spawn_with_cache(
+        &argv,
+        Duration::from_secs(5),
+        false,
+        512 * 1024 * 1024,
+        Some(std::path::PathBuf::from("/tmp/rootle-test-cache/gitlab")),
+    )
+    .expect("spawns + initializes");
+    assert_eq!(provider.cache_usage(), Some(218), "reply usage recorded");
 }
 
 /// Spawn the fake provider in `mode` with a short test deadline.

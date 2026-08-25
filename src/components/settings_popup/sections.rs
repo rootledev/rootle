@@ -120,7 +120,7 @@ pub(super) fn build(config: &Config, themes: Vec<String>) -> Vec<Section> {
                 label: "max_mb",
                 value: config.cache.max_mb.to_string(),
                 placeholder: "512",
-                desc: "blob cache cap in MiB — least-recently-used blobs are evicted past it",
+                desc: "cache cap in MiB — LRU-evicts rootle's blobs and is passed to every provider at handshake (advisory; providers that cache should respect it)",
             }],
         },
         Section {

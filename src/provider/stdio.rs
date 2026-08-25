@@ -70,6 +70,14 @@ pub struct StdioProvider {
     /// `Arc<dyn Provider>` before moving into its thread (the strong
     /// count can't hit zero mid-call) — keep that convention.
     closed: AtomicBool,
+    /// Advisory cache budget (the user's [cache] max_mb in bytes) and
+    /// this provider's subtree path — passed at every initialize;
+    /// providers that cache SHOULD evict past it (protocol v1.2).
+    cache_bytes: u64,
+    cache_dir: Option<std::path::PathBuf>,
+    /// Cache usage the provider reported at initialize, if any —
+    /// surfaced in :settings.
+    cache_used: parking_lot::Mutex<Option<u64>>,
 }
 
 impl Drop for StdioProvider {
@@ -101,12 +109,31 @@ impl StdioProvider {
         timeout: Duration,
         inherit_stderr: bool,
     ) -> ProviderResult<Self> {
+        Self::spawn_with_cache(command, timeout, inherit_stderr, 0, None)
+    }
+
+    /// Spawn with the user's cache budget and the provider's subtree
+    /// path — both travel in every initialize (protocol v1.2, advisory).
+    pub fn spawn_with_cache(
+        command: &[String],
+        timeout: Duration,
+        inherit_stderr: bool,
+        cache_bytes: u64,
+        cache_dir: Option<std::path::PathBuf>,
+    ) -> ProviderResult<Self> {
         let mode = if inherit_stderr {
             StderrMode::Inherit
         } else {
             StderrMode::Null
         };
-        Self::spawn_inner(command, timeout, &[], mode)
+        let mut provider = Self::spawn_inner(command, timeout, &[], mode)?;
+        provider.cache_bytes = cache_bytes;
+        provider.cache_dir = cache_dir;
+        // The initial handshake already ran inside spawn_inner without
+        // the budget; re-run it so the provider hears cache_bytes on
+        // THIS generation too. Respawns always carry it.
+        let reply = provider.handshake()?;
+        provider.initialize_from(reply)
     }
 
     /// Test-only variant: extra environment for the child process.
@@ -150,6 +177,9 @@ impl StdioProvider {
             reader: Mutex::new(Some(reader)),
             notice: Mutex::new(None),
             closed: AtomicBool::new(false),
+            cache_bytes: 0,
+            cache_dir: None,
+            cache_used: parking_lot::Mutex::new(None),
         };
         // Same deadline as any request: a provider that hangs on
         // startup fails into the github fallback instead of blocking
@@ -162,7 +192,14 @@ impl StdioProvider {
     /// runs ungated so the rebuilder can validate the fresh child
     /// while the transport sits in `Respawning`.
     fn handshake(&self) -> ProviderResult<Value> {
-        let reply = self.exchange("initialize", json!({ "protocol": 1 }), false)?;
+        let mut params = json!({ "protocol": 1 });
+        if self.cache_bytes > 0 {
+            params["cache_bytes"] = json!(self.cache_bytes);
+        }
+        if let Some(dir) = &self.cache_dir {
+            params["cache_dir"] = json!(dir.to_string_lossy());
+        }
+        let reply = self.exchange("initialize", params, false)?;
         let protocol = reply.get("protocol").and_then(Value::as_u64).unwrap_or(1);
         if protocol != 1 {
             return Err(ProviderError::new(
@@ -185,6 +222,9 @@ impl StdioProvider {
                     .and_then(Value::as_bool)
                     .unwrap_or(true),
             };
+        }
+        if let Some(bytes) = reply.pointer("/cache/bytes").and_then(Value::as_u64) {
+            *self.cache_used.lock() = Some(bytes);
         }
         Ok(self)
     }
