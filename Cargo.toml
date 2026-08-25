@@ -35,6 +35,7 @@ name = "rootle"
 path = "src/main.rs"
 
 [dependencies]
+parking_lot = "0.12"
 ratatui = { version = "0.30", features = [] }
 crossterm = "0.29"
 serde = { version = "1", features = ["derive"] }

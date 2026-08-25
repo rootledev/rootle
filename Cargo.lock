@@ -2028,6 +2028,7 @@ dependencies = [
  "crossterm",
  "dirs",
  "filetime",
+ "parking_lot",
  "ratatui",
  "reqwest",
  "serde",

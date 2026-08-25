@@ -96,9 +96,8 @@ seam); tokio (§0).
 selection change bumps `context_gen` and spawns a timer thread that
 sleeps, then dispatches only if its generation is still current.
 Holding j through 25 hits costs one provider call (the resting one)
-instead of 25 requests + 24 advisory cancels. Identical shape to ghx's
-`Timer::Preview`. `advise_cancel` on supersession stays for the
-post-dispatch case.
+instead of 25 requests + 24 advisory cancels. `advise_cancel` on
+supersession stays for the post-dispatch case.
 
 ## 4. S3-lite + minors
 
@@ -133,8 +132,9 @@ capability, per §0.
 S2 batch method (`repo/blobs`) or id-keyed concurrency — the §1
 transport makes both possible; add when an adapter demonstrates need.
 B3 channel (§5 trigger). M4 stdio-side disk caching (adapter-side for
-now; ghx's store.rs is the template). M5 ref parameter (ceiling, not
-regression). Pagination (deferred by agreement in the review).
+now; the GitHub provider's store is the template). M5 ref parameter
+(ceiling, not regression). Pagination (deferred by agreement in the
+review).
 
 ## 7. Milestones
 
