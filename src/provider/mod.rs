@@ -233,7 +233,7 @@ pub fn build(config: &crate::config::Config) -> (Arc<dyn Provider>, Option<Strin
             // The user's cache budget and this provider's subtree
             // travel in every initialize (protocol v1.2, advisory) —
             // one [cache] max_mb knob governs every backend.
-            let cache_bytes = config.cache.max_mb as u64 * 1024 * 1024;
+            let cache_bytes = config.cache.max_mb * 1024 * 1024;
             let cache_dir = dirs::cache_dir().map(|d| {
                 d.join("rootle")
                     .join("providers")
