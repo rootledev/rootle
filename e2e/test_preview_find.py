@@ -78,21 +78,20 @@ def test_find_in_file_highlights_steps_and_yanks_match_line(tmp_path: Path) -> N
         tui.send("/")
         tui.expect("FIND")
         tui.type_query("render")
-        screen = tui.expect("1/2 · 2/8")  # live jump to the first match
-        assert "/render" in screen  # query rides the preview title
+        tui.expect("1/2 · 2/8")  # live jump to the first match
+        tui.expect("/render")  # query rides the preview title
 
         tui.key("ENTER")  # commit: chips stay, back to browse
-        screen = tui.expect("BROWSE")
-        assert "1/2 · 2/8" in screen
+        tui.expect("BROWSE")
+        tui.expect("1/2 · 2/8")
+        # n/N stepping: poll the readout after each key — a raw
+        # screen() snapshot races the PTY render on slow runners.
         tui.send("n")
-        screen = tui.screen()
-        assert "2/2 · 6/8" in screen, screen
+        tui.expect("2/2 · 6/8")
         tui.send("n")  # wraps to the first match
-        screen = tui.screen()
-        assert "1/2 · 2/8" in screen, screen
+        tui.expect("1/2 · 2/8")
         tui.send("N")  # and back again
-        screen = tui.screen()
-        assert "2/2 · 6/8" in screen, screen
+        tui.expect("2/2 · 6/8")
 
         tui.send(" ")
         tui.send("y")  # yank anchors at the match line

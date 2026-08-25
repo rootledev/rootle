@@ -31,15 +31,19 @@ def test_fs_provider_search_to_tree_to_preview(provider_tui: Tui) -> None:
     assert "[repo]" in screen
 
     tui.key("ENTER")
-    screen = tui.expect("README.md")
-    assert "src/" in screen
+    # The tree pane and blob content arrive from the provider over
+    # separate async round trips — poll each string instead of
+    # asserting on one captured frame (a PTY diff can tear mid-draw:
+    # the frame that first shows the needle may not have the rest).
+    tui.expect("README.md")
+    tui.expect("src/")
     tui.expect("main.rs")
 
     # Preview is the blob fetched through the provider (content hash).
     tui.send("l")  # into src
     tui.expect("main.rs")
-    screen = tui.expect("fn render")
-    assert "rootle" in screen
+    tui.expect("fn render")
+    tui.expect("rootle")
 
 
 def test_fs_provider_grep_over_stdio(provider_tui: Tui) -> None:
@@ -54,9 +58,11 @@ def test_fs_provider_grep_over_stdio(provider_tui: Tui) -> None:
 
     tui.type_query("render")
     tui.key("ENTER")
-    screen = tui.expect("alpha/src/main.rs")
-    assert "matches" in screen  # folded match-count badge
-    assert "fn render() -> &'static str {" in screen  # located region
+    # Path rows render first; the badge and located preview lines fill
+    # in when the lazy per-hit context lands — poll for each.
+    tui.expect("alpha/src/main.rs")
+    tui.expect("matches")  # folded match-count badge
+    tui.expect("fn render() -> &'static str {")  # located region
 
 
 def test_provider_process_is_spawned_and_child(provider_tui: Tui) -> None:

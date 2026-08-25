@@ -32,13 +32,13 @@ def test_grep_folds_regions_with_count_badge(provider_tui: Tui) -> None:
     tui.send("g")
     tui.type_query("render")
     tui.key("ENTER")
-    # The result block renders progressively; the fold separator is the
-    # last glyph to land — poll it, then assert the rest on that frame
-    # (asserting on the first frame containing the path races the draw).
+    # The result block renders progressively and a PTY diff can tear
+    # mid-draw — poll for each string rather than asserting on one
+    # captured frame.
     tui.expect("2 matches")
-    screen = tui.expect("⋮")
-    assert "local/alpha/src/main.rs" in screen
-    assert "fn render() -> &'static str {" in screen
+    tui.expect("⋮")
+    tui.expect("local/alpha/src/main.rs")
+    tui.expect("fn render() -> &'static str {")
 
 
 def test_extension_field_narrows_over_provider(provider_tui: Tui) -> None:
