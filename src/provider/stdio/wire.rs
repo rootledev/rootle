@@ -206,6 +206,12 @@ impl Provider for StdioProvider {
     fn take_notice(&self) -> Option<String> {
         self.notice.lock().take()
     }
+
+    /// Cache usage reported at the initialize handshake, when the
+    /// provider participates in the advisory budget (v1.2).
+    fn cache_usage(&self) -> Option<u64> {
+        *self.cache_used.lock()
+    }
 }
 
 #[cfg(test)]

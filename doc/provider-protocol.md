@@ -65,15 +65,30 @@ else as an NDJSON-RPC stdio child](architecture.svg)
 First request after spawn:
 
 ```
-→ {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocol":1}}
+→ {"jsonrpc":"2.0","id":1,"method":"initialize","params":{
+     "protocol":1,
+     "cache_bytes":536870912,
+     "cache_dir":"/home/u/.cache/rootle/providers/gitlab"
+   }}
 ← {"jsonrpc":"2.0","id":1,"result":{"protocol":1,"name":"fs",
-     "capabilities":{"orgs":true,"code_search":true}}}
+     "capabilities":{"orgs":true,"code_search":true},
+     "cache":{"bytes":218}}}
 ```
 
 `protocol` must be `1` (anything else aborts stdio setup and rootle falls
 back to the GitHub provider with a warning). `name` is optional and is
 shown as `stdio:<name>`. `capabilities` is optional and defaults to
 everything enabled; the UI degrades on `false` (`orgs`, `code_search`).
+
+**Cache budget (advisory, v1.2):** `cache_bytes` is the user's
+`[cache] max_mb` budget in bytes and `cache_dir` is this provider's
+cache subtree — rootle passes both at every initialize (spawns and
+respawns alike). Providers that cache on disk SHOULD respect the
+budget — evict least-recently-used entries past it — so one knob in
+`:settings` governs every backend and they all feel native. It is
+advisory: a provider may ignore it, and rootle never reaches into the
+subtree. The reply may carry `cache: {"bytes": N}` (current subtree
+size) — rootle shows it in `:settings` next to the provider row.
 
 ## Methods
 
@@ -237,7 +252,9 @@ skeleton, and a conformance test suite that gates integration.
 
 Providers that cache on disk must not write into `~/.cache/rootle/`
 directly — that root belongs to the TUI (`edit/` scratch). Use a
-provider-scoped subtree:
+provider-scoped subtree (initialize passes the resolved path as
+`cache_dir`, and the user's size budget as `cache_bytes` — see the
+handshake):
 
 ```
 ~/.cache/rootle/providers/<name>/…
