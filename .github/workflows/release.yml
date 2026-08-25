@@ -73,3 +73,15 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -am "rootle $ver"
           git push
+
+      # Redeploy the site so the landing's version chip and install.sh
+      # pick up the release (the site stamps both from this repo's
+      # main). Best-effort: a site hiccup must not fail the release.
+      - name: Redeploy website
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.SITE_REPO_TOKEN }}
+        run: |
+          gh api -X POST repos/rootledev/rootledev.github.io/dispatches \
+            -f event_type=rebuild \
+            -f 'client_payload[reason]="release '"${GITHUB_REF_NAME}"'"'

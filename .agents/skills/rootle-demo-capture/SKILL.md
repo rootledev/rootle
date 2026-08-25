@@ -1,20 +1,22 @@
 ---
 name: rootle-demo-capture
-description: Record rootle's demo GIFs — one VHS tape, rendered once per embedded palette (canonical doc/demo.gif + doc/img/demo-<theme>.gif for the website's palette picker). Carries every gotcha hit while building this pipeline (frame collapse, font fallback, PTY races). Use when regenerating doc/demo.gif or doc/img/*.gif.
+description: Record rootle's demo GIFs — one VHS tape, rendered once per embedded palette (canonical demo.gif + demo-<theme>.gif variants, published to the site repo rootledev/rootledev.github.io for the README hero and the palette picker). Carries every gotcha hit while building this pipeline (frame collapse, font fallback, PTY races). Use when regenerating the demo GIFs.
 ---
 
 # rootle demo capture
 
-One tape, seven renders — one per embedded palette:
+One tape, eleven renders — one per embedded palette:
 
 | Artifact | Palette | Used by |
 |---|---|---|
-| `doc/demo.gif` | catppuccin-mocha | README hero, website default |
-| `doc/img/demo-<theme>.gif` | the other six | website palette picker |
+| `demo.gif` | catppuccin-mocha | README hero, site default |
+| `demo-<theme>.gif` | the other ten | site palette picker |
 
-The `demo` workflow renders all of them on pushes touching `src/`,
-`demos/`, or `e2e/` and opens a `demo/artifacts` PR — prefer letting CI
-do it. To render locally:
+Local renders land in gitignored `demos/out/`; the published GIFs live
+in the site repo (`rootledev/rootledev.github.io`, `img/`). The `demo`
+workflow renders all of them on pushes touching `src/`, `demos/`, or
+`e2e/` and opens a `demo/artifacts` PR on the site repo — prefer
+letting CI do it. To render locally:
 
 ```
 docker compose run --build --rm -e VERSION=0.0.0-demo release   # binary for the tape
@@ -58,8 +60,9 @@ Gotchas (all were hit, all cost time):
   wizard, keybinds popup).
 - Theme/palette changes: every themed GIF re-renders — keep
   `src/theme.rs` and the workflow's theme list in sync when adding a
-  palette (also: website palette blocks + picker buttons).
+  palette (also: the site repo's palette blocks + picker buttons).
 - Tape changes: verify the sed transform still matches after editing
   the `Output` or launch lines.
 
-Commit the artifacts via the `demo/artifacts` PR — never hand-edit GIFs.
+Land the artifacts via the `demo/artifacts` PR on the site repo —
+never hand-edit GIFs.

@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="doc/logo.svg" alt="rootle" width="480">
+<img src="https://rootle.dev/assets/logo.svg" alt="rootle" width="480">
 
 **rootle — browse remote source-control systems from your terminal**
 
@@ -20,7 +20,7 @@ syntax-highlighted previews, Zed-style global search, and a pluggable
 provider seam — GitHub ships in-tree, anything else wraps in via a
 small stdio script.
 
-![demo](doc/demo.gif)
+![demo](https://rootle.dev/assets/demo.gif)
 
 </div>
 
@@ -64,8 +64,8 @@ search (it says so in the status line when it matters).
 
 | Doc | Contents |
 |---|---|
-| [settings](doc/settings.md) | every config key, env var, CLI flag |
-| [themes](doc/themes.md) | writing your own palette (role reference) |
+| [settings](https://rootle.dev/docs/settings.html) | every config key, env var, CLI flag |
+| [themes](https://rootle.dev/docs/themes.html) | writing your own palette (role reference) |
 | [provider protocol](doc/provider-protocol.md) | wrap your own backend (NDJSON-RPC over stdio) |
 | [development](doc/development.md) | architecture, dev workflow, e2e harness |
 | [house style](doc/house-style.md) | the component behavior contract |

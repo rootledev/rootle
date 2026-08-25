@@ -54,15 +54,20 @@ docker or `sudo`.
 ## Workflow
 
 - `main` is protected: PRs only, `test` check required. As the repo
-  owner you merge with the admin override — bot PRs (demo artifacts)
-  never get CI on themselves, that's expected.
-- The `demo` workflow re-renders `doc/demo.gif` + screenshots when
-  `src/`, `demos/`, or `e2e/` change and opens a `demo/artifacts` PR —
-  merge those to keep docs current.
-- The site (rootle.dev) builds from `website/` +
-  `doc/*.md` via `website/build.py` in the `pages` workflow — edit docs
-  in `doc/`, never `public/` (build output, gitignored).
+  owner you merge with the admin override.
+- The `demo` workflow re-renders the demo GIFs (one per palette) when
+  `src/`, `demos/`, or `e2e/` change and opens a `demo/artifacts` PR on
+  the SITE repo (needs the `SITE_REPO_TOKEN` secret) — merge there to
+  redeploy the site. Renders stage in gitignored `demos/out/`.
+- The site (rootle.dev) is its own repo:
+  `rootledev/rootledev.github.io` — landing (`website/`), user docs
+  (`doc/`: settings, themes), demo GIFs (`img/`). Editing that repo is
+  all it takes to update the site; this repo keeps only contributor
+  contracts in `doc/` (house-style, provider-protocol, development).
+  User-facing docs get edited on the site, never mirrored back here.
 - Releases: tag `vX.Y.Z` matching `Cargo.toml`'s version, push the tag;
   the release workflow verifies the binary, publishes to crates.io,
-  cuts the GitHub release, then bumps the formula in
-  `rootledev/homebrew-tap` (needs the `HOMEBREW_TAP_TOKEN` secret).
+  cuts the GitHub release, bumps the formula in
+  `rootledev/homebrew-tap` (needs the `HOMEBREW_TAP_TOKEN` secret),
+  and pings the site repo to redeploy (fresh version stamp; uses
+  `SITE_REPO_TOKEN`).

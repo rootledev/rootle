@@ -106,15 +106,17 @@ Gotchas that have bitten (all covered by the suite):
 
 ## Demo GIFs
 
-`doc/demo.gif` (canonical, Catppuccin Mocha) and the per-palette
-`doc/img/demo-<theme>.gif` variants (the website's palette picker swaps
-them in) all render from `demos/demo.tape` via the VHS docker image —
-one sed-parameterized run per embedded palette. Gotchas live in the
+`demo.gif` (canonical, Catppuccin Mocha) and the per-palette
+`demo-<theme>.gif` variants (the website's palette picker swaps them
+in) all render from `demos/demo.tape` via the VHS docker image — one
+sed-parameterized run per embedded palette. Local renders land in
+gitignored `demos/out/`; the published GIFs live in the site repo
+(`rootledev/rootledev.github.io`, `img/`). Gotchas live in the
 [rootle-demo-capture](../.agents/skills/rootle-demo-capture/SKILL.md)
 skill; re-capture when any shown surface changes — or let the `demo`
 workflow (`.github/workflows/demo.yml`) do it: on pushes touching
 `src/`, `demos/`, or `e2e/` it rebuilds, re-renders, and opens a
-`demo/artifacts` PR with the refreshed GIFs.
+`demo/artifacts` PR on the site repo with the refreshed GIFs.
 
 ## Skills (`.agents/skills/`)
 

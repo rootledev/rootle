@@ -3,12 +3,12 @@ provider and records an asciinema v2 cast to dist/demo.cast.
 
     cd demos && uv run --project ../e2e python demo.py   # writes demos/demo.cast
     # replay: asciinema play demo.cast
-    # GIF for the README (doc/demo.gif):
+    # GIF for the README (demos/out/demo.gif, published to the site repo).
     # (cast rendering with agg collapses full-screen diffs — use the
-    # VHS tape instead; see doc/demo.tape / demos/demo.tape header.)
+    # VHS tape instead; see demos/demo.tape header.)
 
-A VHS tape (doc/demo.tape) renders the same flow to GIF/MP4 later —
-`vhs doc/demo.tape` — without needing a live environment.
+A VHS tape (demos/demo.tape) renders the same flow to GIF/MP4 later —
+`vhs demos/demo.tape` — without needing a live environment.
 """
 
 import tempfile
