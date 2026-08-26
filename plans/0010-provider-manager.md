@@ -130,10 +130,10 @@ browsing (the install field covers it).
 | # | Delivers | Status |
 |---|---|---|
 | M0 | this plan | **done** |
-| M1 | manager core: resolve/download/verify/store/receipts + install/list/remove | pending |
-| M2 | update/upgrade/pin + `use` config writer | pending |
-| M3 | clap surface + `--json` for scripting | pending |
+| M1 | manager core: resolve/download/verify/store/receipts + install/list/remove | **done** |
+| M2 | update/upgrade/pin + `use` config writer | **done** |
+| M3 | clap surface + `--json` for scripting | **done** |
 | M4 | settings providers section (list/use/upgrade/remove + install field) | pending |
 | M5 | modeline provider chip + 24h update notice | pending |
-| M6 | rootle-gitlab installed end-to-end via `rootle provider install gitlab` (dogfood) | pending |
-| M7 | docs: site providers page install block, README, protocol doc pointer | pending |
+| M6 | rootle-gitlab installed end-to-end via `rootle provider install gitlab` (dogfood) | **done** |
+| M7 | docs: site providers page install block, README, protocol doc pointer | **done** (per-forge auth pages + backends band + CLI eye candy) |
