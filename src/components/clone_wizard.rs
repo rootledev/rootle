@@ -118,10 +118,14 @@ impl CloneWizard {
         self.dest.join(repo)
     }
 
+    /// Button labels: arrows mark direction of travel (`← Back`,
+    /// `Next →` — the standard wizard convention) and the committing
+    /// action names its key (`⏎ Clone`). The glyphs ship in both the
+    /// vendored Nerd Font Mono and plain JetBrains Mono.
     fn buttons(&self) -> (&'static str, &'static str) {
         match self.screen {
-            Screen::Repos | Screen::Destination => ("back", "next"),
-            Screen::Summary => ("back", "clone!"),
+            Screen::Repos | Screen::Destination => ("← Back", "Next →"),
+            Screen::Summary => ("← Back", "⏎ Clone"),
         }
     }
 }

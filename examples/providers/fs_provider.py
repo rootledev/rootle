@@ -205,6 +205,9 @@ def handle(root: str, method: str, params: dict) -> dict:
         return {
             "protocol": 1,
             "name": "fs",
+            # v1.3: the modeline icon — a builtin name rootle maps to
+            # its Nerd Font glyph when nerd_font is on.
+            "icon": "folder",
             "capabilities": {"orgs": True, "code_search": True},
         }
     if method == "search/repos":

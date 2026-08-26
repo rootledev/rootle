@@ -155,6 +155,7 @@ impl App {
             None
         };
         let forge = forge_name(&config, provider.as_ref());
+        let icon = config.provider.icon.clone().or_else(|| provider.icon());
         App {
             mode: Mode::Browse,
             browser: Browser::new(&state.recent_orgs, &provider.default_orgs()),
@@ -166,6 +167,7 @@ impl App {
             wizard: None,
             modeline: Modeline {
                 forge,
+                icon,
                 context: String::new(),
                 status: None,
             },

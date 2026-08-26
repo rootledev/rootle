@@ -31,24 +31,39 @@ pub(crate) fn mode_color(mode: Mode, sem: &Semantic) -> Color {
     }
 }
 
-/// Nerd Font forge icons (verified against nerd-fonts glyphnames.json);
-/// substring match so `rootle-gitlab` and friends carry their icon.
-fn forge_icon(forge: &str) -> Option<&'static str> {
-    let f = forge.to_ascii_lowercase();
-    if f.contains("github") {
-        Some("\u{f408}") // oct-mark_github
-    } else if f.contains("gitlab") {
-        Some("\u{f296}") // fa-gitlab
-    } else if f.contains("bitbucket") {
-        Some("\u{f171}") // fa-bitbucket
-    } else {
-        None
+/// The icon spec a provider declares (handshake `icon`, protocol
+/// v1.3 — or a `[provider] icon` config override): a builtin name
+/// mapping to its Nerd Font glyph (rendered only with nerd_font on —
+/// they're PUA), or a single literal glyph the terminal can render in
+/// any mode. Rootle hardcodes nothing but its own in-tree github.
+fn resolve_icon(spec: Option<&str>, nerd_font: bool) -> String {
+    let Some(spec) = spec else {
+        return String::new();
+    };
+    let named = match spec {
+        "github" => Some("\u{f408}"),        // oct-mark_github
+        "gitlab" => Some("\u{f296}"),        // fa-gitlab
+        "bitbucket" => Some("\u{f171}"),     // fa-bitbucket
+        "folder" | "fs" => Some("\u{f07c}"), // fa-folder_open
+        _ => None,
+    };
+    if let (Some(glyph), true) = (named, nerd_font) {
+        return glyph.into();
+    }
+    // A single scalar passes through verbatim — the provider vouched
+    // for its font coverage.
+    let mut chars = spec.chars();
+    match (chars.next(), chars.next()) {
+        (Some(c), None) => c.to_string(),
+        _ => String::new(),
     }
 }
 
 pub struct Modeline {
     /// Active provider identity ("github", "gitlab", config-supplied).
     pub forge: String,
+    /// Provider-declared icon spec (builtin name or literal glyph).
+    pub icon: Option<String>,
     pub context: String,
     /// Transient one-line status ("searching…", errors) shown after
     /// the caret, in warning color.
@@ -65,6 +80,7 @@ impl Modeline {
     pub fn new() -> Modeline {
         Modeline {
             forge: String::new(),
+            icon: None,
             context: String::new(),
             status: None,
         }
@@ -83,11 +99,7 @@ impl Modeline {
         } else {
             "\u{276f}"
         };
-        let icon = theme
-            .nerd_font
-            .then(|| forge_icon(&self.forge))
-            .flatten()
-            .unwrap_or("");
+        let icon = resolve_icon(self.icon.as_deref(), theme.nerd_font);
         let forge_label = fit(&self.forge, 12);
         let forge_text = if icon.is_empty() {
             format!("{forge_label} ")
@@ -232,6 +244,7 @@ mod tests {
     fn sample() -> Modeline {
         Modeline {
             forge: "github".into(),
+            icon: Some("github".into()),
             context: "ratatui/ratatui · main".into(),
             status: None,
         }
@@ -251,17 +264,41 @@ mod tests {
     }
 
     #[test]
-    fn unknown_forge_renders_text_only_even_with_nerd_font() {
+    fn no_declared_icon_renders_text_only_even_with_nerd_font() {
         let theme = crate::theme::Theme::catppuccin_mocha().with_nerd_font(true);
         let m = Modeline {
-            forge: "ghes".into(),
+            forge: "internal".into(),
+            icon: None,
             ..sample()
         };
         let line = row_with(&m, Mode::Browse, 120, &theme);
-        assert!(line.contains("ghes"));
+        assert!(line.contains("internal"));
         assert!(
             !line.contains('\u{f408}'),
-            "no icon for unknown forges: {line}"
+            "rootle guesses no icons: {line}"
+        );
+    }
+
+    #[test]
+    fn literal_glyph_icon_renders_in_both_modes() {
+        for nerd in [false, true] {
+            let theme = crate::theme::Theme::catppuccin_mocha().with_nerd_font(nerd);
+            let m = Modeline {
+                icon: Some("◆".into()),
+                ..sample()
+            };
+            let line = row_with(&m, Mode::Browse, 120, &theme);
+            assert!(line.contains('◆'), "literal glyph, nerd={nerd}: {line}");
+        }
+    }
+
+    #[test]
+    fn builtin_name_needs_nerd_font() {
+        let plain = crate::theme::Theme::catppuccin_mocha();
+        let line = row_with(&sample(), Mode::Browse, 120, &plain);
+        assert!(
+            !line.contains('\u{f408}'),
+            "PUA glyph must not render without nerd_font: {line}"
         );
     }
 

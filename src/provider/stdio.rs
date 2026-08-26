@@ -45,6 +45,7 @@ pub const DEFAULT_TIMEOUT: Duration = Duration::from_millis(30_000);
 
 pub struct StdioProvider {
     name: String,
+    icon: Option<String>,
     capabilities: Capabilities,
     /// Child + its stdin, swapped on rebuild. Writes take this lock:
     /// an advisory cancel (v1.1) must not queue behind another writer.
@@ -163,6 +164,7 @@ impl StdioProvider {
         });
         let provider = StdioProvider {
             name: "stdio".into(),
+            icon: None,
             capabilities: Capabilities {
                 orgs: true,
                 code_search: true,

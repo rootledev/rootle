@@ -34,6 +34,10 @@ pub struct ProviderConfig {
     /// (kind = "stdio"); defaults to the provider's self-reported
     /// handshake name.
     pub name: Option<String>,
+    /// Modeline icon override: a builtin name ("github", "gitlab",
+    /// "bitbucket", "folder") or a single literal glyph; wins over
+    /// the provider's handshake-declared icon.
+    pub icon: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -107,6 +111,7 @@ impl Default for ProviderConfig {
             timeout_ms: 30_000,
             stderr: "null".into(),
             name: None,
+            icon: None,
         }
     }
 }

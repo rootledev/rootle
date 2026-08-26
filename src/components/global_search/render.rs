@@ -112,16 +112,21 @@ impl GlobalSearch {
             .title(Span::styled(title, Style::default().fg(sem.subtext0)));
         let inner = block.inner(area);
         frame.render_widget(block, area);
-        let width = inner.width as usize;
+        let width = inner.width.saturating_sub(2) as usize;
+        let prompt = if focused {
+            Span::styled("❯ ", Style::default().fg(sem.border_focused))
+        } else {
+            Span::styled("❯ ", Style::default().fg(sem.overlay0))
+        };
         frame.render_widget(
-            Paragraph::new(Line::from(Span::styled(
-                fit(value, width),
-                Style::default().fg(sem.text),
-            ))),
+            Paragraph::new(Line::from(vec![
+                prompt,
+                Span::styled(fit(value, width), Style::default().fg(sem.text)),
+            ])),
             inner,
         );
         if focused && let Some(cursor) = cursor {
-            let x = inner.x + cursor as u16;
+            let x = inner.x + 2 + cursor as u16;
             if x < inner.x + inner.width {
                 frame.set_cursor_position((x, inner.y));
             }
@@ -178,14 +183,15 @@ impl GlobalSearch {
             let start = lines.len();
             let selected = idx == self.selected && focused;
             lines.push(self.path_line(hit, width, selected, theme));
-            // Disjoint match regions get a dim ellipsis separator.
+            // Disjoint match regions get a dim ellipsis separator,
+            // aligned under the gutter divider.
             let mut prev_no: Option<u32> = None;
             for (no, line) in &hit.preview {
                 if let Some(prev) = prev_no
                     && *no > prev + 1
                 {
                     lines.push(Line::from(Span::styled(
-                        "       ⋮",
+                        format!("{:>6} ", "⋮"),
                         Style::default().fg(sem.subtext0),
                     )));
                 }
@@ -333,12 +339,14 @@ impl GlobalSearch {
     }
 }
 
-/// Preview line: right-aligned line-number gutter + the highlighted
-/// code spans (clipped at the area width, like the browser preview).
+/// Preview line: right-aligned line-number gutter with the same dim
+/// `│` divider the browser preview uses, then the highlighted spans.
 fn preview_line(no: u32, line: &Line<'static>, theme: &Theme) -> Line<'static> {
     let sem = &theme.semantic;
-    let gutter = format!("  {:>4}  ", no);
-    let mut spans = vec![Span::styled(gutter, Style::default().fg(sem.subtext0))];
+    let mut spans = vec![
+        Span::styled(format!("{no:>4} "), Style::default().fg(sem.subtext0)),
+        Span::styled("│ ", Style::default().fg(sem.overlay0)),
+    ];
     spans.extend(line.spans.iter().cloned());
     Line::from(spans)
 }

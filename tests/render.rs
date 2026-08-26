@@ -740,7 +740,7 @@ fn clone_wizard_walks_three_screens() {
     let screen = rows.join("\n");
     assert!(screen.contains("clone — 1/3 repos"), "screen 1 missing");
     assert!(screen.contains("● ratatui"), "marked repo missing");
-    assert!(screen.contains("next"), "next button missing");
+    assert!(screen.contains("Next →"), "next button missing");
     println!("{screen}");
 
     app.handle_key(key(KeyCode::Tab)); // list → buttons

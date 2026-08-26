@@ -160,6 +160,15 @@ pub trait Provider: Send + Sync {
     /// Code search; `q` is the full query string with qualifiers.
     fn search_code(&self, q: &str) -> ProviderResult<SearchCodeResult>;
 
+    /// Modeline icon: a builtin name ("github", "gitlab", "bitbucket",
+    /// "folder" — rendered as its Nerd Font glyph when nerd_font is
+    /// on) or a single literal glyph the terminal can render. The
+    /// provider declares its own (handshake `icon`, protocol v1.3);
+    /// the in-tree github provider owns the one rootle hardcodes.
+    fn icon(&self) -> Option<String> {
+        None
+    }
+
     /// Progressive code search (protocol v1.3, plans/0011): `on_hits`
     /// may fire from any thread, any number of times, strictly before
     /// this call returns. When the provider streamed, the result is
