@@ -6,11 +6,15 @@
 //! embedded base — fork a builtin by writing a file with its name.
 
 use ratatui::style::Color;
+use ratatui::widgets::BorderType;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Theme {
     pub semantic: Semantic,
     pub syntax: Syntax,
+    /// Border corner style for panes and popups (chrome, not color —
+    /// rides on `Theme` because that is what every render receives).
+    pub border: BorderShape,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -41,6 +45,11 @@ pub struct Semantic {
     pub mode_leader: Color,
     pub mode_visual: Color,
 
+    /// Background of the modeline's forge chip (active provider
+    /// identity); fg is `crust` like every chip. Defaults to each
+    /// palette's overlay/muted tone — quiet next to the mode chip.
+    pub forge: Color,
+
     pub badge_repo: Color,
     pub badge_org: Color,
 
@@ -62,6 +71,42 @@ pub struct Syntax {
     pub tag: Color,
     pub namespace: Color,
     pub invalid: Color,
+}
+
+/// Corner style for pane/popup borders; `[ui] border` in the config
+/// selects it. `Plain` is the default: square `┌─┐` corners join the
+/// straight segments in the same stroke and read crisp at any font
+/// size, while `Rounded`'s arc glyphs render soft or blurry in many
+/// terminal fonts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BorderShape {
+    #[default]
+    Plain,
+    Rounded,
+    Thick,
+    Double,
+}
+
+impl BorderShape {
+    /// Config-string parse; unknown values keep the default.
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "plain" => Some(Self::Plain),
+            "rounded" => Some(Self::Rounded),
+            "thick" => Some(Self::Thick),
+            "double" => Some(Self::Double),
+            _ => None,
+        }
+    }
+
+    pub fn border_type(self) -> BorderType {
+        match self {
+            Self::Plain => BorderType::Plain,
+            Self::Rounded => BorderType::Rounded,
+            Self::Thick => BorderType::Thick,
+            Self::Double => BorderType::Double,
+        }
+    }
 }
 
 /// One role override as a (name, hex) pair — the embedded palettes and
@@ -101,11 +146,14 @@ impl Theme {
                 mode_leader: Color::from_u32(0xfab387), // peach
                 mode_visual: Color::from_u32(0xf5c2e7), // pink
 
+                forge: Color::from_u32(0x6c7086), // overlay0
+
                 badge_repo: Color::from_u32(0x89b4fa), // blue
                 badge_org: Color::from_u32(0xfab387),  // peach
 
                 search_match: Color::from_u32(0xf9e2af), // yellow
             },
+            border: BorderShape::default(),
             syntax: Syntax {
                 keyword: Color::from_u32(0xcba6f7),   // mauve
                 string: Color::from_u32(0xa6e3a1),    // green
@@ -135,6 +183,17 @@ impl Theme {
                 }
                 theme
             })
+    }
+
+    /// Apply a config-selected border shape (chained after `load`).
+    pub fn with_border(mut self, shape: BorderShape) -> Self {
+        self.border = shape;
+        self
+    }
+
+    /// The ratatui border type every pane/popup renders with.
+    pub fn border_type(&self) -> BorderType {
+        self.border.border_type()
     }
 
     /// Every theme name the loader can resolve: embedded palettes plus
@@ -239,6 +298,7 @@ fn set_role(sem: &mut Semantic, role: &str, color: Color) {
         "mode_normal" => sem.mode_normal = color,
         "mode_leader" => sem.mode_leader = color,
         "mode_visual" => sem.mode_visual = color,
+        "forge" => sem.forge = color,
         "badge_repo" => sem.badge_repo = color,
         "badge_org" => sem.badge_org = color,
         "search_match" => sem.search_match = color,
@@ -291,6 +351,7 @@ const DRACULA: &[RoleValue] = &[
     ("mode_normal", 0xbd93f9),
     ("mode_leader", 0xffb86c),
     ("mode_visual", 0xff79c6), // pink
+    ("forge", 0x6272a4),       // comment
     ("badge_repo", 0x8be9fd),
     ("badge_org", 0xffb86c),
     ("search_match", 0xf1fa8c),
@@ -320,6 +381,7 @@ const ONE_DARK: &[RoleValue] = &[
     ("mode_normal", 0x61afef),
     ("mode_leader", 0xd19a66), // orange
     ("mode_visual", 0xc678dd), // purple
+    ("forge", 0x5c6370),       // mono-3
     ("badge_repo", 0x61afef),
     ("badge_org", 0xd19a66),
     ("search_match", 0xe5c07b),
@@ -349,6 +411,7 @@ const GRUVBOX_DARK: &[RoleValue] = &[
     ("mode_normal", 0x83a598),
     ("mode_leader", 0xfe8019), // orange
     ("mode_visual", 0xd3869b), // purple
+    ("forge", 0x928374),       // gray
     ("badge_repo", 0x83a598),
     ("badge_org", 0xfe8019),
     ("search_match", 0xfabd2f),
@@ -378,6 +441,7 @@ const NORD: &[RoleValue] = &[
     ("mode_normal", 0x81a1c1), // frost 9
     ("mode_leader", 0xd08770), // aurora orange
     ("mode_visual", 0xb48ead), // aurora purple
+    ("forge", 0x616e88),       // polar night brightened
     ("badge_repo", 0x88c0d0),
     ("badge_org", 0xd08770),
     ("search_match", 0xebcb8b),
@@ -407,6 +471,7 @@ const TOKYO_NIGHT: &[RoleValue] = &[
     ("mode_normal", 0x7aa2f7),
     ("mode_leader", 0xff9e64), // orange
     ("mode_visual", 0xbb9af7), // purple
+    ("forge", 0x565f89),       // comment
     ("badge_repo", 0x7aa2f7),
     ("badge_org", 0xff9e64),
     ("search_match", 0xe0af68),
@@ -436,6 +501,7 @@ const SOLARIZED_DARK: &[RoleValue] = &[
     ("mode_normal", 0x268bd2),
     ("mode_leader", 0xcb4b16), // orange
     ("mode_visual", 0xd33682), // magenta
+    ("forge", 0x657b83),       // base00
     ("badge_repo", 0x268bd2),
     ("badge_org", 0xcb4b16),
     ("search_match", 0xb58900),
@@ -469,6 +535,7 @@ const CATPPUCCIN_LATTE: &[RoleValue] = &[
     ("mode_normal", 0x1e66f5),
     ("mode_leader", 0xfe640b), // peach
     ("mode_visual", 0xea76cb), // pink
+    ("forge", 0x9ca0b0),       // overlay0
     ("badge_repo", 0x1e66f5),
     ("badge_org", 0xfe640b),
     ("search_match", 0xdf8e1d),
@@ -498,6 +565,7 @@ const GITHUB_LIGHT: &[RoleValue] = &[
     ("mode_normal", 0x0969da),
     ("mode_leader", 0xbc4c00), // orange
     ("mode_visual", 0x8250df), // purple
+    ("forge", 0x818b98),       // primer gray
     ("badge_repo", 0x0969da),
     ("badge_org", 0xbc4c00),
     ("search_match", 0x9a6700),
@@ -527,6 +595,7 @@ const ONE_LIGHT: &[RoleValue] = &[
     ("mode_normal", 0x4078f2),
     ("mode_leader", 0xb76b01), // dark orange
     ("mode_visual", 0xa626a4), // purple
+    ("forge", 0xa0a1a7),       // mono-3
     ("badge_repo", 0x4078f2),
     ("badge_org", 0xb76b01),
     ("search_match", 0xc18401),
@@ -556,6 +625,7 @@ const SOLARIZED_LIGHT: &[RoleValue] = &[
     ("mode_normal", 0x268bd2),
     ("mode_leader", 0xcb4b16), // orange
     ("mode_visual", 0x6c71c4), // violet
+    ("forge", 0x839496),       // base0
     ("badge_repo", 0x268bd2),
     ("badge_org", 0xcb4b16),
     ("search_match", 0xb58900),
@@ -788,13 +858,14 @@ mod tests {
     #[test]
     fn embedded_palettes_have_spec_syntax() {
         let mocha = Theme::catppuccin_mocha().syntax;
-        for (name, _, syntax) in EMBEDDED {
+        for (name, roles, syntax) in EMBEDDED {
             let theme = Theme::embedded(name).expect("embedded theme loads");
             if syntax.is_empty() {
                 continue; // mocha baseline
             }
             // Every palette table is complete — no silent mocha holes.
             assert_eq!(syntax.len(), 9, "{name} syntax table incomplete");
+            assert_eq!(roles.len(), 27, "{name} semantic table incomplete");
             assert_ne!(
                 theme.syntax, mocha,
                 "{name} syntax should differ from mocha"
@@ -809,6 +880,22 @@ mod tests {
     }
 
     #[test]
+    fn border_shape_parses_and_defaults_plain() {
+        assert_eq!(BorderShape::parse("rounded"), Some(BorderShape::Rounded));
+        assert_eq!(BorderShape::parse(" Thick "), Some(BorderShape::Thick));
+        assert_eq!(BorderShape::parse("double"), Some(BorderShape::Double));
+        assert_eq!(BorderShape::parse("plain"), Some(BorderShape::Plain));
+        assert_eq!(BorderShape::parse("squiggly"), None);
+        let mocha = Theme::catppuccin_mocha();
+        assert_eq!(mocha.border, BorderShape::Plain);
+        assert_eq!(mocha.border_type(), BorderType::Plain);
+        assert_eq!(
+            mocha.with_border(BorderShape::Rounded).border_type(),
+            BorderType::Rounded
+        );
+    }
+    #[test]
+
     fn available_names_lists_embedded() {
         let names = Theme::available_names();
         for expected in EMBEDDED.iter().map(|(n, _, _)| *n) {

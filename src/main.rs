@@ -12,7 +12,7 @@ use ratatui::{Terminal, backend::CrosstermBackend};
 use rootle::app::App;
 use rootle::cli::{Cli, ProviderCommand};
 use rootle::config::Config;
-use rootle::theme::Theme;
+use rootle::theme::{BorderShape, Theme};
 use std::io::{self, stdout};
 use std::time::Duration;
 
@@ -71,7 +71,8 @@ fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cli: Cli) -> io::R
         Some(path) => Config::load_from(path),
         None => Config::load(),
     };
-    let theme = Theme::load(cli.theme.as_deref().unwrap_or(&config.theme.name));
+    let theme = Theme::load(cli.theme.as_deref().unwrap_or(&config.theme.name))
+        .with_border(BorderShape::parse(&config.ui.border).unwrap_or_default());
     let (tx, rx) = rootle::event::channel();
     let mut app = App::new(tx, config, theme);
     // `rootle owner/repo`: skip search, go straight to browsing.

@@ -258,7 +258,7 @@ fn h_moves_focus_to_parent_and_browsing_it_cascades() {
     app.handle_key(key(KeyCode::Char('j')));
     let rows = render(&mut app, 100, 30);
     let screen = rows.join("\n");
-    assert!(rows[0].ends_with('╮'), "orgs should fold to full width");
+    assert!(rows[0].ends_with('┐'), "orgs should fold to full width");
     assert!(
         !screen.contains("axum/"),
         "folded view hides the repos column"
@@ -401,9 +401,9 @@ fn org_level_folds_to_single_pane() {
     // A folded single pane spans nearly full width: orgs title starts at
     // the left edge and its right border sits at the far right.
     let top = &rows[0];
-    assert!(top.starts_with('╭'), "folded pane should start at x=0");
+    assert!(top.starts_with('┌'), "folded pane should start at x=0");
     assert!(
-        top.ends_with('╮'),
+        top.ends_with('┐'),
         "folded pane should reach the right edge"
     );
 }

@@ -23,7 +23,7 @@ use crate::keymap;
 use crate::mode::Mode;
 use crate::provider::{self, Provider};
 use crate::state::State;
-use crate::theme::Theme;
+use crate::theme::{BorderShape, Theme};
 use ratatui::Frame;
 use ratatui::crossterm::event::KeyEvent;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
@@ -98,6 +98,16 @@ pub(crate) fn provider_status(error: &crate::provider::ProviderError) -> String 
     }
 }
 
+/// Forge chip text for the modeline: `[provider] name` when set, else
+/// the provider's self-reported name (`stdio:name` → `name`).
+fn forge_name(config: &Config, provider: &dyn Provider) -> String {
+    config
+        .provider
+        .name
+        .clone()
+        .unwrap_or_else(|| provider.name().trim_start_matches("stdio:").to_owned())
+}
+
 impl App {
     pub fn new(tx: AppTx, config: Config, theme: Theme) -> Self {
         let (provider, warning) = provider::build(&config);
@@ -144,6 +154,7 @@ impl App {
         } else {
             None
         };
+        let forge = forge_name(&config, provider.as_ref());
         App {
             mode: Mode::Browse,
             browser: Browser::new(&state.recent_orgs, &provider.default_orgs()),
@@ -153,7 +164,11 @@ impl App {
             command_line: None,
             settings: None,
             wizard: None,
-            modeline: Modeline::new(),
+            modeline: Modeline {
+                forge,
+                context: String::new(),
+                status: None,
+            },
             theme,
             config,
             state,
@@ -464,7 +479,7 @@ impl App {
             Action::SearchSubmitted(_) => {
                 self.search_gen += 1;
                 self.provider.advise_cancel(); // superseded in-flight work
-                self.status = Some("searching GitHub…".into());
+                self.status = Some(format!("searching {}…", self.modeline.forge));
                 if let Some(popup) = &mut self.popup {
                     popup.update(&action);
                 }
@@ -906,12 +921,15 @@ impl App {
                 self.settings = None; // close the popup
                 let theme_changed = config.theme != self.config.theme;
                 let provider_changed = config.provider != self.config.provider;
+                let ui_changed = config.ui != self.config.ui;
                 self.config = config;
-                // Hot reload: rebuild the palette; every component
-                // reads Theme per render, so the repaint is automatic.
-                if theme_changed {
+                // Hot reload: rebuild the palette (and border shape);
+                // every component reads Theme per render, so the
+                // repaint is automatic.
+                if theme_changed || ui_changed {
                     let name = self.config.theme.name.clone();
-                    self.theme = Theme::load(&name);
+                    let border = BorderShape::parse(&self.config.ui.border).unwrap_or_default();
+                    self.theme = Theme::load(&name).with_border(border);
                 }
                 match self.config.save() {
                     Ok(()) => {

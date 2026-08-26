@@ -16,7 +16,7 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph};
+use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use unicode_width::UnicodeWidthStr;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -78,7 +78,7 @@ impl KeybindsPopup {
 
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
+            .border_type(theme.border_type())
             .border_style(Style::default().fg(sem.border_focused))
             .style(Style::default().bg(sem.mantle))
             .title(Span::styled(
@@ -156,7 +156,7 @@ impl KeybindsPopup {
         let color = mode_color(mode, sem);
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
+            .border_type(theme.border_type())
             .border_style(Style::default().fg(sem.border_unfocused))
             .style(Style::default().bg(sem.base))
             .title(Span::styled(

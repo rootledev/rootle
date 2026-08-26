@@ -1,4 +1,5 @@
-//! ~/.config/rootle/config.toml — [editor] and [theme]. Settings view: later.
+//! ~/.config/rootle/config.toml — [editor], [theme], [cache],
+//! [provider], [ui]. Settings view edits a subset live.
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -10,6 +11,7 @@ pub struct Config {
     pub theme: ThemeConfig,
     pub cache: CacheConfig,
     pub provider: ProviderConfig,
+    pub ui: UiConfig,
 }
 
 /// Backend selection (plans/0005): built-in GitHub by default, or an
@@ -28,6 +30,10 @@ pub struct ProviderConfig {
     /// (default, discarded) or "inherit" (pass through — adapter
     /// debugging without a log file).
     pub stderr: String,
+    /// Short display name for the modeline's forge chip
+    /// (kind = "stdio"); defaults to the provider's self-reported
+    /// handshake name.
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -53,6 +59,15 @@ pub struct ThemeConfig {
     pub path: Option<PathBuf>,
 }
 
+/// Chrome preferences.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default)]
+pub struct UiConfig {
+    /// Border corner style: "plain" (default) | "rounded" | "thick" |
+    /// "double". Unknown values fall back to plain.
+    pub border: String,
+}
+
 impl Default for Config {
     fn default() -> Self {
         Config {
@@ -67,6 +82,9 @@ impl Default for Config {
             },
             cache: CacheConfig { max_mb: 512 },
             provider: ProviderConfig::default(),
+            ui: UiConfig {
+                border: "plain".into(),
+            },
         }
     }
 }
@@ -78,6 +96,7 @@ impl Default for ProviderConfig {
             command: Vec::new(),
             timeout_ms: 30_000,
             stderr: "null".into(),
+            name: None,
         }
     }
 }
@@ -97,6 +116,12 @@ impl Default for ThemeConfig {
 impl Default for CacheConfig {
     fn default() -> Self {
         Config::default().cache
+    }
+}
+
+impl Default for UiConfig {
+    fn default() -> Self {
+        Config::default().ui
     }
 }
 

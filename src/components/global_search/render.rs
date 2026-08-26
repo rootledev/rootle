@@ -10,7 +10,7 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph};
+use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use unicode_width::UnicodeWidthStr;
 
 impl GlobalSearch {
@@ -27,7 +27,7 @@ impl GlobalSearch {
 
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
+            .border_type(theme.border_type())
             .border_style(Style::default().fg(sem.border_focused))
             .style(Style::default().bg(sem.mantle))
             .title(Span::styled(
@@ -106,7 +106,7 @@ impl GlobalSearch {
         };
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
+            .border_type(theme.border_type())
             .border_style(Style::default().fg(border))
             .style(Style::default().bg(sem.base))
             .title(Span::styled(title, Style::default().fg(sem.subtext0)));
@@ -155,7 +155,7 @@ impl GlobalSearch {
 
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
+            .border_type(theme.border_type())
             .border_style(Style::default().fg(border))
             .style(Style::default().bg(sem.base))
             .title(Span::styled(title, Style::default().fg(sem.subtext0)));
@@ -280,7 +280,7 @@ impl GlobalSearch {
         frame.render_widget(Clear, popup);
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
+            .border_type(theme.border_type())
             .border_style(Style::default().fg(sem.border_focused))
             .style(Style::default().bg(sem.mantle))
             .title(Span::styled(

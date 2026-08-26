@@ -1,7 +1,7 @@
-//! Transport machinery (plans/0008 §1): the child process, the stdout
-//! reader thread, and the reply-routing round trip. Nothing here knows
-//! the provider method surface — `wire.rs` maps methods onto
-//! `round_trip`.
+//! Transport machinery (plans/0008 §1): the stdout reader thread and
+//! the reply-routing round trip. `process.rs` spawns the child;
+//! nothing here knows the provider method surface — `wire.rs` maps
+//! methods onto `exchange`.
 
 use super::StdioProvider;
 use crate::provider::{ErrorKind, ProviderError, ProviderResult};
@@ -9,33 +9,11 @@ use parking_lot::{Condvar, Mutex};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::process::ChildStdout;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc;
 use std::time::Duration;
-
-/// Child stderr policy (plans/0008 §4).
-#[derive(Clone, Copy)]
-pub(super) enum StderrMode {
-    Null,
-    Inherit,
-}
-
-/// Bounded respawn backoff (plans/0008 §5): 1s → 2s → 5s → 30s cap.
-pub(super) fn backoff_for(restart_attempt: u32) -> Duration {
-    match restart_attempt {
-        1 => Duration::from_secs(1),
-        2 => Duration::from_secs(2),
-        3 => Duration::from_secs(5),
-        _ => Duration::from_secs(30),
-    }
-}
-
-pub(super) struct Process {
-    pub(super) child: Child,
-    pub(super) stdin: ChildStdin,
-}
 
 /// Transport lifecycle, shared with the reader thread(s). The
 /// condvar gates recovery: `Respawning` means exactly one thread is
@@ -199,34 +177,6 @@ fn error_from_reply(err: &Value) -> ProviderError {
     }
 }
 
-/// Spawn the child and split its pipes for the process/reader halves.
-pub(super) fn spawn_process(
-    command: &[String],
-    env: &[(&str, &str)],
-    stderr_mode: StderrMode,
-) -> ProviderResult<(Process, ChildStdout)> {
-    let (program, args) = command
-        .split_first()
-        .ok_or_else(|| ProviderError::other("empty provider command"))?;
-    let mut cmd = Command::new(program);
-    cmd.args(args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(match stderr_mode {
-            StderrMode::Null => Stdio::null(),
-            StderrMode::Inherit => Stdio::inherit(),
-        });
-    for (key, value) in env {
-        cmd.env(key, value);
-    }
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| ProviderError::other(format!("spawn {program}: {e}")))?;
-    let stdin = child.stdin.take().expect("piped stdin");
-    let stdout = child.stdout.take().expect("piped stdout");
-    Ok((Process { child, stdin }, stdout))
-}
-
 /// The stdout pump: read lines, complete the matching reply slot.
 /// Id-less lines are tolerated chatter today and become the server-
 /// initiated notification seam when that slice lands (plans/0008 §0).
@@ -312,13 +262,5 @@ mod tests {
         assert_eq!(v["method"], "$/cancelRequest");
         assert_eq!(v["params"]["id"], 7);
         assert!(v.get("id").is_none()); // notification, not request
-    }
-
-    #[test]
-    fn backoff_ladder() {
-        assert_eq!(backoff_for(1), Duration::from_secs(1));
-        assert_eq!(backoff_for(2), Duration::from_secs(2));
-        assert_eq!(backoff_for(3), Duration::from_secs(5));
-        assert_eq!(backoff_for(9), Duration::from_secs(30));
     }
 }

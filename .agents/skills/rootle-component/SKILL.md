@@ -43,8 +43,9 @@ and the existing splits: `global_search/`, `settings_popup/`,
    doesn't exist, add it to the palette schema (`src/theme.rs`) with a
    Catppuccin Mocha default.
 5. **Render** — draw into the caller's `Rect`; never assume full screen.
-   Borders rounded, title in top border per the design language
-   (PLAN.md §5).
+   Borders follow `theme.border_type()` (plain square corners by
+   default — `[ui] border` selects rounded/thick/double), title in top
+   border per the design language (PLAN.md §5).
 6. **Text safety** — any string originating from the network or files
    goes through `sanitize.rs` before being stored in render state.
    Width math via `unicode-width`.
@@ -64,7 +65,7 @@ and the existing splits: `global_search/`, `settings_popup/`,
 ## Popup specifics
 
 - Wrap content in the `Popup` shell (handles centered rect, `Clear`,
-  rounded border, title, hint row).
+  border, title, hint row).
 - `<Esc>` dismisses. If the popup owns a `VimInput` in INSERT mode, the
   first `<Esc>` goes to the input (→ NORMAL), the second dismisses.
 - Closing a popup needs NO `terminal.clear()` — the underlying UI draws

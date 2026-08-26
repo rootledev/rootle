@@ -11,7 +11,7 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph};
+use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use unicode_width::UnicodeWidthStr;
 
 /// Left gutter before the label: the `▌` selection marker (house style).
@@ -37,7 +37,7 @@ impl SettingsPopup {
         };
         let mut block = Block::default()
             .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
+            .border_type(theme.border_type())
             .border_style(Style::default().fg(sem.border_focused))
             .style(Style::default().bg(sem.mantle))
             .title(Span::styled(
@@ -109,7 +109,7 @@ impl SettingsPopup {
         let desc = section.rows.get(self.row).map(Row::desc).unwrap_or("");
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
+            .border_type(theme.border_type())
             .border_style(Style::default().fg(sem.border_unfocused))
             .style(Style::default().bg(sem.base))
             .title(Span::styled(
