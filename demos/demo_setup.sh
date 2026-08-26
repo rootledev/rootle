@@ -39,6 +39,13 @@ kind = "stdio"
 command = ["python3", "$PWD/examples/providers/fs_provider.py", "$DEMO/code"]
 EOF
 
+cat >> "$DEMO/provider.toml" <<EOF
+[ui]
+# The demo renders with the vendored Nerd Font Mono — show the full
+# powerline modeline (arrows + forge icons), not the unicode fallback.
+nerd_font = true
+EOF
+
 # The tape launches the release binary. Releases ship as a tarball
 # (rootle-<v>-<target>.tar.gz) — extract it; locally, fall back to a
 # debug build when no release has been run.
