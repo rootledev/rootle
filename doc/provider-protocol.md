@@ -233,9 +233,8 @@ handler exception this way.
 `data.kind` — an open string enum the UI maps to precise handling:
 
 ```
-← {"jsonrpc":"2.0","id":9,"error":{"code":1,"message":"rate limited (reset in 37s)",
-     "data":{"kind":"rate_limited","retry_after_s":37}}}
-```
+**Kinds (v1.1, optional).** Errors may carry a semantic kind in
+`data.kind` — an open string enum the UI maps to precise handling:
 
 Defined kinds: `auth`, `rate_limited` (optional `retry_after_s`
 seconds), `not_found`, `network`, `timeout`, `provider` (internal).
@@ -268,6 +267,9 @@ timeout_ms = 30000      # v1.2: per-request read deadline (default 30s)
 # border = "plain"     # pane/popup corner style: "plain" (default) |
                        # "rounded" | "thick" | "double". Unknown values
                        # fall back to plain.
+# nerd_font = false    # Nerd Font glyphs in the modeline (powerline
+                       # arrows + forge icons); false keeps unicode
+                       # fallbacks (❯, text-only chips).
 `kind = "github"` (the default) uses the built-in provider. An empty
 command, a failed spawn, or an unknown kind falls back to GitHub with
 a warning on the status line — misconfiguration never blocks startup.

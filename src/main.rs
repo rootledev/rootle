@@ -72,7 +72,8 @@ fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cli: Cli) -> io::R
         None => Config::load(),
     };
     let theme = Theme::load(cli.theme.as_deref().unwrap_or(&config.theme.name))
-        .with_border(BorderShape::parse(&config.ui.border).unwrap_or_default());
+        .with_border(BorderShape::parse(&config.ui.border).unwrap_or_default())
+        .with_nerd_font(config.ui.nerd_font);
     let (tx, rx) = rootle::event::channel();
     let mut app = App::new(tx, config, theme);
     // `rootle owner/repo`: skip search, go straight to browsing.

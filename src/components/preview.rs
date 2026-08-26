@@ -287,30 +287,36 @@ impl Preview {
         if cursored && let Some(line) = lines.get_mut(cursor) {
             line.style = Style::default().bg(sem.selection_bg);
         }
-        // Line-number gutter (bat/yazi parity): dim, right-aligned; the
-        // cursor line gets a sign-column triangle (tuicr-style) and a
-        // bold number (vim CursorLineNr).
+        // Line-number gutter, bat/helix style: sign column (▶ marks
+        // the cursor line, tuicr-style) + space + right-aligned dim
+        // numbers + a dim `│` divider before the content. The cursor
+        // line's number reads bold (vim CursorLineNr).
         if self.numbered {
             let width = self.line_count.max(1).to_string().len();
             for (i, line) in lines.iter_mut().enumerate() {
-                let style = if i == cursor {
+                let cursor_line = i == cursor;
+                let num_style = if cursor_line {
                     Style::default().fg(sem.text).add_modifier(Modifier::BOLD)
                 } else {
                     Style::default().fg(sem.overlay0)
                 };
                 line.spans
-                    .insert(0, Span::styled(format!("{:>width$} ", i + 1), style));
-                let marker = if i == cursor {
+                    .insert(0, Span::styled(format!("{:>width$}", i + 1), num_style));
+                line.spans.insert(
+                    0,
                     Span::styled(
-                        "▶",
-                        Style::default()
-                            .fg(sem.border_focused)
-                            .add_modifier(Modifier::BOLD),
-                    )
-                } else {
-                    Span::raw(" ")
-                };
-                line.spans.insert(0, marker);
+                        if cursor_line { "▶ " } else { "  " },
+                        if cursor_line {
+                            Style::default()
+                                .fg(sem.border_focused)
+                                .add_modifier(Modifier::BOLD)
+                        } else {
+                            Style::default()
+                        },
+                    ),
+                );
+                line.spans
+                    .insert(2, Span::styled(" │ ", Style::default().fg(sem.overlay0)));
             }
         }
 

@@ -58,7 +58,6 @@ pub struct ThemeConfig {
     pub name: String,
     pub path: Option<PathBuf>,
 }
-
 /// Chrome preferences.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default)]
@@ -66,6 +65,16 @@ pub struct UiConfig {
     /// Border corner style: "plain" (default) | "rounded" | "thick" |
     /// "double". Unknown values fall back to plain.
     pub border: String,
+    /// Nerd Font glyphs (powerline arrows, forge icons) in the
+    /// modeline — false keeps unicode fallbacks (❯ separators, no
+    /// icons) so non-Nerd-Font terminals never see tofu.
+    pub nerd_font: bool,
+}
+
+impl Default for UiConfig {
+    fn default() -> Self {
+        Config::default().ui
+    }
 }
 
 impl Default for Config {
@@ -84,6 +93,7 @@ impl Default for Config {
             provider: ProviderConfig::default(),
             ui: UiConfig {
                 border: "plain".into(),
+                nerd_font: false,
             },
         }
     }
@@ -116,12 +126,6 @@ impl Default for ThemeConfig {
 impl Default for CacheConfig {
     fn default() -> Self {
         Config::default().cache
-    }
-}
-
-impl Default for UiConfig {
-    fn default() -> Self {
-        Config::default().ui
     }
 }
 

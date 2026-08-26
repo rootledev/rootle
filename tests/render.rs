@@ -1077,8 +1077,8 @@ fn preview_shows_gutter_footer_and_scrollbar() {
     assert!(screen.contains("┃"), "scrollbar thumb missing:\n{screen}");
     assert!(screen.contains("1/60"), "readout missing:\n{screen}");
     assert!(
-        screen.contains("10 fn f10() {}"),
-        "line-number gutter missing:\n{screen}"
+        screen.contains("10 │ fn f10() {}"),
+        "gutter with divider missing:\n{screen}"
     );
 }
 
