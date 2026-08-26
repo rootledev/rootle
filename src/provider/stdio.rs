@@ -3,10 +3,11 @@
 //! Wrap any internal source-control system with a small script
 //! (see examples/providers/) and point `[provider] command` at it.
 //!
-//! Layout: this module owns the provider lifecycle (spawn, handshake,
-//! respawn-with-backoff); `transport.rs` owns the process + reader
-//! thread + reply routing; `wire.rs` maps `trait Provider` methods
-//! onto round trips.
+//! Layout: this file is the surface — state + spawn constructors.
+//! `process.rs` spawns the child; `transport.rs` owns the reader
+//! thread + reply routing; `handshake.rs` runs the initialize round
+//! trip; `restart.rs` is the respawn-with-backoff recovery machine;
+//! `wire.rs` maps `trait Provider` methods onto round trips.
 //!
 //! Transport (plans/0008 §1): a dedicated reader thread owns the
 //! child's stdout and routes replies by id into per-request slots.
@@ -21,21 +22,23 @@
 //! initialize handshake, and only then proceeds. A successful restart
 //! leaves a notice (`take_notice`) for the status line.
 
-use super::{Capabilities, ErrorKind, ProviderError, ProviderResult};
+use self::process::{Process, StderrMode, spawn_process};
+use self::transport::{Shared, reader_loop};
+use super::{Capabilities, ProviderResult};
 use parking_lot::Mutex;
-use serde_json::{Value, json};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
+mod handshake;
+mod process;
+mod restart;
 mod transport;
 mod wire;
 
 #[cfg(test)]
 mod tests;
-
-use transport::{Lifecycle, Process, Shared, StderrMode, backoff_for, reader_loop, spawn_process};
 
 /// Default per-request read deadline; `[provider] timeout_ms`.
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_millis(30_000);
@@ -186,217 +189,5 @@ impl StdioProvider {
         // launch (plans/0008 §1).
         let reply = provider.handshake()?;
         provider.initialize_from(reply)
-    }
-
-    /// The v1 handshake. Also the liveness proof after a rebuild: it
-    /// runs ungated so the rebuilder can validate the fresh child
-    /// while the transport sits in `Respawning`.
-    fn handshake(&self) -> ProviderResult<Value> {
-        let mut params = json!({ "protocol": 1 });
-        if self.cache_bytes > 0 {
-            params["cache_bytes"] = json!(self.cache_bytes);
-        }
-        if let Some(dir) = &self.cache_dir {
-            params["cache_dir"] = json!(dir.to_string_lossy());
-        }
-        let reply = self.exchange("initialize", params, false)?;
-        let protocol = reply.get("protocol").and_then(Value::as_u64).unwrap_or(1);
-        if protocol != 1 {
-            return Err(ProviderError::new(
-                ErrorKind::Provider,
-                format!("unsupported provider protocol {protocol}"),
-            ));
-        }
-        Ok(reply)
-    }
-
-    fn initialize_from(mut self, reply: Value) -> ProviderResult<Self> {
-        if let Some(name) = reply.get("name").and_then(Value::as_str) {
-            self.name = format!("stdio:{name}");
-        }
-        if let Some(caps) = reply.get("capabilities") {
-            self.capabilities = Capabilities {
-                orgs: caps.get("orgs").and_then(Value::as_bool).unwrap_or(true),
-                code_search: caps
-                    .get("code_search")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(true),
-            };
-        }
-        if let Some(bytes) = reply.pointer("/cache/bytes").and_then(Value::as_u64) {
-            *self.cache_used.lock() = Some(bytes);
-        }
-        Ok(self)
-    }
-
-    /// One NDJSON-RPC round trip with liveness: rebuild first if the
-    /// reader thread reported EOF (plans/0008 §5).
-    fn request(&self, method: &str, params: Value) -> ProviderResult<Value> {
-        self.ensure_alive()?;
-        self.exchange(method, params, true)
-    }
-
-    /// The recovery gate. `Alive` proceeds; the first caller to see
-    /// `Dead` becomes the rebuilder (state → `Respawning`, lock
-    /// released before any sleeping); callers arriving while a rebuild
-    /// is in flight wait on the condvar — the mutex stays free, so id
-    /// allocation and reply routing never queue behind a backoff
-    /// sleep. A waiter that wakes to `Dead` fails immediately with the
-    /// attempt's stored error: at most ONE caller ever pays for a
-    /// given rebuild attempt, and nobody chains into a second sleep.
-    /// A fresh caller arriving after a failed attempt starts the next
-    /// one on the longer backoff — a backend that recovers (fresh
-    /// credentials, network back) rejoins on its own.
-    fn ensure_alive(&self) -> ProviderResult<()> {
-        let mut routing = self.shared.routing.lock();
-        let mut waited = false;
-        loop {
-            match routing.lifecycle {
-                Lifecycle::Alive => return Ok(()),
-                Lifecycle::Respawning => {
-                    waited = true;
-                    // Reacquires `routing` on wake; the loop re-reads
-                    // the state (spurious wakeups are fine).
-                    self.shared.changed.wait(&mut routing);
-                }
-                Lifecycle::Dead if waited => {
-                    let reason = routing.restart_error.clone();
-                    drop(routing);
-                    return Err(match reason {
-                        Some(why) => ProviderError::new(
-                            ErrorKind::Provider,
-                            format!("provider restart failed: {why}"),
-                        ),
-                        None => ProviderError::new(
-                            ErrorKind::Provider,
-                            "provider restarting — try again",
-                        ),
-                    });
-                }
-                Lifecycle::Dead => {
-                    routing.lifecycle = Lifecycle::Respawning;
-                    routing.restart_error = None;
-                    let attempt = routing.restarts + 1;
-                    drop(routing);
-                    return self.rebuild(attempt);
-                }
-            }
-        }
-    }
-
-    /// Rebuild the child after transport death: backoff sleep, reap
-    /// the dead reader, spawn the replacement, then prove it with the
-    /// v1 handshake — only a validated child flips the transport back
-    /// to `Alive`, so no request ever runs against an unproven
-    /// process. Runs with no locks held; `Respawning` (set by the
-    /// caller) makes other threads wait rather than pile onto the
-    /// mutex.
-    fn rebuild(&self, attempt: u32) -> ProviderResult<()> {
-        // Armed for the whole body: if any path out of here panics
-        // (the reader `thread::spawn` under thread exhaustion) or a
-        // future exit path forgets to publish, the guard's Drop
-        // publishes a failed rebuild — "Respawning always resolves"
-        // holds structurally, not by enumerating exits (the spawn
-        // `?` bug was one branch out of three forgetting).
-        let mut guard = RebuildGuard {
-            provider: self,
-            attempt,
-            armed: true,
-        };
-        std::thread::sleep(backoff_for(attempt));
-        if self.closed.load(Ordering::Acquire) {
-            // Dropped mid-recovery (app exit): don't spawn a child
-            // nobody will ever kill. Still publish the outcome so any
-            // waiter wakes and fails instead of waiting forever.
-            let err = ProviderError::other("provider dropped during restart");
-            guard.armed = false;
-            self.finish_rebuild(attempt, Err(&err));
-            return Err(err);
-        }
-        // Reap the dead reader before replacing the process.
-        if let Some(handle) = self.reader.lock().take() {
-            let _ = handle.join();
-        }
-        let env: Vec<(&str, &str)> = self
-            .env
-            .iter()
-            .map(|(k, v)| (k.as_str(), v.as_str()))
-            .collect();
-        let (process, stdout) = match spawn_process(&self.command, &env, self.stderr_mode) {
-            Ok(pair) => pair,
-            Err(e) => {
-                // A failed spawn is a failed rebuild like any other:
-                // publish it and wake the waiters, or the machine
-                // wedges in Respawning and every future caller parks
-                // on a condvar nobody will ever signal (one error
-                // toast, then an app that silently fetches nothing).
-                guard.armed = false;
-                self.finish_rebuild(attempt, Err(&e));
-                return Err(e);
-            }
-        };
-        // Panics here (thread exhaustion) unwind past everything —
-        // the guard publishes.
-        let reader = std::thread::spawn({
-            let shared = Arc::clone(&self.shared);
-            move || reader_loop(stdout, shared)
-        });
-        *self.process.lock() = process;
-        *self.reader.lock() = Some(reader);
-
-        // The handshake is the liveness proof. On failure the
-        // transport returns to Dead; the next fresh request retries on
-        // the longer backoff.
-        let proof = self.handshake();
-        if proof.is_ok() {
-            *self.notice.lock() = Some(format!(
-                "provider restarted (attempt {attempt}, backoff {}s)",
-                backoff_for(attempt).as_secs()
-            ));
-        }
-        let outcome: Result<(), &ProviderError> = proof.as_ref().map(|_| ());
-        guard.armed = false;
-        self.finish_rebuild(attempt, outcome);
-        proof.map(|_| ())
-    }
-
-    /// Publish a rebuild's outcome under the lock and wake every
-    /// waiter.
-    fn finish_rebuild(&self, attempt: u32, outcome: Result<(), &ProviderError>) {
-        let mut routing = self.shared.routing.lock();
-        match outcome {
-            Ok(()) => {
-                routing.lifecycle = Lifecycle::Alive;
-                routing.restarts = attempt;
-                routing.restart_error = None;
-            }
-            Err(e) => {
-                routing.lifecycle = Lifecycle::Dead;
-                routing.restart_error = Some(e.message.clone());
-            }
-        }
-        drop(routing);
-        self.shared.changed.notify_all();
-    }
-}
-
-/// The structural half of the recovery machine: while armed, a Drop
-/// publishes a failed rebuild. `rebuild` disarms exactly around its
-/// `finish_rebuild` calls; anything that leaves the function any other
-/// way — an early return that forgets, a panic mid-body — still
-/// resolves `Respawning`, so no waiter can park on a condvar nobody
-/// will ever signal.
-struct RebuildGuard<'a> {
-    provider: &'a StdioProvider,
-    attempt: u32,
-    armed: bool,
-}
-
-impl Drop for RebuildGuard<'_> {
-    fn drop(&mut self) {
-        if self.armed {
-            let err = ProviderError::other("rebuild aborted unexpectedly");
-            self.provider.finish_rebuild(self.attempt, Err(&err));
-        }
     }
 }
