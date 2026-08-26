@@ -238,16 +238,18 @@ fn run_provider(cmd: &ProviderCommand) {
                     .collect();
                 println!("{}", serde_json::to_string_pretty(&rows).unwrap());
             } else {
+                let ui = rootle::provider::ui::Ui::new();
                 if installed.is_empty() {
-                    println!("no providers installed — try `rootle provider install gitlab`");
+                    ui.empty_hint();
                     return;
                 }
                 for i in &installed {
-                    let marker = if i.active { " ← ACTIVE" } else { "" };
-                    let pin = if i.receipt.pinned { " [pinned]" } else { "" };
-                    println!(
-                        "  {} {}{} from {}{}",
-                        i.receipt.name, i.receipt.tag, pin, i.receipt.source, marker
+                    ui.row(
+                        &i.receipt.name,
+                        &i.receipt.tag,
+                        &i.receipt.source,
+                        i.active,
+                        i.receipt.pinned,
                     );
                 }
             }

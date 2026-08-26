@@ -14,6 +14,7 @@
 pub mod github;
 pub mod manager;
 pub mod stdio;
+pub mod ui;
 
 use std::sync::Arc;
 

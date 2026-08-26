@@ -257,6 +257,10 @@ fn extract_binary(tarball: &[u8], binary_name: &str) -> Result<Vec<u8>> {
     )))
 }
 
+fn binary_name_of(r: &Ref) -> String {
+    format!("rootle-{}", r.name)
+}
+
 fn sha256_hex(bytes: &[u8]) -> String {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
@@ -362,11 +366,17 @@ impl Manager {
                 r.name, existing.tag
             )));
         }
-        println!("resolving {repo}…", repo = r.repo);
+        let timer = crate::provider::ui::Timer::start();
+        let ui = crate::provider::ui::Ui::new();
+        ui.step("Resolving", &r.repo);
         let release = match &r.tag {
             Some(tag) => release_by_tag(&r.repo, tag)?,
             None => latest_release(&r.repo)?,
         };
+        ui.done(
+            "Resolved",
+            &format!("{repo} @ {tag}", repo = r.repo, tag = release.tag_name),
+        );
         let target = platform_target();
         let asset = pick_asset(&release, target)?;
         let sidecar = release
@@ -381,13 +391,17 @@ impl Manager {
                 ))
             })?;
 
-        println!("downloading {}…", asset.name);
+        let spinner = ui.spinner(&format!("Downloading {}", asset.name));
         let tarball = download_bytes(&asset.browser_download_url)?;
+        drop(spinner);
+        ui.step("Verifying", "sha256 checksum");
         verify_checksum(&tarball, &sidecar.browser_download_url)?;
-        println!("checksum ok");
+        ui.done("Verified", &format!("sha256 ok ({})", asset.name));
 
+        ui.step("Extracting", &binary_name_of(r));
         let binary_name = format!("rootle-{}", r.name);
         let bytes = extract_binary(&tarball, &binary_name)?;
+        ui.done("Extracted", &binary_name);
 
         // Versioned dir + receipt LAST + pointer swap.
         let vdir = self.version_dir(&r.name, &release.tag_name);
@@ -412,12 +426,12 @@ impl Manager {
         self.write_receipt(&receipt)?;
         self.point_current(&r.name, &release.tag_name)?;
 
-        println!("{} {} installed", r.name, release.tag_name);
-        println!(
+        ui.summary("Installed", &r.name, &release.tag_name, timer.elapsed());
+        ui.note(&format!(
             "you are trusting {repo} — run `rootle provider use {name}` to activate",
             repo = r.repo,
             name = r.name
-        );
+        ));
         Ok(receipt)
     }
 
@@ -569,7 +583,9 @@ impl Manager {
         config
             .save()
             .map_err(|e| ManagerError::User(format!("save config: {e}")))?;
-        println!("{name} is now the active provider (restart rootle to apply)");
+        let ui = crate::provider::ui::Ui::new();
+        ui.summary("Activated", name, "", std::time::Duration::from_secs(0));
+        ui.note("restart rootle to apply");
         Ok(())
     }
 
