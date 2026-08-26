@@ -137,6 +137,7 @@ mod tests {
             },
             cache: crate::config::CacheConfig { max_mb: 512 },
             provider: crate::config::ProviderConfig::default(),
+            ui: crate::config::UiConfig::default(),
         }
     }
 

@@ -13,7 +13,7 @@ use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Borders, Paragraph, Wrap};
+use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 
 #[derive(Debug, Clone, Default)]
 pub enum PreviewContent {
@@ -193,7 +193,7 @@ impl Preview {
         };
         let mut block = Block::default()
             .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
+            .border_type(theme.border_type())
             .border_style(Style::default().fg(sem.border_unfocused))
             .style(Style::default().bg(sem.base))
             .title(Span::styled(title, Style::default().fg(sem.subtext0)));
@@ -287,8 +287,9 @@ impl Preview {
         if cursored && let Some(line) = lines.get_mut(cursor) {
             line.style = Style::default().bg(sem.selection_bg);
         }
-        // Line-number gutter (bat/yazi parity): dim, right-aligned;
-        // the cursor line's number reads bold (vim CursorLineNr).
+        // Line-number gutter (bat/yazi parity): dim, right-aligned; the
+        // cursor line gets a sign-column triangle (tuicr-style) and a
+        // bold number (vim CursorLineNr).
         if self.numbered {
             let width = self.line_count.max(1).to_string().len();
             for (i, line) in lines.iter_mut().enumerate() {
@@ -299,6 +300,17 @@ impl Preview {
                 };
                 line.spans
                     .insert(0, Span::styled(format!("{:>width$} ", i + 1), style));
+                let marker = if i == cursor {
+                    Span::styled(
+                        "▶",
+                        Style::default()
+                            .fg(sem.border_focused)
+                            .add_modifier(Modifier::BOLD),
+                    )
+                } else {
+                    Span::raw(" ")
+                };
+                line.spans.insert(0, marker);
             }
         }
 

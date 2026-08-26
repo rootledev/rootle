@@ -213,6 +213,13 @@ timeout_ms = 30000      # v1.2: per-request read deadline (default 30s)
 # stderr = "inherit"    # v1.2: pass child stderr through. Recognized:
                        # "inherit" | "null" (default); anything else
                        # warns on the status line and discards.
+# name = "ghes"        # short display name for the modeline's forge
+                       # chip; defaults to the handshake's self-reported
+                       # name.
+[ui]
+# border = "plain"     # pane/popup corner style: "plain" (default) |
+                       # "rounded" | "thick" | "double". Unknown values
+                       # fall back to plain.
 `kind = "github"` (the default) uses the built-in provider. An empty
 command, a failed spawn, or an unknown kind falls back to GitHub with
 a warning on the status line — misconfiguration never blocks startup.

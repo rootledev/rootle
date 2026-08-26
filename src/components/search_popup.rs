@@ -16,7 +16,7 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph};
+use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Focus {
@@ -230,7 +230,7 @@ impl SearchPopup {
 
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
+            .border_type(theme.border_type())
             .border_style(Style::default().fg(sem.border_focused))
             .style(Style::default().bg(sem.mantle))
             .title(Span::styled(
@@ -254,7 +254,7 @@ impl SearchPopup {
         };
         let input_block = Block::default()
             .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
+            .border_type(theme.border_type())
             .border_style(Style::default().fg(input_border))
             .style(Style::default().bg(sem.base));
         let input_inner = input_block.inner(rows[0]);
