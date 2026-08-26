@@ -76,21 +76,30 @@ impl App {
             trace(&format!(
                 "view search start gen={gen_id} q={query:?} scope={scope}"
             ));
+            // Streamed batches go straight to the event loop as they
+            // arrive (v1.3, plans/0011) — the worker stays blocked in
+            // the provider call until the final metadata reply. The
+            // sender is not Sync, so the sink holds it through a mutex
+            // (one lock per batch).
+            let sink_tx = std::sync::Mutex::new(tx.clone());
+            let on_hits = move |hits: Vec<crate::components::global_search::RawHit>| {
+                if let Ok(tx) = sink_tx.lock() {
+                    let _ = tx.send(AppEvent::GlobalSearchDelta { gen_id, hits });
+                }
+            };
             let event = match crate::components::global_search::run_view_search(
                 provider.as_ref(),
                 kind,
                 &query,
                 &scope,
                 &extension,
+                &on_hits,
             ) {
-                Ok((hits, clipped)) => {
-                    trace(&format!(
-                        "view search ok gen={gen_id} hits={} clipped={clipped}",
-                        hits.len()
-                    ));
+                Ok(clipped) => {
+                    trace(&format!("view search ok gen={gen_id} clipped={clipped}"));
                     AppEvent::GlobalSearchResults {
                         gen_id,
-                        hits,
+                        hits: Vec::new(),
                         clipped,
                     }
                 }

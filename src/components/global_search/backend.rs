@@ -6,10 +6,12 @@ use super::model::{RawHit, SearchKind};
 use crate::provider::Provider;
 
 /// How many hits get a blob-located preview (fetch cost; rest render
-/// as bare paths). Cache-first, so repeat searches are free.
+/// as bare paths). Cache-first, so repeat searches are free. A budget
+/// across the whole stream (v1.3), not per batch.
 const PREVIEW_CAP: usize = 8;
-/// Max results kept from a code-search page.
-const HIT_CAP: usize = 25;
+/// Safety ceiling for locally-scored sets (repo tree file find); the
+/// view keeps its own render cap.
+const BACKEND_CAP: usize = 500;
 
 /// Build the `/search/code` query: file find matches paths, grep
 /// matches content; scope/ext map to GitHub qualifiers.
@@ -44,11 +46,18 @@ pub fn run_view_search(
     query: &str,
     scope_label: &str,
     extension: &str,
-) -> crate::provider::ProviderResult<(Vec<RawHit>, bool)> {
+    on_hits: &(dyn Fn(Vec<RawHit>) + Send + Sync),
+) -> crate::provider::ProviderResult<bool> {
     if kind == SearchKind::FileFind && scope_label.starts_with("repo:") {
-        return tree_file_find(provider, query, &scope_label["repo:".len()..], extension);
+        return tree_file_find(
+            provider,
+            query,
+            &scope_label["repo:".len()..],
+            extension,
+            on_hits,
+        );
     }
-    code_search(provider, kind, query, scope_label, extension)
+    code_search(provider, kind, query, scope_label, extension, on_hits)
 }
 
 /// File find over the repo's cached recursive tree, GitHub-"go to
@@ -59,7 +68,8 @@ fn tree_file_find(
     query: &str,
     repo_full: &str,
     extension: &str,
-) -> crate::provider::ProviderResult<(Vec<RawHit>, bool)> {
+    on_hits: &(dyn Fn(Vec<RawHit>) + Send + Sync),
+) -> crate::provider::ProviderResult<bool> {
     let tree = provider.fetch_tree(repo_full)?;
     let branch = tree.branch;
     let needles: Vec<String> = query
@@ -96,10 +106,15 @@ fn tree_file_find(
     }
     // Best matches first; the stable sort keeps tree order on ties.
     scored.sort_by_key(|(score, _)| std::cmp::Reverse(*score));
-    let client_capped = scored.len() > HIT_CAP;
-    let mut hits: Vec<RawHit> = scored.into_iter().take(HIT_CAP).map(|(_, h)| h).collect();
+    let client_capped = scored.len() > BACKEND_CAP;
+    let mut hits: Vec<RawHit> = scored
+        .into_iter()
+        .take(BACKEND_CAP)
+        .map(|(_, h)| h)
+        .collect();
     add_blob_heads(provider, &mut hits);
-    Ok((hits, client_capped))
+    on_hits(hits);
+    Ok(client_capped)
 }
 
 /// GitHub-"go-to-file"-style match (behavior verified against
@@ -165,51 +180,56 @@ fn subsequence_score(path: &str, needle: &str) -> Option<i32> {
     Some(score)
 }
 
-/// /search/code for grep (content) and non-repo file find (path:).
+/// /search/code for grep (content) and non-repo file find (path:) —
+/// progressive (v1.3, plans/0011): every batch the provider streams is
+/// converted and emitted through `on_hits` as it arrives; the return
+/// value is the clipped flag only (metadata — the set lives with the
+/// caller).
 fn code_search(
     provider: &dyn Provider,
     kind: SearchKind,
     query: &str,
     scope_label: &str,
     extension: &str,
-) -> crate::provider::ProviderResult<(Vec<RawHit>, bool)> {
+    on_hits: &(dyn Fn(Vec<RawHit>) + Send + Sync),
+) -> crate::provider::ProviderResult<bool> {
     let q = code_query(kind, query, scope_label, extension);
-    let result = provider.search_code(&q)?;
-    let client_capped = result.hits.len() > HIT_CAP;
-    let mut hits: Vec<RawHit> = Vec::new();
-    for item in result.hits.into_iter().take(HIT_CAP) {
-        let needles = item.matches.clone();
-        let mut hit = RawHit {
-            repo: item.repo,
-            path: item.path,
-            sha: item.sha,
-            branch: item.branch,
-            line: 1,
-            preview: vec![],
-            match_count: needles.len() as u32,
-            stale: !item.located,
-        };
-        // Grep: real line numbers come from locating the matched texts
-        // in the blob (fragments carry no absolute numbers).
-        if kind == SearchKind::Grep
-            && hits.len() < PREVIEW_CAP
-            && let Some((line, preview, count)) =
-                locate_matches(provider, &hit.repo, &hit.sha, &needles)
-        {
-            hit.line = line;
-            hit.preview = preview;
-            hit.match_count = count;
-            hit.stale = false; // located client-side: self-healed
-        }
-        hits.push(hit);
-    }
-    if kind == SearchKind::FileFind {
-        add_blob_heads(provider, &mut hits);
-    }
-    // Clipped = the provider capped its set, or we capped it at
-    // HIT_CAP client-side (plans/0008 §4) — either way the user
-    // should know the set is incomplete.
-    Ok((hits, result.truncated || client_capped))
+    let preview_budget = std::sync::atomic::AtomicUsize::new(PREVIEW_CAP);
+    let result =
+        provider.search_code_progressive(&q, &|items: &[crate::provider::CodeMatch]| {
+            let mut batch: Vec<RawHit> = Vec::with_capacity(items.len());
+            for item in items {
+                let needles = item.matches.clone();
+                let mut hit = RawHit {
+                    repo: item.repo.clone(),
+                    path: item.path.clone(),
+                    sha: item.sha.clone(),
+                    branch: item.branch.clone(),
+                    line: 1,
+                    preview: vec![],
+                    match_count: needles.len() as u32,
+                    stale: !item.located,
+                };
+                // Grep: real line numbers come from locating the matched
+                // texts in the blob (fragments carry no absolute numbers).
+                if kind == SearchKind::Grep
+                    && preview_budget.load(std::sync::atomic::Ordering::Relaxed) > 0
+                    && let Some((line, preview, count)) =
+                        locate_matches(provider, &hit.repo, &hit.sha, &needles)
+                {
+                    hit.line = line;
+                    hit.preview = preview;
+                    hit.match_count = count;
+                    preview_budget.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+                }
+                batch.push(hit);
+            }
+            if kind == SearchKind::FileFind {
+                add_blob_heads(provider, &mut batch);
+            }
+            on_hits(batch);
+        })?;
+    Ok(result.truncated)
 }
 
 /// (first match line, preview lines, matched-line count).

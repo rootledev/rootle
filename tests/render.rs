@@ -822,6 +822,60 @@ fn leader_chip_and_hints_show_over_search_view() {
 }
 
 #[test]
+fn streamed_batches_merge_and_metadata_final_keeps_the_set() {
+    let mut app = browsing_app();
+    // Open the grep view and submit (offline: the mock path is bypassed
+    // by injecting the streamed actions directly).
+    app.handle_key(key(KeyCode::Char(' ')));
+    app.handle_key(key(KeyCode::Char('g')));
+    app.handle_action(rootle::action::Action::GlobalSearchSubmitted {
+        kind: rootle::components::global_search::SearchKind::Grep,
+        query: "hit".into(),
+        scope: "global".into(),
+        extension: String::new(),
+    });
+
+    // Two streamed batches: a new file, then a second file, then a
+    // batch hitting the SAME file as the first — folded, not duped.
+    let mk = |path: &str, line: u32, count: u32| {
+        rootle::components::global_search::SearchHit::plain(
+            "ratatui/ratatui",
+            path,
+            line,
+            vec![(line, "let hit = 1;".to_string())],
+            count,
+            String::new(),
+        )
+    };
+    app.handle_action(rootle::action::Action::GlobalSearchDelta {
+        hits: vec![mk("src/a.rs", 3, 1), mk("src/b.rs", 10, 1)],
+    });
+    app.handle_action(rootle::action::Action::GlobalSearchDelta {
+        hits: vec![mk("src/a.rs", 42, 1)],
+    });
+    // Metadata-only final (provider streamed): the set stands, clipped
+    // applies.
+    app.handle_action(rootle::action::Action::GlobalSearchResults {
+        hits: vec![],
+        clipped: true,
+    });
+
+    let rows = render(&mut app, 100, 30);
+    let screen = rows.join("\n");
+    assert!(screen.contains("src/a.rs"), "first batch hit kept");
+    assert!(screen.contains("src/b.rs"), "second batch hit kept");
+    // a.rs appears once — merged with its second batch, not appended.
+    assert_eq!(
+        screen.matches("src/a.rs").count(),
+        1,
+        "same-file batch merges into one block"
+    );
+    assert!(screen.contains("42"), "merged region line visible");
+    assert!(screen.contains("clipped"), "metadata final applies clipped");
+    assert!(!screen.contains("streaming"), "final clears pending");
+}
+
+#[test]
 fn launch_popup_only_when_state_has_no_repos() {
     // Fresh state → popup opens automatically.
     let mut fresh = test_app();

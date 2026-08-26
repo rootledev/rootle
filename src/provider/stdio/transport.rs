@@ -79,6 +79,35 @@ impl StdioProvider {
         params: Value,
         gated: bool,
     ) -> ProviderResult<Value> {
+        let (id, rx) = self.send_request(method, params, gated)?;
+        self.await_reply(id, rx, None)
+    }
+
+    /// `exchange` with progressive results (protocol v1.3, plans/0011):
+    /// the request opts in via `partial` in params, and `$/partial`
+    /// notifications for its id are routed to `on_partial` (the
+    /// notification's params value) from the reader thread while the
+    /// worker waits. The read deadline becomes an inactivity deadline —
+    /// every partial resets it — so a provider that keeps streaming
+    /// never times out, but a silent one still fails.
+    pub(super) fn exchange_with_partials(
+        &self,
+        method: &str,
+        params: Value,
+        on_partial: &(dyn Fn(&Value) + Send + Sync),
+    ) -> ProviderResult<Value> {
+        let (id, rx) = self.send_request(method, params, true)?;
+        self.await_reply(id, rx, Some(on_partial))
+    }
+
+    /// Register the reply slot and write the request line — shared by
+    /// every round-trip shape.
+    fn send_request(
+        &self,
+        method: &str,
+        params: Value,
+        gated: bool,
+    ) -> ProviderResult<(u64, mpsc::Receiver<Value>)> {
         let (id, rx) = {
             let mut routing = self.shared.routing.lock();
             if gated && routing.lifecycle != Lifecycle::Alive {
@@ -119,30 +148,52 @@ impl StdioProvider {
                 ));
             }
         }
-        let _cleared = CurrentIdGuard::new(self, id);
+        Ok((id, rx))
+    }
 
-        let msg = match rx.recv_timeout(self.timeout) {
-            Ok(msg) => msg,
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                self.shared.routing.lock().pending.remove(&id);
-                return Err(ProviderError::new(
-                    ErrorKind::Timeout,
-                    format!("provider timeout after {}s", self.timeout.as_secs_f64()),
-                ));
+    /// Wait for the reply. `on_partial`, when set, consumes `$/partial`
+    /// notifications routed to this request's slot; each one resets the
+    /// deadline (inactivity semantics, v1.3).
+    fn await_reply(
+        &self,
+        id: u64,
+        rx: mpsc::Receiver<Value>,
+        on_partial: Option<&(dyn Fn(&Value) + Send + Sync)>,
+    ) -> ProviderResult<Value> {
+        let _cleared = CurrentIdGuard::new(self, id);
+        loop {
+            let msg = match rx.recv_timeout(self.timeout) {
+                Ok(msg) => msg,
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    self.shared.routing.lock().pending.remove(&id);
+                    return Err(ProviderError::new(
+                        ErrorKind::Timeout,
+                        format!("provider timeout after {}s", self.timeout.as_secs_f64()),
+                    ));
+                }
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    return Err(ProviderError::new(
+                        ErrorKind::Provider,
+                        "provider closed its output",
+                    ));
+                }
+            };
+            // A notification on this slot is a v1.3 partial, not the
+            // reply — hand its params to the sink and keep waiting.
+            if msg.get("method").is_some() {
+                if let (Some(on_partial), Some(params)) = (on_partial, msg.get("params")) {
+                    on_partial(params);
+                }
+                continue;
             }
-            Err(mpsc::RecvTimeoutError::Disconnected) => {
-                return Err(ProviderError::new(
-                    ErrorKind::Provider,
-                    "provider closed its output",
-                ));
+            if let Some(err) = msg.get("error") {
+                return Err(error_from_reply(err));
             }
-        };
-        if let Some(err) = msg.get("error") {
-            return Err(error_from_reply(err));
+            return msg
+                .get("result")
+                .cloned()
+                .ok_or_else(|| ProviderError::other("provider reply without result"));
         }
-        msg.get("result")
-            .cloned()
-            .ok_or_else(|| ProviderError::other("provider reply without result"))
     }
 }
 
@@ -199,7 +250,21 @@ pub(super) fn reader_loop(stdout: ChildStdout, shared: Arc<Shared>) {
             continue; // tolerate non-JSON chatter
         };
         let Some(id) = msg.get("id").and_then(Value::as_u64) else {
-            continue; // notification or reply without an id
+            // $/partial (v1.3): routed to the pending request's slot —
+            // the slot stays until the reply. Other id-less lines stay
+            // tolerated chatter.
+            if msg.get("method").and_then(Value::as_str) == Some("$/partial")
+                && let Some(pid) = msg
+                    .get("params")
+                    .and_then(|p| p.get("id"))
+                    .and_then(Value::as_u64)
+            {
+                let routing = shared.routing.lock();
+                if let Some(tx) = routing.pending.get(&pid) {
+                    let _ = tx.send(msg);
+                }
+            }
+            continue;
         };
         let tx = shared.routing.lock().pending.remove(&id);
         if let Some(tx) = tx {

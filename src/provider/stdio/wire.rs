@@ -142,49 +142,38 @@ impl Provider for StdioProvider {
     }
 
     fn search_code(&self, q: &str) -> ProviderResult<SearchCodeResult> {
-        #[derive(serde::Deserialize)]
-        struct R {
-            #[serde(default)]
-            items: Vec<Item>,
-            /// v1.2 (plans/0008 §4): provider capped its result set.
-            #[serde(default)]
-            truncated: bool,
-        }
-        #[derive(serde::Deserialize)]
-        struct Item {
-            repo: String,
-            path: String,
-            #[serde(default)]
-            sha: String,
-            #[serde(default = "main")]
-            branch: String,
-            #[serde(default)]
-            matches: Vec<String>,
-            /// v1.1: absent = located (verified placement).
-            #[serde(default = "located")]
-            located: bool,
-        }
-        fn main() -> String {
-            "main".into()
-        }
-        fn located() -> bool {
-            true
-        }
-        let r: R = de(self.request("search/code", json!({ "q": q }))?)?;
+        let r: CodeReply = de(self.request("search/code", json!({ "q": q }))?)?;
         Ok(SearchCodeResult {
-            hits: r
-                .items
-                .into_iter()
-                .map(|i| CodeMatch {
-                    repo: i.repo,
-                    path: i.path,
-                    sha: i.sha,
-                    branch: i.branch,
-                    matches: i.matches,
-                    located: i.located,
-                })
-                .collect(),
+            hits: code_matches(&r.items),
             truncated: r.truncated,
+        })
+    }
+
+    /// v1.3 progressive search (plans/0011): `partial: true` opts into
+    /// `$/partial` batches for this request's id; the reply is
+    /// metadata-only when the provider streamed (items empty,
+    /// `truncated` authoritative).
+    fn search_code_progressive(
+        &self,
+        q: &str,
+        on_hits: &(dyn Fn(&[CodeMatch]) + Send + Sync),
+    ) -> ProviderResult<SearchCodeResult> {
+        let sink = |params: &serde_json::Value| {
+            let items: Vec<WireItem> = params
+                .get("items")
+                .cloned()
+                .and_then(|v| serde_json::from_value(v).ok())
+                .unwrap_or_default();
+            on_hits(&code_matches(&items));
+        };
+        let reply: CodeReply = de(self.exchange_with_partials(
+            "search/code",
+            json!({ "q": q, "partial": true }),
+            &sink,
+        )?)?;
+        Ok(SearchCodeResult {
+            hits: Vec::new(),
+            truncated: reply.truncated,
         })
     }
 
@@ -214,6 +203,53 @@ impl Provider for StdioProvider {
     }
 }
 
+/// `search/code` reply (items present only when the provider did not
+/// stream) — the protocol v1.3 contract.
+#[derive(serde::Deserialize)]
+struct CodeReply {
+    #[serde(default)]
+    items: Vec<WireItem>,
+    /// v1.2 (plans/0008 §4): provider capped its result set.
+    #[serde(default)]
+    truncated: bool,
+}
+
+#[derive(serde::Deserialize)]
+struct WireItem {
+    repo: String,
+    path: String,
+    #[serde(default)]
+    sha: String,
+    #[serde(default = "main_branch")]
+    branch: String,
+    #[serde(default)]
+    matches: Vec<String>,
+    /// v1.1: absent = located (verified placement).
+    #[serde(default = "located")]
+    located: bool,
+}
+
+fn main_branch() -> String {
+    "main".into()
+}
+
+fn located() -> bool {
+    true
+}
+
+fn code_matches(items: &[WireItem]) -> Vec<CodeMatch> {
+    items
+        .iter()
+        .map(|i| CodeMatch {
+            repo: i.repo.clone(),
+            path: i.path.clone(),
+            sha: i.sha.clone(),
+            branch: i.branch.clone(),
+            matches: i.matches.clone(),
+            located: i.located,
+        })
+        .collect()
+}
 #[cfg(test)]
 mod tests {
     /// The v1.1 `located` default: absent means located (verified

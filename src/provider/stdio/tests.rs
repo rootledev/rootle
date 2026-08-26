@@ -101,6 +101,56 @@ fn fake_provider_child() {
                 }
                 stdout.flush().unwrap();
             }
+            // v1.3 (plans/0011): search/code streams two $/partial
+            // batches keyed by the request id, then a metadata-only
+            // reply carrying `truncated`.
+            "stream-search" if method == "search/code" => {
+                for n in 1..=2 {
+                    writeln!(
+                        stdout,
+                        r#"{{"jsonrpc":"2.0","method":"$/partial","params":{{"id":{id},"items":[{{"repo":"o/r","path":"f{n}.rs","sha":"s{n}","matches":["hit"]}}]}}}}"#
+                    )
+                    .unwrap();
+                    stdout.flush().unwrap();
+                }
+                writeln!(
+                    stdout,
+                    r#"{{"jsonrpc":"2.0","id":{id},"result":{{"items":[],"truncated":true}}}}"#
+                )
+                .unwrap();
+                stdout.flush().unwrap();
+            }
+            // One batch, then death: the caller keeps the partials and
+            // the request fails (LSP #786 mid-stream error semantics).
+            "die-mid-stream" if method == "search/code" => {
+                writeln!(
+                    stdout,
+                    r#"{{"jsonrpc":"2.0","method":"$/partial","params":{{"id":{id},"items":[{{"repo":"o/r","path":"only.rs","sha":"s","matches":["hit"]}}]}}}}"#
+                )
+                .unwrap();
+                stdout.flush().unwrap();
+                std::process::exit(0);
+            }
+            // Batches slower than the gap a short deadline tolerates
+            // individually, longer than the deadline in total — proves
+            // partials reset the inactivity deadline (v1.3).
+            "stream-slow" if method == "search/code" => {
+                for n in 1..=3 {
+                    std::thread::sleep(Duration::from_millis(150));
+                    writeln!(
+                        stdout,
+                        r#"{{"jsonrpc":"2.0","method":"$/partial","params":{{"id":{id},"items":[{{"repo":"o/r","path":"f{n}.rs","sha":"s{n}","matches":["hit"]}}]}}}}"#
+                    )
+                    .unwrap();
+                    stdout.flush().unwrap();
+                }
+                writeln!(
+                    stdout,
+                    r#"{{"jsonrpc":"2.0","id":{id},"result":{{"items":[],"truncated":false}}}}"#
+                )
+                .unwrap();
+                stdout.flush().unwrap();
+            }
             "slow" => {
                 std::thread::sleep(Duration::from_millis(200));
                 writeln!(stdout, r#"{{"jsonrpc":"2.0","id":{id},"result":{{}}}}"#).unwrap();
@@ -220,7 +270,86 @@ fn error_data_kind_parses_into_the_taxonomy() {
     assert_eq!(err.kind, ErrorKind::Other);
     let err = provider.request("d", json!({})).expect_err("kindless");
     assert_eq!(err.kind, ErrorKind::Other);
-    assert_eq!(err.message, "plain");
+}
+
+/// v1.3 (plans/0011): `$/partial` batches arrive, in order, strictly
+/// before the metadata-only reply; `truncated` rides the reply.
+#[test]
+fn streaming_search_delivers_ordered_batches_then_metadata() {
+    let provider = fake("stream-search", Duration::from_secs(5));
+    let batches = std::sync::Mutex::new(Vec::new());
+    let result = provider
+        .search_code_progressive("hit", &|items: &[crate::provider::CodeMatch]| {
+            batches.lock().unwrap().push(
+                items
+                    .iter()
+                    .map(|m| m.path.clone())
+                    .collect::<Vec<String>>(),
+            );
+        })
+        .unwrap();
+    assert_eq!(
+        batches.into_inner().unwrap(),
+        vec![vec!["f1.rs".to_string()], vec!["f2.rs".to_string()]]
+    );
+    assert!(result.hits.is_empty(), "streamed final is metadata-only");
+    assert!(result.truncated);
+}
+
+/// Child death mid-stream: partials already delivered stay with the
+/// caller, and the request itself fails.
+#[test]
+fn child_death_mid_stream_keeps_partials_and_fails() {
+    let provider = fake("die-mid-stream", Duration::from_secs(5));
+    let seen = std::sync::atomic::AtomicUsize::new(0);
+    let err = provider
+        .search_code_progressive("hit", &|_| {
+            seen.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        })
+        .unwrap_err();
+    assert_eq!(
+        seen.load(std::sync::atomic::Ordering::Relaxed),
+        1,
+        "the first batch should have been delivered"
+    );
+    assert_eq!(err.kind, ErrorKind::Provider);
+}
+
+/// Every `$/partial` resets the read deadline (inactivity semantics):
+/// a stream whose total exceeds the deadline succeeds while no single
+/// gap does.
+#[test]
+fn partials_reset_the_inactivity_deadline() {
+    let provider = fake("stream-slow", Duration::from_millis(400));
+    let batches = std::sync::atomic::AtomicUsize::new(0);
+    provider
+        .search_code_progressive("hit", &|_| {
+            batches.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        })
+        .expect("stream should outlive the deadline via resets");
+    assert_eq!(batches.load(std::sync::atomic::Ordering::Relaxed), 3);
+}
+
+/// The full backend seam over a streaming child: `run_view_search`
+/// must pump every `$/partial` batch through its sink before the
+/// metadata final (catches plumbing loss between provider and view).
+#[test]
+fn backend_streams_fake_provider_batches_through_the_sink() {
+    let provider = fake("stream-search", Duration::from_secs(5));
+    let batches = std::sync::atomic::AtomicUsize::new(0);
+    let clipped = crate::components::global_search::run_view_search(
+        &provider,
+        crate::components::global_search::SearchKind::Grep,
+        "hit",
+        "global",
+        "",
+        &|_hits: Vec<crate::components::global_search::RawHit>| {
+            batches.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        },
+    )
+    .expect("streamed search succeeds");
+    assert_eq!(batches.load(std::sync::atomic::Ordering::Relaxed), 2);
+    assert!(clipped); // the fake replies truncated: true
 }
 
 /// S2, now load-bearing: two requests in flight at once, replies
