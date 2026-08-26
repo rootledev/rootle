@@ -50,6 +50,10 @@ impl Provider for GitHubProvider {
         "github"
     }
 
+    fn icon(&self) -> Option<String> {
+        Some("github".into())
+    }
+
     fn capabilities(&self) -> Capabilities {
         Capabilities {
             orgs: true,

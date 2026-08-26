@@ -18,6 +18,10 @@ impl Provider for StdioProvider {
         &self.name
     }
 
+    fn icon(&self) -> Option<String> {
+        self.icon.clone()
+    }
+
     fn capabilities(&self) -> Capabilities {
         self.capabilities
     }

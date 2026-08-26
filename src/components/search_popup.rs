@@ -259,17 +259,22 @@ impl SearchPopup {
             .style(Style::default().bg(sem.base));
         let input_inner = input_block.inner(rows[0]);
         frame.render_widget(input_block, rows[0]);
+        let prompt = if self.focus == Focus::Input {
+            Span::styled("❯ ", Style::default().fg(sem.border_focused))
+        } else {
+            Span::styled("❯ ", Style::default().fg(sem.overlay0))
+        };
         frame.render_widget(
-            Paragraph::new(Line::from(Span::styled(
-                self.input.value(),
-                Style::default().fg(sem.text),
-            ))),
+            Paragraph::new(Line::from(vec![
+                prompt,
+                Span::styled(self.input.value(), Style::default().fg(sem.text)),
+            ])),
             input_inner,
         );
 
-        // Cursor overlay while the input is focused.
+        // Cursor overlay while the input is focused (past the prompt).
         if self.focus == Focus::Input {
-            let x = input_inner.x + self.input.cursor() as u16;
+            let x = input_inner.x + 2 + self.input.cursor() as u16;
             if x < input_inner.x + input_inner.width {
                 frame.set_cursor_position((x, input_inner.y));
             }

@@ -75,14 +75,19 @@ First request after spawn:
      "cache_bytes":536870912,
      "cache_dir":"/home/u/.cache/rootle/providers/gitlab"
    }}
-← {"jsonrpc":"2.0","id":1,"result":{"protocol":1,"name":"fs",
+← {"jsonrpc":"2.0","id":1,"result":{"protocol":1,"name":"fs","icon":"folder",
      "capabilities":{"orgs":true,"code_search":true},
      "cache":{"bytes":218}}}
 ```
 
 `protocol` must be `1` (anything else aborts stdio setup and rootle falls
 back to the GitHub provider with a warning). `name` is optional and is
-shown as `stdio:<name>`. `capabilities` is optional and defaults to
+shown as `stdio:<name>`. `icon` (v1.3) is optional: a builtin name rootle
+maps to its Nerd Font glyph (`github`, `gitlab`, `bitbucket`, `folder` —
+rendered when the user enables `[ui] nerd_font`), or a single literal
+glyph the terminal can render in any mode. Rootle never guesses icons
+from names — a provider that declares none renders text-only.
+`capabilities` is optional and defaults to
 everything enabled; the UI degrades on `false` (`orgs`, `code_search`).
 
 **Cache budget (advisory, v1.2):** `cache_bytes` is the user's
@@ -256,14 +261,15 @@ when the child dies.
 [provider]
 kind = "stdio"
 command = ["python3", "/path/to/fs_provider.py", "/path/to/code"]
-timeout_ms = 30000      # v1.2: per-request read deadline (default 30s)
 # stderr = "inherit"    # v1.2: pass child stderr through. Recognized:
                        # "inherit" | "null" (default); anything else
                        # warns on the status line and discards.
 # name = "ghes"        # short display name for the modeline's forge
                        # chip; defaults to the handshake's self-reported
                        # name.
-[ui]
+# icon = "folder"      # modeline icon override: a builtin name
+                       # ("github"|"gitlab"|"bitbucket"|"folder") or a
+                       # single literal glyph; wins over the handshake.
 # border = "plain"     # pane/popup corner style: "plain" (default) |
                        # "rounded" | "thick" | "double". Unknown values
                        # fall back to plain.

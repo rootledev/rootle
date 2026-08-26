@@ -35,6 +35,11 @@ impl StdioProvider {
         if let Some(name) = reply.get("name").and_then(Value::as_str) {
             self.name = format!("stdio:{name}");
         }
+        // v1.3: the provider's modeline icon — a builtin name or a
+        // literal glyph; absent means text-only.
+        if let Some(icon) = reply.get("icon").and_then(Value::as_str) {
+            self.icon = Some(icon.to_string());
+        }
         if let Some(caps) = reply.get("capabilities") {
             self.capabilities = Capabilities {
                 orgs: caps.get("orgs").and_then(Value::as_bool).unwrap_or(true),
