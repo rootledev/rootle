@@ -273,6 +273,31 @@ impl App {
             AppEvent::TreeFailed { owner, name, error } => {
                 self.handle_action(Action::TreeFailed { owner, name, error });
             }
+            AppEvent::GlobalSearchDelta { gen_id, hits } => {
+                if gen_id != self.view_gen {
+                    return; // stale batch — a newer submission owns the view
+                }
+                let Some(view) = &self.search_view else {
+                    return;
+                };
+                let (kind, query) = (view.kind(), view.query.value());
+                let hits = hits
+                    .into_iter()
+                    .map(crate::components::global_search::SearchHit::from_raw)
+                    .collect();
+                let hits = self.finish_hits(hits, kind, &query);
+                if let Some(view) = &mut self.search_view {
+                    view.update(&Action::GlobalSearchDelta { hits });
+                }
+                // Live count while the stream runs.
+                if let Some(view) = &self.search_view {
+                    self.status = Some(format!(
+                        "searching {}… {} hits",
+                        self.modeline.forge,
+                        view.hit_count()
+                    ));
+                }
+            }
             AppEvent::GlobalSearchResults {
                 gen_id,
                 hits,
@@ -775,7 +800,9 @@ impl App {
                     );
                 }
             }
-            Action::GlobalSearchResults { .. } | Action::GlobalSearchFailed { .. } => {
+            Action::GlobalSearchResults { .. }
+            | Action::GlobalSearchDelta { .. }
+            | Action::GlobalSearchFailed { .. } => {
                 if let Some(view) = &mut self.search_view {
                     view.update(&action);
                 }

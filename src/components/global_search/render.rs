@@ -137,10 +137,14 @@ impl GlobalSearch {
             sem.border_unfocused
         };
 
-        let mut title = if self.pending {
-            " results — searching… ".to_string()
-        } else if let Some(error) = &self.error {
+        let mut title = if let Some(error) = &self.error {
             format!(" results — error: {error} ")
+        } else if self.pending && self.hits.is_empty() {
+            " results — searching… ".to_string()
+        } else if self.pending {
+            // v1.3: hits stream in — the count climbs live.
+            let suffix = if self.clipped { " · clipped" } else { "" };
+            format!(" results — {} · streaming{suffix} ", self.visible().len())
         } else if self.hits.is_empty() && self.submitted_once {
             " results — no matches ".into()
         } else if self.submitted_once {

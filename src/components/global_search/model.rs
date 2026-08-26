@@ -143,6 +143,28 @@ impl SearchHit {
         hit
     }
 
+    /// Fold a streamed batch hit (v1.3, plans/0011) into this one:
+    /// same file — union the preview regions (sorted, deduped by line),
+    /// sum the badges, let a located batch heal a stale placement.
+    /// Last write wins for sha/branch: the later batch is the likelier
+    /// truth under index drift.
+    pub fn merge(&mut self, later: SearchHit) {
+        self.sha = later.sha;
+        self.branch = later.branch;
+        if later.line > 0 && (self.line == 0 || later.line < self.line) {
+            self.line = later.line;
+        }
+        self.match_count = self.match_count.saturating_add(later.match_count);
+        self.preview.extend(later.preview);
+        self.preview.sort_by_key(|(no, _)| *no);
+        self.preview.dedup_by_key(|(no, _)| *no);
+        self.stale &= later.stale;
+        self.unlocatable &= later.unlocatable;
+        if later.body.len() > self.body.len() {
+            self.body = later.body;
+        }
+    }
+
     /// Preview text, one line per entry — the highlighter's input.
     pub fn preview_text(&self) -> String {
         self.preview

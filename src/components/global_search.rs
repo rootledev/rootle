@@ -66,10 +66,17 @@ pub struct GlobalSearch {
     pending: bool,
     error: Option<String>,
     submitted_once: bool,
-    /// Result set is incomplete — provider-truncated or client-capped
-    /// at HIT_CAP (plans/0008 §4); shown in the results title.
+    /// Result set is incomplete — provider-truncated (plans/0008 §4)
+    /// or hits dropped past the render cap; shown in the results title.
     clipped: bool,
+    /// Streamed hits past RENDER_CAP (v1.3): counted, not kept — the
+    /// title's clipped chip covers them.
+    dropped: usize,
 }
+
+/// Max rendered hits for a streamed search (v1.3, plans/0011): past
+/// it the view counts and clips instead of growing without bound.
+const RENDER_CAP: usize = 500;
 
 impl GlobalSearch {
     /// The scope waterfalls from the current browser context: an open
@@ -111,14 +118,15 @@ impl GlobalSearch {
             scope_popup: false,
             scope_cursor: 0,
             scope_pre_popup: Scope::Global,
-            hits: vec![],
+            hits: Vec::new(),
             filter: VimInput::transient(),
+            clipped: false,
+            dropped: 0,
             filtering: false,
             pre_filter: String::new(),
             filter_value: String::new(),
             selected: 0,
             scroll: 0,
-            clipped: false,
             pending: false,
             error: None,
             submitted_once: false,
@@ -214,16 +222,27 @@ impl GlobalSearch {
                 self.submitted_once = true;
                 self.pending = true;
                 self.error = None;
+                self.hits.clear();
+                self.dropped = 0;
+                self.clipped = false;
                 self.focus = Focus::Results;
                 self.selected = 0;
                 self.scroll = 0;
             }
+            Action::GlobalSearchDelta { hits } => {
+                self.append_hits(hits.clone());
+            }
             Action::GlobalSearchResults { hits, clipped } => {
                 self.pending = false;
-                self.clipped = *clipped;
-                self.hits = hits.clone();
-                self.selected = 0;
-                self.scroll = 0;
+                self.clipped = *clipped || self.dropped > 0;
+                // A streamed final is metadata-only (empty hits) — the
+                // accumulated set stands. A full set replaces it.
+                if !hits.is_empty() {
+                    self.hits = hits.clone();
+                    self.dropped = 0;
+                    self.selected = 0;
+                    self.scroll = 0;
+                }
                 self.clamp_selection();
             }
             Action::GlobalSearchFailed { error } => {
@@ -266,6 +285,34 @@ impl GlobalSearch {
             }
             _ => {}
         }
+    }
+
+    /// Streamed batch (v1.3, plans/0011): merge same-file hits into
+    /// their block, append the rest. Past RENDER_CAP hits are counted
+    /// (`dropped`) and skipped.
+    pub fn append_hits(&mut self, hits: Vec<SearchHit>) {
+        for hit in hits {
+            if self.hits.len() >= RENDER_CAP {
+                self.dropped += 1;
+                continue;
+            }
+            if let Some(existing) = self
+                .hits
+                .iter_mut()
+                .find(|h| h.repo == hit.repo && h.path == hit.path)
+            {
+                existing.merge(hit);
+            } else {
+                self.hits.push(hit);
+            }
+        }
+        self.clamp_selection();
+    }
+
+    /// Hits kept so far (streamed or replaced) — the modeline's live
+    /// count while a search streams.
+    pub fn hit_count(&self) -> usize {
+        self.hits.len()
     }
 
     /// Modeline chip while the view is open (plans/0002 §2).

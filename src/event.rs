@@ -50,6 +50,12 @@ pub enum AppEvent {
         /// Provider-truncated or client-capped (plans/0008 §4).
         clipped: bool,
     },
+    /// Streamed batch (v1.3, plans/0011): raw hits as the provider
+    /// emits them; styled on the UI thread, appended under `gen_id`.
+    GlobalSearchDelta {
+        gen_id: u64,
+        hits: Vec<crate::components::global_search::RawHit>,
+    },
     GlobalSearchFailed {
         gen_id: u64,
         error: ProviderError,

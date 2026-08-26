@@ -75,6 +75,11 @@ pub enum Action {
         /// §4) — complete and clipped sets are distinguishable.
         clipped: bool,
     },
+    /// Streamed batch (v1.3, plans/0011): merged into the result set
+    /// by file identity; selection survives.
+    GlobalSearchDelta {
+        hits: Vec<crate::components::global_search::SearchHit>,
+    },
     GlobalSearchFailed {
         error: crate::provider::ProviderError,
     },
