@@ -15,6 +15,9 @@ pub struct Theme {
     /// Border corner style for panes and popups (chrome, not color —
     /// rides on `Theme` because that is what every render receives).
     pub border: BorderShape,
+    /// Nerd Font glyphs in chrome (powerline arrows, forge icons);
+    /// false = unicode fallbacks. Same ride-along as `border`.
+    pub nerd_font: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -154,6 +157,7 @@ impl Theme {
                 search_match: Color::from_u32(0xf9e2af), // yellow
             },
             border: BorderShape::default(),
+            nerd_font: false,
             syntax: Syntax {
                 keyword: Color::from_u32(0xcba6f7),   // mauve
                 string: Color::from_u32(0xa6e3a1),    // green
@@ -196,8 +200,12 @@ impl Theme {
         self.border.border_type()
     }
 
-    /// Every theme name the loader can resolve: embedded palettes plus
-    /// any `themes/<name>.toml` in the config dir. Settings list.
+    /// Enable Nerd Font glyphs (chained after `load`).
+    pub fn with_nerd_font(mut self, on: bool) -> Self {
+        self.nerd_font = on;
+        self
+    }
+
     pub fn available_names() -> Vec<String> {
         let mut names: Vec<String> = EMBEDDED.iter().map(|(n, _, _)| n.to_string()).collect();
         if let Some(dir) = dirs::config_dir().map(|d| d.join("rootle").join("themes"))

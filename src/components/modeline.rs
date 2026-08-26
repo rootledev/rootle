@@ -1,7 +1,11 @@
-//! Bottom modeline: mode chip · forge chip · `>` caret · status ·
-//! context · key hints (PLAN.md §2, §5). Everything is fitted to the
-//! line width — hints drop whole from the tail (marked `…`), the
-//! status is capped, the context truncates last.
+//! Bottom modeline, powerline style (omp/nvim-inspired): mode chip →
+//! forge chip → context, joined by segment arrows that carry the left
+//! segment's color into the right one's background. Nerd Font glyphs
+//! (`[ui] nerd_font = true`) draw true powerline arrows and forge
+//! icons; the default uses the starship-style `❯` and text-only
+//! chips so non-Nerd-Font terminals never see tofu. Everything is
+//! fitted to the line width — hints drop whole from the tail (marked
+//! `…`), the status is capped, the context truncates last.
 
 use super::pane::fit;
 use crate::keymap;
@@ -24,6 +28,21 @@ pub(crate) fn mode_color(mode: Mode, sem: &Semantic) -> Color {
         Mode::Normal => sem.mode_normal,
         Mode::Leader => sem.mode_leader,
         Mode::Visual => sem.mode_visual,
+    }
+}
+
+/// Nerd Font forge icons (verified against nerd-fonts glyphnames.json);
+/// substring match so `rootle-gitlab` and friends carry their icon.
+fn forge_icon(forge: &str) -> Option<&'static str> {
+    let f = forge.to_ascii_lowercase();
+    if f.contains("github") {
+        Some("\u{f408}") // oct-mark_github
+    } else if f.contains("gitlab") {
+        Some("\u{f296}") // fa-gitlab
+    } else if f.contains("bitbucket") {
+        Some("\u{f171}") // fa-bitbucket
+    } else {
+        None
     }
 }
 
@@ -54,27 +73,38 @@ impl Modeline {
     pub fn render(&self, frame: &mut Frame, area: Rect, mode: Mode, theme: &Theme) {
         let sem = &theme.semantic;
         let w = area.width as usize;
+        let chip_bg = mode_color(mode, sem);
 
-        // Mode chip · forge chip · vim-style `>` caret.
+        // Mode chip → forge chip, joined by powerline bridges: the
+        // arrow's fg is the segment it leaves, its bg the segment it
+        // enters (the classic powerline gradient).
+        let arrow = if theme.nerd_font {
+            "\u{e0b0}"
+        } else {
+            "\u{276f}"
+        };
+        let icon = theme
+            .nerd_font
+            .then(|| forge_icon(&self.forge))
+            .flatten()
+            .unwrap_or("");
+        let forge_label = fit(&self.forge, 12);
+        let forge_text = if icon.is_empty() {
+            format!("{forge_label} ")
+        } else {
+            format!("{icon} {forge_label} ")
+        };
         let mut spans = vec![
             Span::styled(
                 format!(" {} ", mode.chip()),
                 Style::default()
                     .fg(sem.crust)
-                    .bg(mode_color(mode, sem))
+                    .bg(chip_bg)
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::styled(
-                format!(" {} ", fit(&self.forge, 12)),
-                Style::default().fg(sem.crust).bg(sem.forge),
-            ),
-            Span::styled(
-                " > ",
-                Style::default()
-                    .fg(sem.forge)
-                    .bg(sem.mantle)
-                    .add_modifier(Modifier::BOLD),
-            ),
+            Span::styled(arrow, Style::default().fg(chip_bg).bg(sem.forge)),
+            Span::styled(forge_text, Style::default().fg(sem.crust).bg(sem.forge)),
+            Span::styled(arrow, Style::default().fg(sem.forge).bg(sem.mantle)),
         ];
 
         // Transient status, capped at half the line so it can't eat
@@ -187,9 +217,13 @@ mod tests {
     use ratatui::{Terminal, backend::TestBackend};
 
     fn row(m: &Modeline, mode: Mode, w: u16) -> String {
+        row_with(m, mode, w, &crate::theme::Theme::catppuccin_mocha())
+    }
+
+    fn row_with(m: &Modeline, mode: Mode, w: u16, theme: &crate::theme::Theme) -> String {
         let mut terminal = Terminal::new(TestBackend::new(w, 1)).unwrap();
         terminal
-            .draw(|f| m.render(f, f.area(), mode, &crate::theme::Theme::catppuccin_mocha()))
+            .draw(|f| m.render(f, f.area(), mode, theme))
             .unwrap();
         let buf = terminal.backend().buffer();
         (0..w).map(|x| buf[(x, 0)].symbol().to_string()).collect()
@@ -204,11 +238,39 @@ mod tests {
     }
 
     #[test]
+    fn nerd_font_swaps_arrows_and_adds_the_forge_icon() {
+        let theme = crate::theme::Theme::catppuccin_mocha().with_nerd_font(true);
+        let line = row_with(&sample(), Mode::Browse, 180, &theme);
+        assert!(line.contains('\u{e0b0}'), "powerline arrow: {line}");
+        assert!(line.contains('\u{f408}'), "github icon: {line}");
+        assert!(
+            !line.contains('❯'),
+            "fallback caret must not appear: {line}"
+        );
+        assert_eq!(line.chars().count(), 180, "must not overflow: {line}");
+    }
+
+    #[test]
+    fn unknown_forge_renders_text_only_even_with_nerd_font() {
+        let theme = crate::theme::Theme::catppuccin_mocha().with_nerd_font(true);
+        let m = Modeline {
+            forge: "ghes".into(),
+            ..sample()
+        };
+        let line = row_with(&m, Mode::Browse, 120, &theme);
+        assert!(line.contains("ghes"));
+        assert!(
+            !line.contains('\u{f408}'),
+            "no icon for unknown forges: {line}"
+        );
+    }
+
+    #[test]
     fn wide_line_shows_forge_caret_context_and_all_hints() {
         let line = row(&sample(), Mode::Browse, 180);
         assert!(line.contains("BROWSE"));
         assert!(line.contains("github"));
-        assert!(line.contains('>'), "vim-like caret: {line}");
+        assert!(line.contains('❯'), "powerline caret: {line}");
         assert!(line.contains("ratatui/ratatui · main"));
         assert!(line.contains("q quit"), "last hint should survive: {line}");
         assert_eq!(line.chars().count(), 180);

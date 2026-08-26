@@ -950,13 +950,15 @@ impl App {
                 let provider_changed = config.provider != self.config.provider;
                 let ui_changed = config.ui != self.config.ui;
                 self.config = config;
-                // Hot reload: rebuild the palette (and border shape);
+                // Hot reload: rebuild the palette (and chrome prefs);
                 // every component reads Theme per render, so the
                 // repaint is automatic.
                 if theme_changed || ui_changed {
                     let name = self.config.theme.name.clone();
                     let border = BorderShape::parse(&self.config.ui.border).unwrap_or_default();
-                    self.theme = Theme::load(&name).with_border(border);
+                    self.theme = Theme::load(&name)
+                        .with_border(border)
+                        .with_nerd_font(self.config.ui.nerd_font);
                 }
                 match self.config.save() {
                     Ok(()) => {

@@ -117,19 +117,22 @@ from the theme.
 
 ## Modeline contract
 
-One bottom line (`src/components/modeline.rs`): mode chip (color from
-`mode_color`, label from `Mode::chip`) · forge chip (active provider
-identity, `forge` role bg + crust fg) · a vim-style `>` caret ·
-transient status (warnings, errors, "searching…") · context (browser
-location or search summary) · key hints right-aligned. Hints come from
-`keymap::hints(mode)` — derived, never hand-written. Overlays report
-their effective mode via `effective_mode()` so the chip and hints
-always describe the component that owns the keyboard.
+One bottom line (`src/components/modeline.rs`), powerline style:
+mode chip → forge chip → vim-style caret → transient status (warnings,
+errors, "searching…") → context (browser location or search summary)
+→ key hints right-aligned. Segment arrows bridge the colors (fg =
+the segment being left, bg = the segment being entered). Nerd Font
+glyphs (`[ui] nerd_font = true`) draw true powerline arrows and forge
+icons (github/gitlab/bitbucket); the default is the starship-style
+`❯` with text-only chips so non-Nerd-Font terminals never see tofu.
+Hints come from `keymap::hints(mode)` — derived, never hand-written.
+Overlays report their effective mode via `effective_mode()` so the
+chip and hints always describe the component that owns the keyboard.
 
 Everything on the line is **fitted, never overflowing**: the context
 reserves up to a quarter of the width, hints fill the remainder
 dropping whole hints from the tail (an `…` marks the cut), the status
-is capped at a third, the context truncates last.
+is capped at half and middle-truncated, the context truncates last.
 
 ## Keymap tables are the single source of truth
 
