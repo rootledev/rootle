@@ -1,4 +1,4 @@
-# The rootle provider protocol, v1.2
+# The rootle provider protocol, v1.3
 
 rootle talks to source-control backends through one seam (`trait
 Provider`, `src/provider/mod.rs`). The built-in `github` provider is
@@ -24,12 +24,17 @@ else as an NDJSON-RPC stdio child](architecture.svg)
 - **Transport (v1.2):** a dedicated reader thread owns the child's
   stdout and routes replies by id; requests may be in flight
   concurrently and replies MAY arrive out of order. rootle skips
-  non-JSON lines and replies whose id doesn't match (notifications are
-  tolerated). Every request has a read deadline
   (`[provider] timeout_ms`, default 30s): a reply that never comes
   fails that one call with a `timeout`-kinded error — the transport
   and the child stay usable, and the late reply is discarded when it
   finally arrives.
+- **Progressive results (v1.3):** a request whose params carry
+  `"partial": true` opts into `$/partial` notifications — see
+  [Progressive results](#progressive-results-v13). For such requests
+  the read deadline is an **inactivity** deadline: every `$/partial`
+  or the reply resets it (a provider that keeps streaming never times
+  out; a silent one still fails). Non-streaming requests keep the
+  per-round-trip deadline.
 - **Restart (v1.2):** a closed stdout fails every in-flight call
   ("provider closed its output") and marks the transport dead. The
   next request rebuilds the child with bounded backoff
@@ -141,6 +146,9 @@ Details:
   means the provider capped its own result set — the UI marks the
   results as clipped so a complete set is distinguishable from a cut
   one.
+- **Progressive search (v1.3, plans/0011):** rootle sends
+  `search/code` with `"partial": true` and renders `$/partial` batches
+  as they arrive — see the section below.
 
 ## Content ids
 
@@ -167,6 +175,46 @@ content is sha-keyed, so late work is never wrong). Providers MAY
 ignore it — cache-backed adapters lose nothing; quota-paying or
 long-running backends SHOULD use it to skip work. Cancels for unknown
 or completed ids are ignored.
+
+## Progressive results (v1.3)
+
+Long-running requests stream their result instead of arriving as one
+block (plans/0011; the shape follows LSP's `partialResultToken` +
+`$/progress` design, keyed by request id — and Sourcegraph's stream
+API validated the event split for search specifically):
+
+```
+→ {"jsonrpc":"2.0","id":7,"method":"search/code","params":{"q":"render","partial":true}}
+← {"jsonrpc":"2.0","method":"$/partial","params":{"id":7,"items":[ …hit, …hit ]}}
+← {"jsonrpc":"2.0","method":"$/partial","params":{"id":7,"items":[ …hit ]}}
+← {"jsonrpc":"2.0","id":7,"result":{"items":[],"truncated":false}}
+```
+
+Rules:
+
+- `"partial": true` in a request's params = the client consumes
+  `$/partial` notifications carrying that request's `id`. rootle
+  sends it on every `search/code`.
+- `items` are the method's own result-item shape, **append-only**.
+  No overwrite mode: a hit the provider later knows better is
+  re-sent as another item and the client folds by file identity;
+  `located: false` + client-side locating self-heal placements.
+- Line order on the single pipe: all `$/partial` for an id precede
+  that id's reply. After the reply, no more for that id.
+- When the provider streamed, **the reply is metadata-only** —
+  `items` empty, `truncated` authoritative. Without `partial` in
+  params the reply carries everything (unchanged v1.2 behavior).
+- The deadline is per-inactivity while streaming (see Transport).
+- `$/cancelRequest` (v1.1) stops the stream; the reply may still
+  arrive and is handled normally.
+- Child death mid-stream: partials already rendered stay; the request
+  itself fails ("provider closed its output") per the restart rules.
+  Rootle marks the set incomplete rather than discarding it.
+
+The reference adapter (`fs_provider.py`) streams `search/code` per
+repo; the in-tree GitHub provider streams per REST page (100/page,
+3-page budget, `truncated` past that).
+
 
 ## Errors
 

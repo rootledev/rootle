@@ -45,8 +45,9 @@ docker or `sudo`.
 - `doc/house-style.md` — component contract (actions unidirectional,
   modeline, keymap tables are the single source of truth, sanitize at
   the boundary, `/` filter on every list, scrollbar rules).
-- `doc/provider-protocol.md` — the stdio wire format (v1.1: reader
-  tolerance, `$/cancelRequest`, `located`, `data.kind` errors).
+- `doc/provider-protocol.md` — the stdio wire format (v1.3: `$/partial`
+  progressive results + inactivity deadlines, reader tolerance,
+  `$/cancelRequest`, `located`, `data.kind` errors).
 - `doc/development.md` — architecture + e2e harness details.
 - `.agents/skills/rootle-pr/` — PR template + evidence contract
   (frames/screenshots, green matrix including the docker e2e gate).

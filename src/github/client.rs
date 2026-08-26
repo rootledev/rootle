@@ -96,19 +96,33 @@ impl Client {
     /// qualifiers (`repo:`, `org:`, `extension:`, `path:`); text-match
     /// fragments are requested for previews.
     pub fn search_code(&self, q: &str) -> ProviderResult<(Vec<super::types::CodeItem>, bool)> {
+        let (items, total) = self.search_code_page(q, 1)?;
+        // GitHub caps code search at 1000 results — that is the
+        // provider's own truncation signal (plans/0008 §4).
+        Ok((items, total > 1000))
+    }
+
+    /// One page of code search (`per_page=100`, 1-indexed pages).
+    /// Returns (items, total_count) — total drives `truncated` and the
+    /// progressive page loop (v1.3, plans/0011).
+    pub fn search_code_page(
+        &self,
+        q: &str,
+        page: u32,
+    ) -> ProviderResult<(Vec<super::types::CodeItem>, u64)> {
         if self.is_anonymous() {
             return Err(ProviderError::new(
                 ErrorKind::Auth,
                 "code search needs a token — set ROOTLE_TOKEN or log in with `gh`",
             ));
         }
-        let url = format!("{API}/search/code?q={}&per_page=25", urlencoding(q));
+        let url = format!(
+            "{API}/search/code?q={}&per_page=100&page={page}",
+            urlencoding(q)
+        );
         let resp: super::types::SearchCodeResponse =
             self.get_accept(&url, "application/vnd.github.text-match+json")?;
-        // GitHub caps code search at 1000 results — that is the
-        // provider's own truncation signal (plans/0008 §4), not the
-        // per-page size (that's our client-side clip).
-        Ok((resp.items, resp.total_count > 1000))
+        Ok((resp.items, resp.total_count))
     }
 
     /// GET with an explicit Accept header (text-match fragments).

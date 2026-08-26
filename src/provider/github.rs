@@ -128,26 +128,60 @@ impl Provider for GitHubProvider {
     fn search_code(&self, q: &str) -> ProviderResult<super::SearchCodeResult> {
         let (items, truncated) = self.client.search_code(q)?;
         Ok(super::SearchCodeResult {
-            hits: items
-                .into_iter()
-                .map(|item| CodeMatch {
-                    repo: item.repository.full_name,
-                    path: item.path,
-                    sha: item.sha,
-                    branch: item
-                        .repository
-                        .default_branch
-                        .unwrap_or_else(|| "main".into()),
-                    matches: item
-                        .text_matches
-                        .iter()
-                        .flat_map(|tm| tm.matches.iter().map(|m| m.text.clone()))
-                        .collect(),
-                    located: true,
-                })
-                .collect(),
+            hits: items.iter().map(CodeMatch::from).collect(),
             truncated,
         })
+    }
+
+    /// v1.3 progressive (plans/0011): stream `search/code` pages as
+    /// they arrive — the first 100 render while later pages fetch.
+    /// Budget: 3 pages × 100 (rate-conscious); GitHub caps code search
+    /// at 1000 anyway, and `truncated` says whether more exists.
+    fn search_code_progressive(
+        &self,
+        q: &str,
+        on_hits: &(dyn Fn(&[CodeMatch]) + Send + Sync),
+    ) -> ProviderResult<super::SearchCodeResult> {
+        const PAGES: u32 = 3;
+        const PER_PAGE: usize = 100;
+        let mut fetched = 0usize;
+        let mut total = 0u64;
+        for page in 1..=PAGES {
+            let (items, page_total) = self.client.search_code_page(q, page)?;
+            total = page_total;
+            fetched += items.len();
+            let empty = items.is_empty();
+            let matches: Vec<CodeMatch> = items.iter().map(CodeMatch::from).collect();
+            on_hits(&matches);
+            if empty || items.len() < PER_PAGE {
+                break;
+            }
+        }
+        Ok(super::SearchCodeResult {
+            hits: Vec::new(),
+            truncated: (total as usize) > fetched,
+        })
+    }
+}
+
+impl From<&crate::github::types::CodeItem> for CodeMatch {
+    fn from(item: &crate::github::types::CodeItem) -> Self {
+        CodeMatch {
+            repo: item.repository.full_name.clone(),
+            path: item.path.clone(),
+            sha: item.sha.clone(),
+            branch: item
+                .repository
+                .default_branch
+                .clone()
+                .unwrap_or_else(|| "main".into()),
+            matches: item
+                .text_matches
+                .iter()
+                .flat_map(|tm| tm.matches.iter().map(|m| m.text.clone()))
+                .collect(),
+            located: true,
+        }
     }
 }
 

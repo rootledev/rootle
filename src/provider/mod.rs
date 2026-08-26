@@ -160,6 +160,25 @@ pub trait Provider: Send + Sync {
     /// Code search; `q` is the full query string with qualifiers.
     fn search_code(&self, q: &str) -> ProviderResult<SearchCodeResult>;
 
+    /// Progressive code search (protocol v1.3, plans/0011): `on_hits`
+    /// may fire from any thread, any number of times, strictly before
+    /// this call returns. When the provider streamed, the result is
+    /// metadata-only — `hits` empty, `truncated` authoritative.
+    /// Default: one `search_code` call, one `on_hits` batch — every
+    /// provider streams; page-shaped backends stream page-by-page.
+    fn search_code_progressive(
+        &self,
+        q: &str,
+        on_hits: &(dyn Fn(&[CodeMatch]) + Send + Sync),
+    ) -> ProviderResult<SearchCodeResult> {
+        let result = self.search_code(q)?;
+        on_hits(&result.hits);
+        Ok(SearchCodeResult {
+            hits: Vec::new(),
+            truncated: result.truncated,
+        })
+    }
+
     /// Advisory cancellation (protocol v1.1): tells the backend the
     /// caller no longer needs the in-flight request. Best-effort —
     /// replies may still arrive and are always handled. Default: nothing

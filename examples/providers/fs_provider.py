@@ -24,9 +24,11 @@ content changes, which is what rootle's cache requires.
 import base64
 import hashlib
 import json
-import pathlib
 import os
+import pathlib
+import subprocess
 import sys
+from typing import Iterator
 
 ORG = "local"
 SKIP_DIRS = {".git", "__pycache__", "target", "node_modules"}
@@ -154,9 +156,48 @@ def search_code(root: str, q: str) -> list[dict]:
                     "matches": matched,
                 }
             )
-            if len(items) >= 25:
-                return items
     return items
+
+
+def search_code_batches(root: str, q: str) -> Iterator[list[dict]]:
+    """v1.3 progressive search: yield per-repo batches; the caller
+    streams each as a $/partial notification."""
+    terms, repo_scope, _org, ext = parse_query(q)
+    needles = [t.lower() for t in terms.split() if t]
+    repos = [f"{ORG}/{repo_scope.split('/', 1)[1]}"] if repo_scope else [
+        f"{ORG}/{d}" for d in sorted(os.listdir(root))
+        if os.path.isdir(os.path.join(root, d)) and d not in SKIP_DIRS
+    ]
+    for repo in repos:
+        if not os.path.isdir(os.path.join(root, repo.split("/", 1)[1])):
+            continue
+        batch = []
+        for entry in walk_tree(root, repo):
+            if entry["type"] != "blob":
+                continue
+            if ext and not entry["path"].lower().endswith("." + ext.lstrip(".")):
+                continue
+            full = os.path.join(repo_dir(root, repo), entry["path"])
+            try:
+                text = open(full, encoding="utf-8", errors="replace").read()
+            except OSError:
+                continue
+            if text.startswith("\x00") or "\x00" in text[:8192]:
+                continue  # binary
+            matched = [n for n in needles if n in text.lower()]
+            if needles and not matched:
+                continue
+            batch.append(
+                {
+                    "repo": repo,
+                    "path": entry["path"],
+                    "sha": entry["sha"],
+                    "branch": "main",
+                    "matches": matched,
+                }
+            )
+        if batch:
+            yield batch
 
 
 def handle(root: str, method: str, params: dict) -> dict:
@@ -223,8 +264,24 @@ def main() -> None:
         if not isinstance(req.get("id"), int):
             # Notification (e.g. $/cancelRequest) — never reply.
             continue
+        partial = None
         try:
-            result = handle(root, req.get("method", ""), req.get("params") or {})
+            params = req.get("params") or {}
+            if req.get("method") == "search/code" and params.get("partial"):
+                # v1.3: stream batches as $/partial notifications keyed
+                # by the request id; the reply is metadata-only.
+                partial = req.get("id")
+                for batch in search_code_batches(root, params.get("q", "")):
+                    note = {
+                        "jsonrpc": "2.0",
+                        "method": "$/partial",
+                        "params": {"id": partial, "items": batch},
+                    }
+                    sys.stdout.write(json.dumps(note) + "\n")
+                    sys.stdout.flush()
+                result = {"items": [], "truncated": False}
+            else:
+                result = handle(root, req.get("method", ""), params)
             reply = {"jsonrpc": "2.0", "id": req.get("id"), "result": result}
         except Exception as e:  # noqa: BLE001 — surfaced to the TUI
             reply = {
