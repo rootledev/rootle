@@ -768,6 +768,51 @@ fn clone_wizard_walks_three_screens() {
     assert!(!rows.join("\n").contains("clone —"), "wizard residue");
 }
 
+/// v1.4 (plans/0014 #1): org expansion carries listing metadata into
+/// the wizard — recently pushed first, undated by name after, archived
+/// rows carry a dim note.
+#[test]
+fn clone_wizard_sorts_by_pushed_and_marks_archived() {
+    let mut app = browsing_app();
+    app.handle_app_event(rootle::event::AppEvent::CloneExpanded {
+        repos: vec![
+            rootle::provider::RepoInfo::bare("ratatui/bare"),
+            rootle::provider::RepoInfo {
+                name: "ratatui/old".into(),
+                pushed_at: Some("2026-01-05T09:00:00Z".into()),
+                ..Default::default()
+            },
+            rootle::provider::RepoInfo {
+                name: "ratatui/fresh".into(),
+                pushed_at: Some("2026-08-20T10:11:12Z".into()),
+                ..Default::default()
+            },
+            rootle::provider::RepoInfo {
+                name: "ratatui/mothballed".into(),
+                archived: true,
+                pushed_at: Some("2025-06-01T00:00:00Z".into()),
+                ..Default::default()
+            },
+        ],
+        errors: vec![],
+    });
+    let rows = render(&mut app, 100, 30);
+    let screen = rows.join("\n");
+    assert!(screen.contains("clone — 1/3 repos"), "wizard did not open");
+    let pos = |needle: &str| screen.find(needle).unwrap_or(usize::MAX);
+    assert!(
+        pos("ratatui/fresh") < pos("ratatui/old")
+            && pos("ratatui/old") < pos("ratatui/mothballed")
+            && pos("ratatui/mothballed") < pos("ratatui/bare"),
+        "expected pushed-desc, undated last:\n{screen}"
+    );
+    assert!(
+        screen.contains("archived · 2025-06-01"),
+        "archived note missing:\n{screen}"
+    );
+    println!("{screen}");
+}
+
 #[test]
 fn leader_yank_toasts_hit_url_in_search_view() {
     let mut app = browsing_app();
