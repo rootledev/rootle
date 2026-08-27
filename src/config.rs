@@ -70,9 +70,13 @@ pub struct UiConfig {
     /// "double". Unknown values fall back to plain.
     pub border: String,
     /// Nerd Font glyphs (powerline arrows, forge icons) in the
-    /// modeline — false keeps unicode fallbacks (❯ separators, no
-    /// icons) so non-Nerd-Font terminals never see tofu.
+    /// modeline — false keeps unicode fallbacks (no icons) so
+    /// non-Nerd-Font terminals never see tofu.
     pub nerd_font: bool,
+    /// Chip separator in the modeline: "pipe" (default, rectangular
+    /// chips with `|`) or "caret" (❯). Nerd Font on always draws the
+    /// powerline arrow regardless.
+    pub separator: String,
 }
 
 impl Default for UiConfig {
@@ -98,6 +102,7 @@ impl Default for Config {
             ui: UiConfig {
                 border: "plain".into(),
                 nerd_font: false,
+                separator: "pipe".into(),
             },
         }
     }

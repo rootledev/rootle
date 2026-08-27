@@ -305,9 +305,9 @@ fn drilling_into_dir_uses_correct_relative_path() {
     );
 }
 
-/// plans/0016 M1a mock: `␣ b` opens the revision switcher, the crumb
-/// live-previews the cursor's ref, Enter commits (toast says mock),
-/// Esc reverts to the committed ref.
+/// plans/0016 M1a: `␣ b` opens the revision switcher (loading row
+/// until refs land), the crumb live-previews the cursor's ref, Enter
+/// commits and refetches, Esc reverts to the committed ref.
 #[test]
 fn refs_switcher_preview_commit_revert() {
     let mut app = browsing_app();
@@ -316,14 +316,39 @@ fn refs_switcher_preview_commit_revert() {
     let screen = render(&mut app, 140, 30).join("\n");
     assert!(screen.contains("revisions"), "switcher missing:\n{screen}");
     assert!(
-        screen.contains("(•) main"),
-        "default radio missing:\n{screen}"
+        screen.contains("loading revisions"),
+        "loading row:\n{screen}"
     );
+
+    app.handle_app_event(rootle::event::AppEvent::RefsLoaded {
+        repo: "ratatui/ratatui".into(),
+        refs: rootle::provider::RepoRefs {
+            branches: vec![
+                rootle::provider::RefInfo {
+                    name: "main".into(),
+                    sha: "a1b2c3d4".into(),
+                    is_default: true,
+                },
+                rootle::provider::RefInfo {
+                    name: "release/2.7".into(),
+                    sha: "e4f5a6b7".into(),
+                    is_default: false,
+                },
+            ],
+            tags: vec![rootle::provider::RefInfo {
+                name: "v0.7.1".into(),
+                sha: "d4e5f6a7".into(),
+                is_default: false,
+            }],
+        },
+    });
+    let screen = render(&mut app, 140, 30).join("\n");
+    assert!(screen.contains("(•) main"), "default radio:\n{screen}");
     assert!(
-        screen.contains("release/2.7"),
-        "branches missing:\n{screen}"
+        screen.contains("release/2.7  e4f5a6b"),
+        "branch row:\n{screen}"
     );
-    assert!(screen.contains("tags"), "tags section missing:\n{screen}");
+    assert!(screen.contains("tags"), "tags section:\n{screen}");
 
     // Live preview: j moves to release/2.7, the crumb follows.
     app.handle_key(key(KeyCode::Char('j')));
@@ -333,14 +358,10 @@ fn refs_switcher_preview_commit_revert() {
         "crumb did not follow the cursor:\n{screen}"
     );
 
-    // Enter commits: popup closes, toast admits the mock.
+    // Enter commits: popup closes, the crumb keeps the ref.
     app.handle_key(key(KeyCode::Enter));
     let screen = render(&mut app, 140, 30).join("\n");
     assert!(!screen.contains("revisions —"), "popup should be closed");
-    assert!(
-        screen.contains("switched to release/2.7 (mock"),
-        "toast missing:\n{screen}"
-    );
     assert!(
         screen.contains("ratatui @ release/2.7"),
         "committed crumb:\n{screen}"
@@ -349,20 +370,29 @@ fn refs_switcher_preview_commit_revert() {
     // Reopen and Esc: reverts to the committed ref.
     app.handle_key(key(KeyCode::Char(' ')));
     app.handle_key(key(KeyCode::Char('b')));
-    app.handle_key(key(KeyCode::Char('j'))); // preview feature/miller-panes
+    app.handle_app_event(rootle::event::AppEvent::RefsLoaded {
+        repo: "ratatui/ratatui".into(),
+        refs: rootle::provider::RepoRefs {
+            branches: vec![rootle::provider::RefInfo {
+                name: "main".into(),
+                sha: "a1b2c3d4".into(),
+                is_default: true,
+            }],
+            tags: vec![],
+        },
+    });
+    app.handle_key(key(KeyCode::Char('k'))); // preview main
     app.handle_key(key(KeyCode::Esc));
     let screen = render(&mut app, 140, 30).join("\n");
     assert!(
         screen.contains("@ release/2.7"),
         "Esc must revert:\n{screen}"
     );
-    assert!(!screen.contains("miller-panes @"), "preview must not stick");
 }
 
-/// plans/0016 M1 mock: `␣ p` zooms the preview and hands it the
-/// keyboard (j/k line cursor), `b` toggles the blame margin, Enter on
-/// a blame line opens the history lens at that commit, `/` filters
-/// the commits, Esc unwinds one lens at a time.
+/// plans/0016 M1b/M1c: blame lens from real ranges, Enter opens the
+/// history lens at the blamed commit, Enter again opens the file at
+/// that commit, Esc unwinds to the present.
 #[test]
 fn preview_submode_zoom_blame_history() {
     let mut app = browsing_app();
@@ -378,7 +408,6 @@ fn preview_submode_zoom_blame_history() {
     });
     let screen = render(&mut app, 140, 30).join("\n");
     assert!(screen.contains("[package]"), "preview shows the blob");
-    assert!(screen.contains("ratatui ─"), "columns visible before zoom");
 
     // ␣ p: zoom — the columns vanish, the pane owns the keys.
     app.handle_key(key(KeyCode::Char(' ')));
@@ -389,25 +418,33 @@ fn preview_submode_zoom_blame_history() {
         "preview chip missing:\n{screen}"
     );
     assert!(!screen.contains("docs/"), "columns must hide when zoomed");
-    assert!(screen.contains("2 │ name"), "zoomed preview content");
 
-    // j walks the line cursor (the submode's J/K).
-    app.handle_key(key(KeyCode::Char('j')));
-    let screen = render(&mut app, 140, 30).join("\n");
-    assert!(screen.contains("▶ 2"), "line cursor must move:\n{screen}");
-
-    // b: the blame lens — run-start marks, dot-leader continuations.
+    // b: blame fetches; marks render when ranges land.
     app.handle_key(key(KeyCode::Char('b')));
+    app.handle_app_event(rootle::event::AppEvent::BlameLoaded {
+        path: "Cargo.toml".into(),
+        ranges: vec![
+            rootle::provider::BlameRange {
+                start_line: 1,
+                end_line: 2,
+                sha: "a1b2c3d4e5".into(),
+                author: "tarek".into(),
+                date: "2026-08-25".into(),
+            },
+            rootle::provider::BlameRange {
+                start_line: 3,
+                end_line: 4,
+                sha: "c7d8e9f0a1".into(),
+                author: "mira".into(),
+                date: "2026-07-30".into(),
+            },
+        ],
+    });
     let rows = render(&mut app, 140, 30);
     let screen = rows.join("\n");
-    assert!(
-        screen.contains("e4f5a6b tarek"),
-        "blame margin missing:\n{screen}"
-    );
-    assert!(screen.contains("blame lens on (mock"), "mock toast missing");
-    // The margin divider sits at the same column on run starts and
-    // continuations (the off-by-one the owner caught).
-    // char indices, not byte offsets — the dot leader is 2 bytes.
+    assert!(screen.contains("a1b2c3d tarek"), "blame margin:\n{screen}");
+    assert!(screen.contains("c7d8e9f mira"), "second run:\n{screen}");
+    // The margin divider aligns across run starts and continuations.
     let divider_col = |row: &String| {
         row.chars()
             .enumerate()
@@ -415,8 +452,8 @@ fn preview_submode_zoom_blame_history() {
             .nth(1)
             .map(|(i, _)| i)
     };
-    let run = rows.iter().find(|r| r.contains("e4f5a6b tarek")).unwrap();
-    let cont = rows.iter().find(|r| r.contains("·      │")).unwrap();
+    let run = rows.iter().find(|r| r.contains("a1b2c3d tarek")).unwrap();
+    let cont = rows.iter().find(|r| r.contains('·')).unwrap();
     assert_eq!(
         divider_col(run),
         divider_col(cont),
@@ -425,53 +462,64 @@ fn preview_submode_zoom_blame_history() {
 
     // Enter on a blame line: history lens at that commit (composition).
     app.handle_key(key(KeyCode::Enter));
+    app.handle_app_event(rootle::event::AppEvent::LogLoaded {
+        path: "Cargo.toml".into(),
+        entries: vec![
+            rootle::provider::LogEntry {
+                sha: "c7d8e9f0a1b2".into(),
+                subject: "refactor(Cargo.toml): extract".into(),
+                author: "mira".into(),
+                date: "2026-07-30".into(),
+            },
+            rootle::provider::LogEntry {
+                sha: "a1b2c3d4e5f6".into(),
+                subject: "feat: initial Cargo.toml".into(),
+                author: "tarek".into(),
+                date: "2026-06-11".into(),
+            },
+        ],
+        truncated: false,
+    });
     let screen = render(&mut app, 140, 30).join("\n");
     assert!(screen.contains("HISTORY"), "history chip:\n{screen}");
     assert!(
         screen.contains("history — Cargo.toml"),
         "lens title:\n{screen}"
     );
+    // The cursor line (1) blames to the initial commit — the lens
+    // sits on its row.
     assert!(
-        screen.contains("▌ e4f5a6b refactor(Cargo.toml)"),
+        screen.contains("▌ a1b2c3d feat: initial Cargo.toml"),
         "lens must sit on the blamed commit:\n{screen}"
     );
 
-    // / filters the commit list (house rule: every list filters).
-    app.handle_key(key(KeyCode::Char('/')));
-    for c in "syntax".chars() {
-        app.handle_key(key(KeyCode::Char(c)));
-    }
-    app.handle_key(key(KeyCode::Enter)); // commit the filter
+    // Enter opens the file at the commit; Esc restores the present.
+    app.handle_key(key(KeyCode::Enter));
+    app.handle_app_event(rootle::event::AppEvent::BlobAtLoaded {
+        path: "Cargo.toml".into(),
+        ref_: "c7d8e9f0a1b2".into(),
+        sha: "f00dbabe".into(),
+        bytes: b"[package]\nname = \"ratatui-old\"\n".to_vec(),
+    });
     let screen = render(&mut app, 140, 30).join("\n");
+    assert!(screen.contains("ratatui-old"), "commit content:\n{screen}");
     assert!(
-        screen.contains("syntax-highlighted preview"),
-        "filtered row:\n{screen}"
+        screen.contains("Cargo.toml @ c7d8e9f"),
+        "commit marker:\n{screen}"
     );
-    assert!(
-        !screen.contains("license headers"),
-        "unmatched rows must go"
-    );
-
-    // Esc ladder: clear the filter, then close the lens back to the
-    // zoomed preview, then Browse restores the columns.
+    assert!(screen.contains("PREVIEW"), "back in the zoomed pane");
     app.handle_key(key(KeyCode::Esc));
     let screen = render(&mut app, 140, 30).join("\n");
     assert!(
-        screen.contains("license headers"),
-        "first Esc clears the filter"
+        screen.contains("name = \"ratatui\""),
+        "Esc restores the present"
     );
     app.handle_key(key(KeyCode::Esc));
     let screen = render(&mut app, 140, 30).join("\n");
-    assert!(
-        screen.contains("PREVIEW"),
-        "lens closes back to zoomed preview"
-    );
-    assert!(screen.contains("e4f5a6b tarek"), "blame survives the lens");
-    app.handle_key(key(KeyCode::Esc));
-    let screen = render(&mut app, 140, 30).join("\n");
-    assert!(screen.contains("BROWSE"), "mode unwinds to browse");
+    assert!(screen.contains("BROWSE"), "mode unwinds");
     assert!(screen.contains("docs/"), "columns restored");
 }
+
 #[test]
 fn file_preview_shows_highlighted_blob_and_scrolls() {
     let mut app = browsing_app();

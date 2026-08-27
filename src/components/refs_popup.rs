@@ -17,65 +17,21 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 
-/// One revision row: branch or tag.
+/// One row: a branch or tag from the provider (v1.5 `repo/refs`).
 #[derive(Debug, Clone)]
-struct MockRef {
-    name: &'static str,
-    sha: &'static str,
+struct Row {
+    name: String,
+    sha: String,
     is_tag: bool,
     is_default: bool,
 }
-
-/// Deterministic stand-ins — what `repo/refs` will return.
-const MOCK_REFS: &[MockRef] = &[
-    MockRef {
-        name: "main",
-        sha: "a1b2c3d",
-        is_tag: false,
-        is_default: true,
-    },
-    MockRef {
-        name: "release/2.7",
-        sha: "e4f5a6b",
-        is_tag: false,
-        is_default: false,
-    },
-    MockRef {
-        name: "feature/miller-panes",
-        sha: "c7d8e9f",
-        is_tag: false,
-        is_default: false,
-    },
-    MockRef {
-        name: "fix/cache-eviction",
-        sha: "0a1b2c3",
-        is_tag: false,
-        is_default: false,
-    },
-    MockRef {
-        name: "v0.7.1",
-        sha: "d4e5f6a",
-        is_tag: true,
-        is_default: false,
-    },
-    MockRef {
-        name: "v0.7.0",
-        sha: "7b8c9d0",
-        is_tag: true,
-        is_default: false,
-    },
-    MockRef {
-        name: "v0.6.0",
-        sha: "1e2f3a4",
-        is_tag: true,
-        is_default: false,
-    },
-];
 
 pub struct RefsPopup {
     cursor: usize,
     /// Committed-at-open revision — Esc reverts the live preview.
     baseline: String,
+    /// None until the provider answers (the popup shows a loading row).
+    rows: Option<Vec<Row>>,
     filter: VimInput,
     filtering: bool,
     filter_value: String,
@@ -85,18 +41,41 @@ pub struct RefsPopup {
 
 impl RefsPopup {
     pub fn new(current: &str) -> Self {
-        let cursor = MOCK_REFS
-            .iter()
-            .position(|r| r.name == current)
-            .unwrap_or(0);
         RefsPopup {
-            cursor,
+            cursor: 0,
             baseline: current.to_string(),
+            rows: None,
             filter: VimInput::transient(),
             filtering: false,
             filter_value: String::new(),
             pre_filter: String::new(),
         }
+    }
+
+    /// The provider's refs landed — the loading row becomes the list,
+    /// cursor on the current revision when it's in it.
+    pub fn set_refs(&mut self, refs: crate::provider::RepoRefs) {
+        let mut rows: Vec<Row> = refs
+            .branches
+            .into_iter()
+            .map(|r| Row {
+                name: r.name,
+                sha: r.sha,
+                is_tag: false,
+                is_default: r.is_default,
+            })
+            .collect();
+        rows.extend(refs.tags.into_iter().map(|r| Row {
+            name: r.name,
+            sha: r.sha,
+            is_tag: true,
+            is_default: false,
+        }));
+        self.cursor = rows
+            .iter()
+            .position(|r| r.name == self.baseline)
+            .unwrap_or(0);
+        self.rows = Some(rows);
     }
 
     pub fn baseline(&self) -> &str {
@@ -105,19 +84,22 @@ impl RefsPopup {
 
     /// Row indices surviving the committed filter, branches then tags.
     fn visible(&self) -> Vec<usize> {
+        let Some(rows) = &self.rows else {
+            return vec![];
+        };
         let needle = self.filter_value.to_lowercase();
-        MOCK_REFS
-            .iter()
+        rows.iter()
             .enumerate()
             .filter(|(_, r)| needle.is_empty() || r.name.to_lowercase().contains(&needle))
             .map(|(i, _)| i)
             .collect()
     }
 
-    fn selected(&self) -> Option<&'static MockRef> {
+    fn selected(&self) -> Option<&Row> {
+        let rows = self.rows.as_ref()?;
         let vis = self.visible();
         vis.get(self.cursor.min(vis.len().saturating_sub(1)))
-            .map(|&i| &MOCK_REFS[i])
+            .map(|&i| &rows[i])
     }
 
     pub fn handle_key(&mut self, key: ratatui::crossterm::event::KeyEvent) -> Action {
@@ -181,7 +163,7 @@ impl RefsPopup {
         let popup = centered(area, 50, 50);
         frame.render_widget(Clear, popup);
 
-        let current = self.selected().map(|r| r.name).unwrap_or("");
+        let current = self.selected().map(|r| r.name.as_str()).unwrap_or("");
         let mut title = format!(" revisions — @ {current} ");
         if self.filtering || !self.filter_value.is_empty() {
             title = format!(" revisions — /{} ", self.filter.value());
@@ -206,7 +188,10 @@ impl RefsPopup {
         let mut lines: Vec<Line> = Vec::new();
         let mut seen_tags = false;
         for (row, &i) in vis.iter().enumerate() {
-            let r = &MOCK_REFS[i];
+            let r = &self
+                .rows
+                .as_ref()
+                .expect("visible() is empty while loading")[i];
             if r.is_tag && !seen_tags {
                 seen_tags = true;
                 lines.push(Line::from(Span::styled(
@@ -228,13 +213,19 @@ impl RefsPopup {
                 style = style.bg(sem.selection_bg);
             }
             let dim = Style::default().fg(sem.subtext0);
+            let short: String = r.sha.chars().take(7).collect();
             lines.push(Line::from(vec![
                 Span::styled(format!("{radio} "), Style::default().fg(sem.border_focused)),
-                Span::styled(r.name.to_string(), style),
-                Span::styled(format!("  {kind}{}{default}", r.sha), dim),
+                Span::styled(r.name.clone(), style),
+                Span::styled(format!("  {kind}{short}{default}"), dim),
             ]));
         }
-        if vis.is_empty() {
+        if self.rows.is_none() {
+            lines.push(Line::from(Span::styled(
+                "  loading revisions…",
+                Style::default().fg(sem.subtext0),
+            )));
+        } else if vis.is_empty() {
             lines.push(Line::from(Span::styled(
                 "  no matching revisions",
                 Style::default().fg(sem.subtext0),
@@ -254,6 +245,7 @@ impl RefsPopup {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::provider::{RefInfo, RepoRefs};
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
 
     fn key(code: KeyCode) -> KeyEvent {
@@ -265,9 +257,38 @@ mod tests {
         }
     }
 
+    fn loaded_popup(current: &str) -> RefsPopup {
+        let mut p = RefsPopup::new(current);
+        p.set_refs(RepoRefs {
+            branches: vec![
+                RefInfo {
+                    name: "main".into(),
+                    sha: "a1b2c3d".into(),
+                    is_default: true,
+                },
+                RefInfo {
+                    name: "release/2.7".into(),
+                    sha: "e4f5a6b".into(),
+                    is_default: false,
+                },
+                RefInfo {
+                    name: "feature/miller-panes".into(),
+                    sha: "c7d8e9f".into(),
+                    is_default: false,
+                },
+            ],
+            tags: vec![RefInfo {
+                name: "v0.7.1".into(),
+                sha: "d4e5f6a".into(),
+                is_default: false,
+            }],
+        });
+        p
+    }
+
     #[test]
     fn cursor_previews_and_enter_commits() {
-        let mut p = RefsPopup::new("main");
+        let mut p = loaded_popup("main");
         assert_eq!(
             p.handle_key(key(KeyCode::Char('j'))),
             Action::RefsPreview("release/2.7".into())
@@ -280,17 +301,17 @@ mod tests {
             p.handle_key(key(KeyCode::Enter)),
             Action::RefsCommit("feature/miller-panes".into())
         );
-        // Wraps around the end.
-        let mut p = RefsPopup::new("main");
+        // Wraps around the end (into the tags).
+        let mut p = loaded_popup("main");
         assert_eq!(
             p.handle_key(key(KeyCode::Char('k'))),
-            Action::RefsPreview("v0.6.0".into())
+            Action::RefsPreview("v0.7.1".into())
         );
     }
 
     #[test]
     fn slash_filter_narrows_and_esc_cancels() {
-        let mut p = RefsPopup::new("main");
+        let mut p = loaded_popup("main");
         p.handle_key(key(KeyCode::Char('/')));
         for c in "release".chars() {
             p.handle_key(key(KeyCode::Char(c)));
@@ -301,5 +322,12 @@ mod tests {
             p.handle_key(key(KeyCode::Enter)),
             Action::RefsCommit("release/2.7".into())
         );
+    }
+
+    #[test]
+    fn loading_state_offers_nothing() {
+        let mut p = RefsPopup::new("main");
+        assert_eq!(p.handle_key(key(KeyCode::Enter)), Action::Noop);
+        assert_eq!(p.handle_key(key(KeyCode::Char('j'))), Action::Noop);
     }
 }

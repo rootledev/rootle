@@ -31,10 +31,10 @@ pub enum PreviewContent {
 /// A blame run's first-line mark (plans/0016 M1c): the margin shows
 /// sha + author where a commit's run starts; continuation lines carry
 /// `None` and get a dim leader.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct BlameMark {
-    pub sha: &'static str,
-    pub author: &'static str,
+    pub sha: String,
+    pub author: String,
 }
 
 pub struct Preview {
@@ -563,19 +563,19 @@ impl Preview {
             && let Some(blame) = &self.blame
         {
             for (i, line) in lines.iter_mut().enumerate() {
-                let spans: Vec<Span<'static>> = match blame.get(i).copied().flatten() {
+                let spans: Vec<Span<'static>> = match blame.get(i).cloned().flatten() {
                     Some(m) => vec![
-                        Span::styled(m.sha.to_string(), Style::default().fg(sem.warning)),
+                        Span::styled(m.sha, Style::default().fg(sem.warning)),
                         Span::styled(
-                            format!(" {:<5}", m.author),
+                            // 8 cells: real names truncate, short ones pad.
+                            format!(" {:<8.8}", m.author),
                             Style::default().fg(sem.subtext0),
                         ),
                         Span::styled(" │ ".to_string(), Style::default().fg(sem.overlay0)),
                     ],
                     None => vec![Span::styled(
-                        // 16 cells, matching a run start's
-                        // `sha(7) + ' ' + author(5) + ' │ '`.
-                        "       ·      │ ".to_string(),
+                        // 19 cells: sha(7) + ' ' + author(8) + ' │ '.
+                        "           ·    ".to_string() + " │ ",
                         Style::default().fg(sem.overlay0),
                     )],
                 };

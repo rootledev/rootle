@@ -124,6 +124,32 @@ pub(super) fn build(config: &Config, themes: Vec<String>) -> Vec<Section> {
             }],
         },
         Section {
+            name: "ui",
+            blurb: "chrome",
+            rows: vec![
+                Row::Text {
+                    key: "border",
+                    label: "border",
+                    value: config.ui.border.clone(),
+                    placeholder: "plain",
+                    desc: "pane corners: plain · rounded · thick · double",
+                },
+                Row::Bool {
+                    key: "nerd_font",
+                    label: "nerd_font",
+                    value: config.ui.nerd_font,
+                    desc: "powerline arrows + forge icons — enable only with a Nerd Font, or glyphs render as tofu",
+                },
+                Row::Text {
+                    key: "separator",
+                    label: "separator",
+                    value: config.ui.separator.clone(),
+                    placeholder: "pipe",
+                    desc: "modeline chip separator: pipe (|) · caret (❯) — nerd_font always draws powerline",
+                },
+            ],
+        },
+        Section {
             name: "provider",
             blurb: "backend",
             rows: vec![

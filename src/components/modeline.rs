@@ -96,10 +96,14 @@ impl Modeline {
         // Mode chip → forge chip, joined by powerline bridges: the
         // arrow's fg is the segment it leaves, its bg the segment it
         // enters (the classic powerline gradient).
+        // Powerline arrows with Nerd Font; otherwise the configured
+        // separator — pipe (rectangular chips) by default, caret (❯)
+        // on request. The ❯ default died: it read as broken without
+        // Nerd Fonts.
         let arrow = if theme.nerd_font {
             "\u{e0b0}"
         } else {
-            "\u{276f}"
+            theme.separator.glyph()
         };
         let icon = resolve_icon(self.icon.as_deref(), theme.nerd_font);
         let forge_label = fit(&self.forge, 12);
@@ -316,7 +320,10 @@ mod tests {
         let line = row(&sample(), Mode::Browse, 180);
         assert!(line.contains("BROWSE"));
         assert!(line.contains("github"));
-        assert!(line.contains('❯'), "powerline caret: {line}");
+        assert!(line.contains("|"), "pipe separator by default: {line}");
+        let caret_theme = crate::theme::Theme::catppuccin_mocha().with_separator("caret");
+        let line = row_with(&sample(), Mode::Browse, 180, &caret_theme);
+        assert!(line.contains('❯'), "caret on request: {line}");
         assert!(line.contains("ratatui/ratatui · main"));
         assert!(line.contains("? keys"), "the on-ramp affordance: {line}");
         assert!(

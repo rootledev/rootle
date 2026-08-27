@@ -455,9 +455,12 @@ pub fn offline() -> Arc<dyn Provider> {
                 orgs: false,
                 code_search: false,
                 file_search: false,
-                refs: false,
-                log: false,
-                blame: false,
+                // Tests inject the v1.5 events directly (the calls
+                // themselves error offline) — declare the caps so the
+                // lenses open.
+                refs: true,
+                log: true,
+                blame: true,
             }
         }
         fn search(&self, _: &str) -> ProviderResult<Vec<SearchItem>> {

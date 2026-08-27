@@ -119,6 +119,19 @@ fn forge_name(config: &Config, provider: &dyn Provider) -> String {
 }
 
 impl App {
+    /// Fetch the open history lens' commits (v1.5): the previewed
+    /// file's log at the browsed revision.
+    fn open_history_fetch(&mut self) {
+        let target = self
+            .browser
+            .repo_coords()
+            .zip(self.browser.history_path().map(str::to_string));
+        if let Some(((owner, name), path)) = target {
+            let ref_ = self.browser.current_ref().map(str::to_string);
+            self.spawn_log(format!("{owner}/{name}"), path, ref_);
+        }
+    }
+
     pub fn new(tx: AppTx, config: Config, theme: Theme) -> Self {
         let (provider, warning) = provider::build(&config);
         let mut app = Self::build(State::load(), tx, provider, false, config, theme);
@@ -508,6 +521,61 @@ impl App {
                 }
                 self.status = Some(status);
             }
+            // v1.5 revision lenses (plans/0016 M1).
+            AppEvent::RefsLoaded { repo: _, refs } => {
+                if let Some(popup) = &mut self.refs_popup {
+                    popup.set_refs(refs);
+                }
+            }
+            AppEvent::RefsFailed { repo: _, error } => {
+                self.status = Some(provider_status(&error));
+            }
+            AppEvent::LogLoaded {
+                path,
+                entries,
+                truncated,
+            } => {
+                if self.browser.history_path() == Some(path.as_str()) {
+                    self.browser.history_loaded(entries, truncated);
+                }
+            }
+            AppEvent::LogFailed { path: _, error } => {
+                self.status = Some(provider_status(&error));
+            }
+            AppEvent::BlameLoaded { path, ranges } => {
+                self.browser.blame_store(path, ranges);
+            }
+            AppEvent::BlameFailed { path: _, error } => {
+                self.status = Some(provider_status(&error));
+            }
+            AppEvent::BlobAtLoaded {
+                path,
+                ref_,
+                sha,
+                bytes,
+            } => {
+                // Open-at-commit: style like every blob, but show it
+                // directly — the tree cursor still names the
+                // present-day blob, so refresh_preview would revert it.
+                if crate::sanitize::is_binary(&bytes) {
+                    self.status = Some("binary file at that commit".into());
+                    return;
+                }
+                let text = crate::sanitize::sanitize(&bytes);
+                let short: String = ref_.chars().take(7).collect();
+                let name = format!("{path} @ {short}");
+                let lines = self.highlighter.highlight(&name, &text);
+                let lang = self.highlighter.language(&name);
+                self.browser.show_at_commit(&sha, &name, &lang, text, lines);
+                // The lens' work is done — the commit's content is up.
+                self.browser.close_history();
+                self.history_return = Some(Mode::Preview);
+                self.mode = Mode::Preview;
+                self.status = None;
+            }
+            AppEvent::BlobAtFailed { path: _, error } => {
+                self.status = Some(provider_status(&error));
+            }
         }
     }
 
@@ -590,7 +658,7 @@ impl App {
                     // Revisions switcher cancelled: the live preview
                     // reverts to the committed revision.
                     let baseline = self.refs_baseline.clone();
-                    self.browser.set_mock_ref(baseline);
+                    self.browser.set_current_ref(baseline);
                     return;
                 }
                 self.popup = None;
@@ -795,30 +863,36 @@ impl App {
             }
             Action::LeaderRefs => {
                 self.mode = Mode::Browse;
-                if self.browser.repo_coords().is_none() {
-                    self.status = Some("open a repo to switch revisions".into());
-                } else {
+                if !self.provider.capabilities().refs {
+                    self.status = Some("provider has no revision listing".into());
+                } else if let Some((owner, name)) = self.browser.repo_coords() {
                     let current = self
                         .browser
-                        .mock_ref()
+                        .current_ref()
                         .or_else(|| self.browser.branch())
                         .unwrap_or("main")
                         .to_string();
-                    self.refs_baseline = self.browser.mock_ref().map(str::to_string);
+                    self.refs_baseline = self.browser.current_ref().map(str::to_string);
                     self.refs_popup = Some(RefsPopup::new(&current));
+                    self.spawn_refs(format!("{owner}/{name}"));
+                } else {
+                    self.status = Some("open a repo to switch revisions".into());
                 }
             }
             Action::RefsPreview(name) => {
-                // Live preview: the crumb follows the cursor.
-                self.browser.set_mock_ref(Some(name));
+                // Live preview: the crumb follows the cursor (no fetch
+                // until commit).
+                self.browser.set_current_ref(Some(name));
             }
             Action::RefsCommit(name) => {
                 self.refs_popup = None;
                 self.refs_baseline = Some(name.clone());
-                self.browser.set_mock_ref(Some(name.clone()));
-                self.status = Some(format!(
-                    "switched to {name} (mock — tree refetch not wired yet)"
-                ));
+                self.browser.set_current_ref(Some(name.clone()));
+                self.status = Some(format!("switched to {name}"));
+                // The ref is read at spawn — refetch the tree now.
+                if let Some((owner, name)) = self.browser.repo_coords() {
+                    self.handle_action(Action::LoadRepoTree { owner, name });
+                }
             }
             Action::LeaderPreview => {
                 self.mode = Mode::Browse;
@@ -828,35 +902,58 @@ impl App {
                     self.mode = Mode::Preview;
                 }
             }
-            Action::ExitPreview => self.mode = Mode::Browse,
-            Action::BlameToggle => {
-                if self.browser.toggle_blame() {
-                    if self.browser.preview.blaming() {
-                        self.status = Some("blame lens on (mock ranges)".into());
-                    }
+            Action::ExitPreview => {
+                // The commit-view ladder: Esc restores the present-day
+                // blob first, exits the submode second.
+                if self.browser.at_commit_view() {
+                    self.browser.commit_view_close();
                 } else {
+                    self.mode = Mode::Browse;
+                }
+            }
+            Action::BlameToggle => {
+                if self.browser.preview.blaming() {
+                    self.browser.clear_blame();
+                } else if !self.provider.capabilities().blame {
+                    // Honest absence (Bitbucket has no blame API).
+                    self.status = Some("provider has no blame".into());
+                } else if !self.browser.blame_toggle_on() {
                     self.status = Some("blame: preview is not a text file".into());
+                } else if let Some(path) = self.browser.blame_needed_for()
+                    && let Some((owner, name)) = self.browser.repo_coords()
+                {
+                    self.browser.blame_mark_loading(path.clone());
+                    let ref_ = self.browser.current_ref().map(str::to_string);
+                    self.spawn_blame(format!("{owner}/{name}"), path, ref_);
+                    self.status = Some("blame…".into());
                 }
             }
             Action::PreviewEnter => {
                 // Blaming: Enter opens the line's commit in the history
                 // lens; otherwise Enter is the editor handoff.
-                if self.browser.blame_open_commit() {
-                    self.history_return = Some(Mode::Preview);
-                    self.mode = Mode::History;
-                } else {
-                    self.handle_action(Action::OpenSelected);
+                match self.browser.blame_line_sha() {
+                    Some(sha) if self.provider.capabilities().log => {
+                        if self.browser.open_history(Some(sha)) {
+                            self.open_history_fetch();
+                            self.history_return = Some(Mode::Preview);
+                            self.mode = Mode::History;
+                        }
+                    }
+                    _ => self.handle_action(Action::OpenSelected),
                 }
             }
             Action::LeaderHistory => {
                 let back = self.mode;
                 self.mode = Mode::Browse;
-                if self.browser.open_history() {
+                if !self.provider.capabilities().log {
+                    self.status = Some("provider has no commit log".into());
+                } else if self.browser.open_history(None) {
                     self.history_return = Some(if back == Mode::Preview {
                         Mode::Preview
                     } else {
                         Mode::Browse
                     });
+                    self.open_history_fetch();
                     self.mode = Mode::History;
                 } else {
                     self.status = Some("preview a file for its history".into());
@@ -864,17 +961,31 @@ impl App {
             }
             Action::HistoryFilterBegin => self.browser.history_begin_filter(),
             Action::HistoryYank => {
-                // Mock permalink: the real call is web_url with the
-                // commit sha as the ref — a URL that never rots.
-                if let Some((path, sha)) = self.browser.history_pick() {
-                    self.status = Some(format!("would yank {path} @ {sha} (mock permalink)"));
+                // The permalink that never rots: the URL carries the
+                // commit sha as its ref.
+                let target = self.browser.repo_coords().zip(self.browser.history_pick());
+                if let Some(((owner, name), (path, sha))) = target {
+                    match self
+                        .provider
+                        .web_url(&format!("{owner}/{name}"), &path, &sha, None, true)
+                    {
+                        Ok(u) => {
+                            self.pending_clipboard = Some(u.clone());
+                            self.status = Some(format!("yanked {u}"));
+                        }
+                        Err(e) => self.status = Some(provider_status(&e)),
+                    }
                 }
             }
             Action::HistoryUp => self.browser.history_move(-1),
             Action::HistoryDown => self.browser.history_move(1),
             Action::HistoryOpen => {
-                if let Some((path, sha)) = self.browser.history_pick() {
-                    self.status = Some(format!("would open {path} @ {sha} (mock — no fetch yet)"));
+                // Open the file at the picked commit — bytes land via
+                // BlobAtLoaded; the restore point is noted there.
+                let target = self.browser.repo_coords().zip(self.browser.history_pick());
+                if let Some(((owner, name), (path, sha))) = target {
+                    self.spawn_blob_at(format!("{owner}/{name}"), path, sha);
+                    self.status = Some("opening at commit…".into());
                 }
             }
             Action::HistoryClose => {
@@ -964,7 +1075,7 @@ impl App {
                 );
                 // plans/0016 M1a: off the default branch, index-backed
                 // search (GitHub) can't follow — the title says so.
-                if let (Some(r), Some(b)) = (self.browser.mock_ref(), self.browser.branch())
+                if let (Some(r), Some(b)) = (self.browser.current_ref(), self.browser.branch())
                     && r != b
                 {
                     view.search_ref_note = Some(format!("search: {b} only"));
@@ -1201,7 +1312,8 @@ impl App {
                     let border = BorderShape::parse(&self.config.ui.border).unwrap_or_default();
                     self.theme = Theme::load(&name)
                         .with_border(border)
-                        .with_nerd_font(self.config.ui.nerd_font);
+                        .with_nerd_font(self.config.ui.nerd_font)
+                        .with_separator(&self.config.ui.separator);
                 }
                 match self.config.save() {
                     Ok(()) => {

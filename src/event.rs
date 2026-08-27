@@ -127,6 +127,48 @@ pub enum AppEvent {
         repos: Vec<crate::provider::RepoInfo>,
         errors: Vec<String>,
     },
+
+    // Revision awareness (v1.5, plans/0016 M1). All scoped by
+    // repo/path so late landings are dropped by the UI.
+    /// Refs for the switcher popup.
+    RefsLoaded {
+        repo: String,
+        refs: crate::provider::RepoRefs,
+    },
+    RefsFailed {
+        repo: String,
+        error: ProviderError,
+    },
+    /// Commit log for the history lens.
+    LogLoaded {
+        path: String,
+        entries: Vec<crate::provider::LogEntry>,
+        truncated: bool,
+    },
+    LogFailed {
+        path: String,
+        error: ProviderError,
+    },
+    /// Blame ranges for the blame lens.
+    BlameLoaded {
+        path: String,
+        ranges: Vec<crate::provider::BlameRange>,
+    },
+    BlameFailed {
+        path: String,
+        error: ProviderError,
+    },
+    /// File bytes at a commit (open-at-commit from the history lens).
+    BlobAtLoaded {
+        path: String,
+        ref_: String,
+        sha: String,
+        bytes: Vec<u8>,
+    },
+    BlobAtFailed {
+        path: String,
+        error: ProviderError,
+    },
 }
 
 pub type AppTx = std::sync::mpsc::Sender<AppEvent>;

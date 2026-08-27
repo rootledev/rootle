@@ -155,6 +155,69 @@ impl App {
         });
     }
 
+    /// Revision fetches (v1.5, plans/0016 M1): one worker per lens;
+    /// landings are identity-checked by the UI.
+    pub(super) fn spawn_refs(&self, repo: String) {
+        let provider = self.provider.clone();
+        let tx = self.tx.clone();
+        std::thread::spawn(move || {
+            let event = match provider.refs(&repo) {
+                Ok(refs) => AppEvent::RefsLoaded { repo, refs },
+                Err(error) => AppEvent::RefsFailed { repo, error },
+            };
+            let _ = tx.send(event);
+        });
+    }
+
+    pub(super) fn spawn_log(&self, repo: String, path: String, ref_: Option<String>) {
+        let provider = self.provider.clone();
+        let tx = self.tx.clone();
+        std::thread::spawn(move || {
+            // The lens' render budget, per the bounded-compute
+            // contract: past it, `truncated` tells the user to narrow.
+            let limit = Some(crate::provider::RENDER_BUDGET);
+            let event = match provider.log(&repo, Some(&path), ref_.as_deref(), limit) {
+                Ok((entries, truncated)) => AppEvent::LogLoaded {
+                    path,
+                    entries,
+                    truncated,
+                },
+                Err(error) => AppEvent::LogFailed { path, error },
+            };
+            let _ = tx.send(event);
+        });
+    }
+
+    pub(super) fn spawn_blame(&self, repo: String, path: String, ref_: Option<String>) {
+        let provider = self.provider.clone();
+        let tx = self.tx.clone();
+        std::thread::spawn(move || {
+            let event = match provider.blame(&repo, &path, ref_.as_deref()) {
+                Ok(ranges) => AppEvent::BlameLoaded { path, ranges },
+                Err(error) => AppEvent::BlameFailed { path, error },
+            };
+            let _ = tx.send(event);
+        });
+    }
+
+    /// Open-at-commit from the history lens.
+    pub(super) fn spawn_blob_at(&self, repo: String, path: String, ref_: String) {
+        let provider = self.provider.clone();
+        let tx = self.tx.clone();
+        std::thread::spawn(move || {
+            let event = match provider.blob_at(&repo, &path, Some(&ref_)) {
+                Ok((bytes, sha)) => AppEvent::BlobAtLoaded {
+                    path,
+                    ref_,
+                    sha,
+                    bytes,
+                },
+                Err(error) => AppEvent::BlobAtFailed { path, error },
+            };
+            let _ = tx.send(event);
+        });
+    }
+
     /// Sequential clones on one worker: git is bandwidth-bound anyway,
     /// and per-repo outcomes aggregate into one CloneDone toast.
     pub(super) fn spawn_clones(&self, repos: Vec<String>, dest: std::path::PathBuf) {
@@ -361,9 +424,11 @@ impl App {
     pub(super) fn spawn_tree(&self, owner: String, name: String) {
         let provider = self.provider.clone();
         let tx = self.tx.clone();
+        // v1.5: the browsed revision, if the switcher set one.
+        let ref_ = self.browser.current_ref().map(str::to_string);
         std::thread::spawn(move || {
             trace(&format!("tree start {owner}/{name}"));
-            let event = match provider.fetch_tree(&format!("{owner}/{name}"), None) {
+            let event = match provider.fetch_tree(&format!("{owner}/{name}"), ref_.as_deref()) {
                 Ok(tree) => {
                     trace(&format!(
                         "tree ok {owner}/{name} entries={} truncated={}",
