@@ -928,6 +928,72 @@ fn streamed_batches_merge_and_metadata_final_keeps_the_set() {
     assert!(!screen.contains("streaming"), "final clears pending");
 }
 
+/// Boxed result blocks: the filename rides the top rule, the badge
+/// closes it, rails wrap the guttered match lines; the selected box's
+/// rails carry the accent color.
+#[test]
+fn grep_results_render_as_decorated_boxes() {
+    let mut app = browsing_app();
+    app.handle_key(key(KeyCode::Char(' ')));
+    app.handle_key(key(KeyCode::Char('g')));
+    app.handle_action(rootle::action::Action::GlobalSearchSubmitted {
+        kind: rootle::components::global_search::SearchKind::Grep,
+        query: "render".into(),
+        scope: "global".into(),
+        extension: String::new(),
+    });
+    app.handle_action(rootle::action::Action::GlobalSearchResults {
+        hits: vec![
+            rootle::components::global_search::SearchHit::plain(
+                "ratatui/ratatui",
+                "src/render.rs",
+                3,
+                vec![(3, "fn render() {".to_string())],
+                2,
+                String::new(),
+            ),
+            // Path-only hit: a two-line capsule, no content rails.
+            rootle::components::global_search::SearchHit::plain(
+                "ratatui/ratatui",
+                "src/draw.rs",
+                7,
+                vec![],
+                0,
+                String::new(),
+            ),
+        ],
+        clipped: false,
+        index: None,
+        client_filtered: 0,
+        unfiltered: vec![],
+    });
+    let rows = render(&mut app, 100, 30);
+    let screen = rows.join("\n");
+    assert!(
+        screen.contains("┌─ ratatui/ratatui/src/render.rs"),
+        "box title missing:\n{screen}"
+    );
+    assert!(
+        screen.contains("2 matches ─┐"),
+        "badge not in the top rule:\n{screen}"
+    );
+    assert!(
+        screen.contains("│   3 │ fn render() {"),
+        "railed gutter content missing:\n{screen}"
+    );
+    let capsule = rows
+        .iter()
+        .position(|r| r.contains("src/draw.rs"))
+        .expect("path-only hit");
+    assert!(rows[capsule].contains("┌─"), "capsule top:\n{screen}");
+    assert!(
+        rows[capsule + 1].contains("└"),
+        "capsule bottom directly under the title:\n{}",
+        rows[capsule + 1]
+    );
+    println!("{screen}");
+}
+
 /// plans/0012 M1 honesty chips: client-subtracted hits and
 /// inexpressible tokens are named in the results title.
 #[test]

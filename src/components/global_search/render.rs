@@ -12,8 +12,9 @@ use crate::theme::Theme;
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
+use ratatui::symbols;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph};
 use unicode_width::UnicodeWidthStr;
 
 impl GlobalSearch {
@@ -301,31 +302,15 @@ impl GlobalSearch {
         let height = inner.height as usize;
         let visible = self.visible();
 
-        // Build one block of lines per hit; remember each hit's line
+        // Build one bordered box per hit; remember each hit's line
         // range so the selection can be kept in view.
         let mut lines: Vec<Line> = Vec::new();
         let mut ranges: Vec<(usize, usize)> = Vec::new(); // [start, end)
         for (idx, hit) in visible.iter().enumerate() {
             let start = lines.len();
             let selected = idx == self.selected && focused;
-            lines.push(self.path_line(hit, width, selected, theme));
-            // Disjoint match regions get a dim ellipsis separator,
-            // aligned under the gutter divider.
-            let mut prev_no: Option<u32> = None;
-            for (no, line) in &hit.preview {
-                if let Some(prev) = prev_no
-                    && *no > prev + 1
-                {
-                    lines.push(Line::from(Span::styled(
-                        format!("{:>6} ", "⋮"),
-                        Style::default().fg(sem.subtext0),
-                    )));
-                }
-                prev_no = Some(*no);
-                lines.push(preview_line(*no, line, theme));
-            }
-            lines.push(Line::raw(""));
-            ranges.push((start, lines.len() - 1));
+            lines.extend(self.hit_box(hit, width, selected, theme));
+            ranges.push((start, lines.len()));
         }
         let total = lines.len();
 
@@ -344,24 +329,43 @@ impl GlobalSearch {
         scrollbar(frame, area, height, total, self.scroll as usize, theme);
     }
 
-    fn path_line(
+    /// One hit as a bordered box — the bat/delta file-header
+    /// convention in the pane idiom this TUI already uses: the
+    /// filename rides the top rule as the box's title (the same
+    /// decoration the pane titles carry), the match badge closes the
+    /// rule on the right, and the match lines keep their `│` gutter
+    /// between the box's rails. Selection paints rails + title instead
+    /// of a `▌` gutter row. The border shape follows `[ui] border`.
+    fn hit_box(
         &self,
         hit: &SearchHit,
         width: usize,
         selected: bool,
         theme: &Theme,
-    ) -> Line<'static> {
+    ) -> Vec<Line<'static>> {
         let sem = &theme.semantic;
-        let gutter = if selected { "▌ " } else { "  " };
-        // Grep hits carry a match-count badge (folded multi-matches);
-        // file-find hits show the first line number instead. A stale
-        // hit (v1.1 located:false) says so until client-side locating
-        // self-heals it.
+        let set = match theme.border_type() {
+            BorderType::Rounded => symbols::border::ROUNDED,
+            BorderType::Thick => symbols::border::THICK,
+            BorderType::Double => symbols::border::DOUBLE,
+            BorderType::Plain => symbols::border::PLAIN,
+            // [ui] border only offers the four above.
+            _ => symbols::border::PLAIN,
+        };
+        let rail = Style::default().fg(if selected {
+            sem.border_focused
+        } else {
+            sem.overlay0
+        });
+        let h = set.horizontal_top;
+
         let meta = if hit.unlocatable {
             "unlocatable".to_string()
         } else if hit.stale {
             "stale".to_string()
         } else if hit.match_count > 0 {
+            // Grep hits carry a match-count badge (folded
+            // multi-matches); file-find hits show the anchor line.
             format!(
                 "{} match{}",
                 hit.match_count,
@@ -370,37 +374,69 @@ impl GlobalSearch {
         } else {
             format!(":{}", hit.line)
         };
-        // Cross-repo results need the repo in the row; repo-scope
+        let meta_style = Style::default().fg(if hit.stale { sem.warning } else { sem.subtext0 });
+        let title_style = {
+            let mut s = Style::default()
+                .fg(if selected { sem.selection_fg } else { sem.text })
+                .add_modifier(Modifier::BOLD);
+            if selected {
+                s = s.bg(sem.selection_bg);
+            }
+            s
+        };
+
+        // Cross-repo results need the repo in the title; repo-scope
         // results keep it too — unambiguous everywhere.
         let full = format!("{}/{}", hit.repo, hit.path);
-        let path_width = width.saturating_sub(2 + meta.width());
-        let path = fit(&full, path_width);
-        let pad = width.saturating_sub(2 + path.width() + meta.width());
-        let (fg, bg) = if selected {
-            (sem.selection_fg, Some(sem.selection_bg))
-        } else {
-            (sem.text, None)
-        };
-        let style = {
-            let mut s = Style::default().fg(fg).add_modifier(Modifier::BOLD);
-            if let Some(bg) = bg {
-                s = s.bg(bg);
-            }
-            s
-        };
-        let meta_style = {
-            let mut s = Style::default().fg(if hit.stale { sem.warning } else { sem.subtext0 });
-            if let Some(bg) = bg {
-                s = s.bg(bg);
-            }
-            s
-        };
-        Line::from(vec![
-            Span::styled(gutter, Style::default().fg(sem.border_focused)),
-            Span::styled(path, style),
-            Span::styled(" ".repeat(pad), meta_style),
+        let inner = width.saturating_sub(2); // between the corners
+        // Top rule: ╭─ path ─fill─ meta ─╮
+        let fixed = 2 + meta.width() + 6; // "─ " … " " + meta + " ─"
+        let path = fit(&full, inner.saturating_sub(fixed).max(8));
+        let fill = inner.saturating_sub(2 + path.width() + 1 + 1 + meta.width() + 2);
+        let mut lines = vec![Line::from(vec![
+            Span::styled(set.top_left.to_string(), rail),
+            Span::styled(h.to_string(), rail),
+            Span::raw(" "),
+            Span::styled(path, title_style),
+            Span::raw(" "),
+            Span::styled(h.repeat(fill), rail),
+            Span::raw(" "),
             Span::styled(meta, meta_style),
-        ])
+            Span::raw(" "),
+            Span::styled(h.to_string(), rail),
+            Span::styled(set.top_right.to_string(), rail),
+        ])];
+
+        // Content lines between the rails; disjoint match regions get
+        // a dim ellipsis aligned over the gutter divider.
+        let pad = |line: Line<'static>| -> Line<'static> {
+            let w = line.width();
+            let mut spans = vec![Span::styled(set.vertical_left.to_string(), rail)];
+            spans.extend(line.spans);
+            spans.push(Span::raw(" ".repeat(inner.saturating_sub(w))));
+            spans.push(Span::styled(set.vertical_right.to_string(), rail));
+            Line::from(spans)
+        };
+        let mut prev_no: Option<u32> = None;
+        for (no, line) in &hit.preview {
+            if let Some(prev) = prev_no
+                && *no > prev + 1
+            {
+                lines.push(pad(Line::from(Span::styled(
+                    format!("{:>6} ", "⋮"),
+                    Style::default().fg(sem.subtext0),
+                ))));
+            }
+            prev_no = Some(*no);
+            lines.push(pad(preview_line(*no, line, theme)));
+        }
+
+        lines.push(Line::from(vec![
+            Span::styled(set.bottom_left.to_string(), rail),
+            Span::styled(h.repeat(inner), rail),
+            Span::styled(set.bottom_right.to_string(), rail),
+        ]));
+        lines
     }
 
     fn render_scope_popup(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
