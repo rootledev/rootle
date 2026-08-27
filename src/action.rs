@@ -101,6 +101,26 @@ pub enum Action {
         match_count: u32,
     },
     OpenSearchHit(crate::components::global_search::SearchHit),
+    /// Expand the hit into the full-file pane (plans/0012 M2): fetch
+    /// the whole blob by repo+sha — cache-first, so a hit whose
+    /// context the lazy locate already fetched is free.
+    LoadHitFile {
+        hit: Box<crate::components::global_search::SearchHit>,
+    },
+    /// The expanded pane's blob landed, styled on the UI thread like
+    /// every other blob (sanitize + highlight at the boundary).
+    HitFileLoaded {
+        repo: String,
+        path: String,
+        sha: String,
+        lang: String,
+        lines: Vec<ratatui::text::Line<'static>>,
+    },
+    /// The expanded pane's blob fetch failed (or the blob is binary).
+    HitFileFailed {
+        sha: String,
+        error: crate::provider::ProviderError,
+    },
 
     // Search popup ↔ GitHub backend
     SearchSubmitted(String),

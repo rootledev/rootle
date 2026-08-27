@@ -295,6 +295,45 @@ impl App {
         });
     }
 
+    /// The expanded file pane (plans/0012 M2): fetch the hit's whole
+    /// blob. Cache-first — the lazy context fetch usually warmed the
+    /// exact (repo, sha), so expanding a located hit is free.
+    pub(super) fn spawn_hit_file(
+        &self,
+        gen_id: u64,
+        hit: crate::components::global_search::SearchHit,
+    ) {
+        let provider = self.provider.clone();
+        let tx = self.tx.clone();
+        std::thread::spawn(move || {
+            let sha = hit.sha.clone();
+            trace(&format!(
+                "hit file start gen={gen_id} {} sha={sha}",
+                hit.path
+            ));
+            let event = match fetch_blob_capped(provider.as_ref(), &hit.repo, &sha) {
+                Ok(bytes) => {
+                    trace(&format!(
+                        "hit file ok gen={gen_id} {sha} {} bytes",
+                        bytes.len()
+                    ));
+                    AppEvent::HitFileLoaded {
+                        gen_id,
+                        repo: hit.repo,
+                        path: hit.path,
+                        sha,
+                        bytes,
+                    }
+                }
+                Err(error) => {
+                    trace(&format!("hit file ERR gen={gen_id} {sha} {error}"));
+                    AppEvent::HitFileFailed { gen_id, sha, error }
+                }
+            };
+            let _ = tx.send(event);
+        });
+    }
+
     pub(super) fn spawn_org_repos(&self, org: String) {
         let provider = self.provider.clone();
         let tx = self.tx.clone();

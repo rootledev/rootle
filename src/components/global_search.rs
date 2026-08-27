@@ -2,7 +2,8 @@
 //! search that replaces the browser while open. Fields row on top
 //! (query · scope · extension), results below with one block per hit —
 //! full path, then preview lines under it. `␣ f` = file find,
-//! `␣ g` = grep.
+//! `␣ g` = grep. `Enter` on a hit expands the results area into the
+//! whole file at the match line (plans/0012 M2).
 //!
 //! Layout: this file is the component's state + public surface;
 //! `keys.rs` handles input, `render.rs` draws, `model.rs` holds the
@@ -10,6 +11,7 @@
 //! threads, `mock.rs` is the offline producer.
 
 use self::model::line_text;
+use super::preview::{Preview, PreviewContent};
 use super::vim_input::{SubMode, VimInput};
 use crate::action::Action;
 use crate::mode::Mode;
@@ -75,6 +77,29 @@ pub struct GlobalSearch {
     /// v1.3: when the provider's index was built (None = live/unknown)
     /// — shown next to the result count.
     index_as_of: Option<String>,
+    /// Expanded full-file pane (plans/0012 M2): `Enter` on a hit swaps
+    /// the results area for the hit's whole file at the match line;
+    /// `Esc`/`h` folds back. The results list and its scroll survive
+    /// underneath, untouched.
+    expanded: Option<ExpandedFile>,
+    /// Find-in-file over the expanded pane (`/`): the input lives
+    /// here, matches + chips in the re-used `Preview`.
+    find_input: VimInput,
+    finding: bool,
+}
+
+/// The expanded full-file pane (plans/0012 M2). The re-used browser
+/// `Preview` does the rendering (numbered lines, cursor, gutter,
+/// find-in-file); this holds the anchor hit it was opened for.
+struct ExpandedFile {
+    /// Snapshot of the hit at expand time — repo/sha identify the
+    /// blob, `line` is the cursor anchor (refreshed by a lazy context
+    /// landing while the blob is still in flight).
+    hit: SearchHit,
+    /// Set once the file content landed; later anchor refinements are
+    /// ignored — the user may already have walked the cursor.
+    loaded: bool,
+    preview: Preview,
 }
 
 /// Max rendered hits for a streamed search (v1.3, plans/0011): past
@@ -135,6 +160,9 @@ impl GlobalSearch {
             pending: false,
             error: None,
             submitted_once: false,
+            expanded: None,
+            find_input: VimInput::transient(),
+            finding: false,
         }
     }
 
@@ -221,6 +249,42 @@ impl GlobalSearch {
         })
     }
 
+    /// Expand a hit into the full-file pane (plans/0012 M2). Real
+    /// hits (sha) open as a loading placeholder and ask App for the
+    /// blob — cache-first, so the lazy context usually warmed it;
+    /// mock hits (body, no sha) render inline. The returned action is
+    /// the fetch, when one is needed.
+    fn expand_hit(&mut self, hit: &SearchHit) -> Action {
+        let mut preview = Preview::focused();
+        let action = if hit.sha.is_empty() {
+            preview.set_bytes(&hit.path, hit.body.as_bytes());
+            preview.title = file_title(hit);
+            preview.set_cursor_line(hit.line);
+            Action::Noop
+        } else {
+            preview.set_file_meta(&hit.path, None, &hit.sha);
+            preview.title = file_title(hit);
+            Action::LoadHitFile {
+                hit: Box::new(hit.clone()),
+            }
+        };
+        self.expanded = Some(ExpandedFile {
+            hit: hit.clone(),
+            loaded: hit.sha.is_empty(),
+            preview,
+        });
+        action
+    }
+
+    /// Fold the file pane back to the results list (Esc/h). The list,
+    /// the selection, and its scroll were never touched — collapse
+    /// restores the exact view.
+    fn collapse(&mut self) {
+        self.expanded = None;
+        self.finding = false;
+        self.find_input.clear();
+    }
+
     pub fn update(&mut self, action: &Action) {
         match action {
             Action::GlobalSearchSubmitted { .. } => {
@@ -234,6 +298,7 @@ impl GlobalSearch {
                 self.focus = Focus::Results;
                 self.selected = 0;
                 self.scroll = 0;
+                self.collapse(); // a new search replaces the file pane
             }
             Action::GlobalSearchDelta { hits } => {
                 self.append_hits(hits.clone());
@@ -284,6 +349,52 @@ impl GlobalSearch {
                     hit.match_count = *match_count;
                     hit.stale = false;
                 }
+                // The expanded pane anchors on this hit and its blob
+                // is still in flight: adopt the located line so the
+                // cursor lands right when the file lands (plans/0012
+                // M2). Once loaded, the user owns the cursor.
+                if let Some(exp) = &mut self.expanded
+                    && !exp.loaded
+                    && exp.hit.repo == *repo
+                    && exp.hit.path == *path
+                    && exp.hit.sha == *sha
+                {
+                    exp.hit.line = *line;
+                }
+            }
+            // Expanded pane (plans/0012 M2): the whole blob landed,
+            // already sanitized + highlighted by App. Identity match
+            // drops fetches a later expand superseded.
+            Action::HitFileLoaded {
+                repo,
+                path,
+                sha,
+                lang,
+                lines,
+            } => {
+                if let Some(exp) = &mut self.expanded
+                    && exp.hit.repo == *repo
+                    && exp.hit.path == *path
+                    && exp.hit.sha == *sha
+                {
+                    let anchor = exp.hit.line;
+                    exp.preview.set_highlighted(path, lang, lines.clone());
+                    exp.preview.title = file_title(&exp.hit);
+                    exp.preview.set_cursor_line(anchor);
+                    exp.loaded = true;
+                }
+            }
+            Action::HitFileFailed { error, .. } => {
+                if let Some(exp) = &mut self.expanded {
+                    // Same surface as the browser's failed blob: the
+                    // pane itself says what went wrong; Esc still
+                    // folds back to the results.
+                    exp.preview.content = PreviewContent::Text(format!(
+                        "error: {}",
+                        crate::app::provider_status(error)
+                    ));
+                    exp.loaded = true;
+                }
             }
             // v1.2 (plans/0008 §4): the blob answered but the match
             // text isn't in it — flip to unlocatable (never
@@ -328,6 +439,9 @@ impl GlobalSearch {
 
     /// Modeline chip while the view is open (plans/0002 §2).
     pub fn effective_mode(&self) -> Mode {
+        if self.finding {
+            return Mode::Find;
+        }
         if self.filtering {
             return Mode::Search;
         }
@@ -356,6 +470,20 @@ impl GlobalSearch {
             SubMode::Insert => SetCursorStyle::SteadyBar,
             SubMode::Normal => SetCursorStyle::SteadyBlock,
         })
+    }
+}
+
+/// File-pane title: `repo/path:line` — what you're looking at and
+/// where the anchor sits (line omitted for unknown anchors, e.g.
+/// path-only hits). Both halves sanitize at the boundary like any
+/// other provider string.
+fn file_title(hit: &SearchHit) -> String {
+    let repo = crate::sanitize::sanitize_inline(&hit.repo);
+    let path = crate::sanitize::sanitize_inline(&hit.path);
+    if hit.line > 0 {
+        format!("{repo}/{path}:{}", hit.line)
+    } else {
+        format!("{repo}/{path}")
     }
 }
 
@@ -511,14 +639,155 @@ mod tests {
     }
 
     #[test]
-    fn enter_on_hit_emits_open() {
+    fn enter_expands_hit_into_file_pane() {
+        let mut v = view();
+        submit(&mut v, "query"); // mock hits: body, no sha → render inline
+        let action = v.handle_key(key(KeyCode::Enter));
+        assert_eq!(action, Action::Noop, "mock hit needs no fetch");
+        assert!(v.expanded.is_some(), "Enter expands the selected hit");
+        let exp = v.expanded.as_ref().expect("expanded");
+        assert_eq!(exp.hit.path, "src/widgets/list.rs");
+        assert!(exp.loaded, "body hits render without a fetch");
+        // The mock hit's line (42) exceeds its 9-line body — the
+        // anchor clamps to the end of the file.
+        assert_eq!(exp.preview.line(), Some(9));
+
+        // Esc folds straight back; the selection is where it was.
+        assert_eq!(v.handle_key(key(KeyCode::Esc)), Action::Noop);
+        assert!(v.expanded.is_none());
+        assert_eq!(
+            v.selected_hit().map(|h| h.path.clone()),
+            Some("src/widgets/list.rs".into())
+        );
+    }
+
+    #[test]
+    fn real_hit_expands_with_fetch_and_anchor() {
         let mut v = view();
         submit(&mut v, "query");
+        let mut hit = SearchHit::plain(
+            "owner/repo",
+            "src/place.rs",
+            3,
+            vec![(3, "the needle".to_string())],
+            1,
+            String::new(),
+        );
+        hit.sha = "cafebab".into();
+        v.hits = vec![hit.clone()];
+        // Enter: loading placeholder + the fetch action.
         let action = v.handle_key(key(KeyCode::Enter));
-        match action {
-            Action::OpenSearchHit(hit) => assert_eq!(hit.path, "src/widgets/list.rs"),
+        match &action {
+            Action::LoadHitFile { hit: asked } => assert_eq!(asked.sha, "cafebab"),
+            other => panic!("expected LoadHitFile, got {other:?}"),
+        }
+        assert!(!v.expanded.as_ref().expect("expanded").loaded);
+
+        // Blob lands: highlighted content, cursor at the anchor line,
+        // title says repo/path:line.
+        v.update(&Action::HitFileLoaded {
+            repo: hit.repo.clone(),
+            path: hit.path.clone(),
+            sha: hit.sha.clone(),
+            lang: "rust".into(),
+            lines: (1..=9)
+                .map(|i| ratatui::text::Line::from(format!("line {i}")))
+                .collect(),
+        });
+        let exp = v.expanded.as_ref().expect("expanded");
+        assert!(exp.loaded);
+        assert_eq!(exp.preview.line(), Some(hit.line), "cursor at the anchor");
+        assert_eq!(
+            exp.preview.title,
+            format!("owner/repo/{}:{}", hit.path, hit.line)
+        );
+
+        // j walks the file cursor; Enter opens the editor on the hit.
+        v.handle_key(key(KeyCode::Char('j')));
+        assert_eq!(
+            v.expanded.as_ref().expect("expanded").preview.line(),
+            Some(hit.line + 1)
+        );
+        match v.handle_key(key(KeyCode::Enter)) {
+            Action::OpenSearchHit(opened) => assert_eq!(opened.path, hit.path),
             other => panic!("expected OpenSearchHit, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn path_only_hit_expands_to_top_of_file() {
+        let mut v = view();
+        submit(&mut v, "query");
+        // match_count 0, no known line (file-find shape).
+        v.hits = vec![SearchHit::plain(
+            "owner/repo",
+            "docs/readme.md",
+            0,
+            vec![],
+            0,
+            String::new(),
+        )];
+        v.hits[0].sha = "beef00".into();
+        v.handle_key(key(KeyCode::Enter));
+        v.update(&Action::HitFileLoaded {
+            repo: "owner/repo".into(),
+            path: "docs/readme.md".into(),
+            sha: "beef00".into(),
+            lang: "markdown".into(),
+            lines: (1..=4)
+                .map(|i| ratatui::text::Line::from(format!("doc {i}")))
+                .collect(),
+        });
+        let exp = v.expanded.as_ref().expect("expanded");
+        assert_eq!(
+            exp.preview.line(),
+            Some(1),
+            "unknown anchor falls back to top"
+        );
+        assert_eq!(
+            exp.preview.title, "owner/repo/docs/readme.md",
+            "no :0 suffix"
+        );
+        // Anchor past EOF clamps instead of panicking: fold back,
+        // move the anchor, expand again.
+        v.handle_key(key(KeyCode::Esc));
+        v.hits[0].line = 99;
+        v.handle_key(key(KeyCode::Enter));
+        v.update(&Action::HitFileLoaded {
+            repo: "owner/repo".into(),
+            path: "docs/readme.md".into(),
+            sha: "beef00".into(),
+            lang: "markdown".into(),
+            lines: (1..=4)
+                .map(|i| ratatui::text::Line::from(format!("doc {i}")))
+                .collect(),
+        });
+        assert_eq!(
+            v.expanded.as_ref().expect("expanded").preview.line(),
+            Some(4)
+        );
+    }
+
+    #[test]
+    fn file_pane_find_session_delegates_to_preview() {
+        let mut v = view();
+        submit(&mut v, "query");
+        v.handle_key(key(KeyCode::Enter)); // expand (mock body)
+        // `/` opens FIND over the file; the modeline chip follows.
+        v.handle_key(key(KeyCode::Char('/')));
+        assert!(v.finding);
+        assert_eq!(v.effective_mode(), Mode::Find);
+        for c in "mock".chars() {
+            v.handle_key(key(KeyCode::Char(c)));
+        }
+        let exp = v.expanded.as_ref().expect("expanded");
+        assert!(exp.preview.find_active(), "preview holds the session");
+        // Enter commits; n/N step, Esc-h still collapses afterwards.
+        v.handle_key(key(KeyCode::Enter));
+        assert!(!v.finding);
+        v.handle_key(key(KeyCode::Char('n')));
+        v.handle_key(key(KeyCode::Char('h')));
+        assert!(v.expanded.is_none(), "h folds the pane back");
     }
 
     #[test]
