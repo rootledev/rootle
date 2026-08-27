@@ -9,9 +9,13 @@ Output demos/out/demo.gif
 
 Set Shell "bash"
 Set FontSize 18
-# Font: vendored JetBrains Mono, installed into the container by the
-# caller (demo workflow mounts /vhs; fc-cache picks it up).
-Set FontFamily "JetBrains Mono"
+# Font: the vendored JetBrainsMono Nerd Font Mono — family
+# "JetBrainsMono NFM" (fc-match the exact name; plain "JetBrains Mono"
+# resolves to the vhs base image's stock font, which ships the
+# powerline arrows but no icon glyphs — the fs chip went tofu that
+# way once). Installed into the container by the caller; fc-cache
+# picks it up.
+Set FontFamily "JetBrainsMono NFM"
 Set Width 1600
 Set Height 950
 Set TypingSpeed 10ms

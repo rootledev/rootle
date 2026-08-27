@@ -51,8 +51,13 @@ Gotchas (all were hit, all cost time):
   from `dist/*.tar.gz`, falling back to a debug build.
 - The GIF loop: end the tape with the app quit (`q`) and a small
   `Sleep`, so the last frame isn't mid-redraw.
-- VHS resolves fonts via fontconfig: the vendored JetBrains Mono must
-  be copied into the container and `fc-cache`'d before `vhs` runs.
+- VHS resolves fonts via fontconfig: the vendored Nerd Font Mono must
+  be copied into the container and `fc-cache`'d before `vhs` runs, and
+  the tape's `Set FontFamily` must name its real family —
+  **"JetBrainsMono NFM"**, not "JetBrains Mono": the base image ships
+  a stock JetBrains Mono that shadows the request and has the
+  powerline arrows but no icon glyphs (the fs chip rendered tofu that
+  way once).
 
 ## When to re-capture
 
