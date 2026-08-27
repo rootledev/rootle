@@ -44,6 +44,13 @@ impl GlobalSearch {
             return Action::Noop;
         }
 
+        // The expanded file pane owns the keyboard while it holds
+        // focus (plans/0012 M2): j/k walk lines, `/` finds in the
+        // file, Enter opens the editor, Esc/h folds back.
+        if self.expanded.is_some() && self.focus == super::Focus::Results {
+            return self.file_pane_key(key);
+        }
+
         match self.focus {
             Focus::Query => match self.query.handle_key(key) {
                 Outcome::Submitted => {
@@ -113,8 +120,10 @@ impl GlobalSearch {
                     self.filtering = true;
                     Action::Noop
                 }
-                KeyCode::Enter => match self.selected_hit() {
-                    Some(hit) => Action::OpenSearchHit(hit.clone()),
+                // Enter expands the hit's whole file into the results
+                // area (plans/0012 M2); Enter again opens the editor.
+                KeyCode::Enter => match self.selected_hit().cloned() {
+                    Some(hit) => self.expand_hit(&hit),
                     None => Action::Noop,
                 },
                 // Committed filter? First Esc clears it, second closes.
@@ -125,6 +134,84 @@ impl GlobalSearch {
                 KeyCode::Esc => Action::CloseSearchView,
                 _ => Action::Noop,
             },
+        }
+    }
+
+    /// Expanded file pane keys (plans/0012 M2). The re-used `Preview`
+    /// owns line movement and the find session; this maps keys onto
+    /// it and folds the pane back on Esc/h. Rows live in
+    /// `keymap::search_file` — hints derive from there.
+    fn file_pane_key(&mut self, key: KeyEvent) -> Action {
+        // Active find session captures everything until commit/cancel
+        // (same contract as the results `/` filter).
+        if self.finding {
+            return match self.find_input.handle_key(key) {
+                Outcome::Changed => {
+                    let query = self.find_input.value();
+                    if let Some(exp) = &mut self.expanded {
+                        exp.preview.update_find(query);
+                    }
+                    Action::Noop
+                }
+                Outcome::Submitted => {
+                    self.finding = false; // commit: chips stay, n/N walk
+                    Action::Noop
+                }
+                Outcome::Cancelled => {
+                    if let Some(exp) = &mut self.expanded {
+                        exp.preview.cancel_find();
+                    }
+                    self.finding = false;
+                    Action::Noop
+                }
+                Outcome::Noop => Action::Noop,
+            };
+        }
+
+        let Some(exp) = &mut self.expanded else {
+            return Action::Noop;
+        };
+        match key.code {
+            // Leader layer still works over the pane (yank, re-search).
+            KeyCode::Char(' ') => Action::Leader,
+            KeyCode::Char('j') | KeyCode::Down | KeyCode::Char('J') => {
+                if exp.preview.findable() {
+                    exp.preview.move_cursor(1);
+                }
+                Action::Noop
+            }
+            KeyCode::Char('k') | KeyCode::Up | KeyCode::Char('K') => {
+                if exp.preview.findable() {
+                    exp.preview.move_cursor(-1);
+                }
+                Action::Noop
+            }
+            KeyCode::Char('/') => {
+                // Find-in-file delegates to the Preview's session.
+                if exp.preview.findable() {
+                    exp.preview.begin_find();
+                    self.find_input.clear();
+                    self.finding = true;
+                }
+                Action::Noop
+            }
+            KeyCode::Char('n') | KeyCode::Char('N') => {
+                let delta = if key.code == KeyCode::Char('n') {
+                    1
+                } else {
+                    -1
+                };
+                exp.preview.find_step(delta);
+                Action::Noop
+            }
+            // Second Enter opens the editor on the anchored hit —
+            // expand first, edit second, like drill-in.
+            KeyCode::Enter => Action::OpenSearchHit(exp.hit.clone()),
+            KeyCode::Esc | KeyCode::Char('h') => {
+                self.collapse();
+                Action::Noop
+            }
+            _ => Action::Noop,
         }
     }
 

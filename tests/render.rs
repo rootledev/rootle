@@ -573,10 +573,11 @@ fn search_view_results_support_slash_filter() {
         "non-matching hit should be filtered out"
     );
 
-    // Enter on the remaining hit prepares an editor job on mock bytes.
-    app.handle_key(key(KeyCode::Esc)); // commit-cancel filter? Esc cancels
-    // filter → full list again; first hit selected.
-    app.handle_key(key(KeyCode::Enter));
+    // Enter on the remaining hit expands its file; a second Enter
+    // opens the editor on it (mock bytes).
+    app.handle_key(key(KeyCode::Esc)); // Esc cancels filter → full list
+    app.handle_key(key(KeyCode::Enter)); // expand the selected hit
+    app.handle_key(key(KeyCode::Enter)); // open it in the editor
     assert!(
         app.take_editor_job().is_some(),
         "Enter on a hit should prepare an editor job"
@@ -1318,5 +1319,229 @@ fn clipped_result_set_says_so_in_the_title() {
     assert!(
         screen.contains("clipped"),
         "clipped note should render in the results title:\n{screen}"
+    );
+}
+
+/// Open the grep view over an injected single hit (offline, no workers).
+fn grep_view_on_hit(hit: rootle::components::global_search::SearchHit) -> App {
+    let mut app = browsing_app();
+    app.handle_key(key(KeyCode::Char(' ')));
+    app.handle_key(key(KeyCode::Char('g')));
+    for c in "query".chars() {
+        app.handle_key(key(KeyCode::Char(c)));
+    }
+    app.handle_key(key(KeyCode::Enter));
+    app.handle_action(rootle::action::Action::GlobalSearchResults {
+        hits: vec![hit],
+        clipped: false,
+        index: None,
+    });
+    app
+}
+
+#[test]
+fn hit_expand_shows_full_file_at_anchor_and_esc_restores_results() {
+    let mut hit = rootle::components::global_search::SearchHit::plain(
+        "owner/repo",
+        "src/main.rs",
+        6,
+        vec![(6, "let view = render();".to_string())],
+        1,
+        String::new(),
+    );
+    hit.sha = "blob123".into();
+    let mut app = grep_view_on_hit(hit);
+
+    // Enter expands: the pane opens as a loading placeholder while
+    // the blob is on its way.
+    app.handle_key(key(KeyCode::Enter));
+    let screen = render(&mut app, 100, 30).join("\n");
+    assert!(
+        screen.contains("owner/repo/src/main.rs:6"),
+        "file pane title names repo/path:line:\n{screen}"
+    );
+    assert!(screen.contains("loading"), "fetch in flight:\n{screen}");
+
+    // The blob lands (UI-thread styled): the WHOLE file renders with
+    // the cursor on the anchor line.
+    let lines: Vec<_> = (1..=40)
+        .map(|i| ratatui::text::Line::from(format!("src line {i} of the file")))
+        .collect();
+    app.handle_action(rootle::action::Action::HitFileLoaded {
+        repo: "owner/repo".into(),
+        path: "src/main.rs".into(),
+        sha: "blob123".into(),
+        lang: "rust".into(),
+        lines,
+    });
+    let screen = render(&mut app, 100, 30).join("\n");
+    assert!(
+        screen.contains("src line 18 of the file"),
+        "content past the folded preview's reach renders:\n{screen}"
+    );
+    assert!(
+        screen.contains('┃'),
+        "the 40-line file overflows the pane — scrollbar proves it:\n{screen}"
+    );
+    assert!(
+        screen.contains("6/40"),
+        "readout puts the cursor on the anchor:\n{screen}"
+    );
+    assert!(
+        screen.contains("rust · 40 lines"),
+        "footer carries the language:\n{screen}"
+    );
+
+    // j walks the file cursor; the readout follows.
+    app.handle_key(key(KeyCode::Char('j')));
+    let screen = render(&mut app, 100, 30).join("\n");
+    assert!(
+        screen.contains("7/40"),
+        "j moves the line cursor:\n{screen}"
+    );
+
+    // Esc folds back: the results list returns, selection intact, and
+    // no file content lingers anywhere on the screen.
+    app.handle_key(key(KeyCode::Esc));
+    let screen = render(&mut app, 100, 30).join("\n");
+    assert!(
+        screen.contains("src/main.rs"),
+        "results list back with the hit selected:\n{screen}"
+    );
+    assert!(
+        screen.contains("let view = render();"),
+        "the hit's folded preview renders again:\n{screen}"
+    );
+    assert!(
+        !screen.contains("of the file"),
+        "no lingering file-pane cells:\n{screen}"
+    );
+    assert!(!screen.contains("6/40"), "readout gone with the pane");
+}
+
+#[test]
+fn file_pane_find_in_file_reuses_preview_session() {
+    let mut hit = rootle::components::global_search::SearchHit::plain(
+        "owner/repo",
+        "src/main.rs",
+        2,
+        vec![(2, "let view = render();".to_string())],
+        1,
+        String::new(),
+    );
+    hit.sha = "blob123".into();
+    let mut app = grep_view_on_hit(hit);
+    app.handle_key(key(KeyCode::Enter));
+    let lines: Vec<_> = (1..=6)
+        .map(|i| {
+            ratatui::text::Line::from(if i % 2 == 0 {
+                format!("call render() {i}")
+            } else {
+                format!("plain line {i}")
+            })
+        })
+        .collect();
+    app.handle_action(rootle::action::Action::HitFileLoaded {
+        repo: "owner/repo".into(),
+        path: "src/main.rs".into(),
+        sha: "blob123".into(),
+        lang: "rust".into(),
+        lines,
+    });
+
+    // `/` opens FIND over the file — the modeline chip flips and the
+    // query rides the pane title, exactly like the browser's `␣ /`.
+    app.handle_key(key(KeyCode::Char('/')));
+    let screen = render(&mut app, 100, 30).join("\n");
+    assert!(
+        screen.contains("FIND"),
+        "FIND chip over the pane:\n{screen}"
+    );
+    for c in "render".chars() {
+        app.handle_key(key(KeyCode::Char(c)));
+    }
+    let screen = render(&mut app, 100, 30).join("\n");
+    assert!(
+        screen.contains("src/main.rs:2 /render"),
+        "find query rides the pane title:\n{screen}"
+    );
+    assert!(
+        screen.contains("1/3 · 2/6"),
+        "match-of-matches readout:\n{screen}"
+    );
+    // Enter commits the chips; Esc folds the pane back to the results.
+    app.handle_key(key(KeyCode::Enter));
+    app.handle_key(key(KeyCode::Esc));
+    let screen = render(&mut app, 100, 30).join("\n");
+    assert!(
+        screen.contains("results"),
+        "Esc returns to the results list:\n{screen}"
+    );
+    assert!(
+        !screen.contains("/render"),
+        "the pane and its find session are gone:\n{screen}"
+    );
+}
+
+#[test]
+fn path_only_hit_expands_to_top_of_file() {
+    // match_count 0, no anchor line (file-find shape): the file still
+    // opens — cursor at the top, no `:0` in the title.
+    let mut hit = rootle::components::global_search::SearchHit::plain(
+        "owner/repo",
+        "docs/readme.md",
+        0,
+        vec![],
+        0,
+        String::new(),
+    );
+    hit.sha = "blob456".into();
+    let mut app = grep_view_on_hit(hit);
+    app.handle_key(key(KeyCode::Enter));
+    let screen = render(&mut app, 100, 30).join("\n");
+    assert!(
+        screen.contains("owner/repo/docs/readme.md "),
+        "title omits the :0 anchor:\n{screen}"
+    );
+    app.handle_action(rootle::action::Action::HitFileLoaded {
+        repo: "owner/repo".into(),
+        path: "docs/readme.md".into(),
+        sha: "blob456".into(),
+        lang: "markdown".into(),
+        lines: (1..=4)
+            .map(|i| ratatui::text::Line::from(format!("doc line {i}")))
+            .collect(),
+    });
+    let screen = render(&mut app, 100, 30).join("\n");
+    assert!(
+        screen.contains("1/4"),
+        "unknown anchor falls back to the top:\n{screen}"
+    );
+    // Collapse still works from the path-only pane.
+    app.handle_key(key(KeyCode::Char('h')));
+    let screen = render(&mut app, 100, 30).join("\n");
+    assert!(!screen.contains("doc line"), "h folds the pane back");
+}
+
+#[test]
+fn mock_hit_expands_from_its_body_without_a_fetch() {
+    // Offline submit → the mock producer's hits carry bodies; Enter
+    // renders the file straight away (no loading state, no worker).
+    let mut app = browsing_app();
+    app.handle_key(key(KeyCode::Char(' ')));
+    app.handle_key(key(KeyCode::Char('g')));
+    for c in "query".chars() {
+        app.handle_key(key(KeyCode::Char(c)));
+    }
+    app.handle_key(key(KeyCode::Enter));
+    app.handle_key(key(KeyCode::Enter)); // expand the selected mock hit
+    let screen = render(&mut app, 100, 30).join("\n");
+    assert!(
+        screen.contains("mock content for src/widgets/list.rs"),
+        "body renders without a fetch:\n{screen}"
+    );
+    assert!(
+        !screen.contains("loading"),
+        "body hits never show the placeholder:\n{screen}"
     );
 }

@@ -31,6 +31,10 @@ pub enum PreviewContent {
 pub struct Preview {
     pub content: PreviewContent,
     pub title: String,
+    /// Drawn as the keyboard owner (focused border) — the browser
+    /// never focuses its third column; the search view's expanded
+    /// file pane does (plans/0012 M2).
+    pub focused: bool,
     /// Vertical scroll offset (lines), follows the line cursor.
     scroll: u16,
     /// Line cursor (0-based) — `J/K` walk it, `␣ y` anchors the yank
@@ -59,12 +63,23 @@ impl Preview {
         Preview {
             content: PreviewContent::Empty,
             title: "preview".into(),
+            focused: false,
             scroll: 0,
             cursor: 0,
             line_count: 0,
             numbered: false,
             lang: None,
             find: None,
+        }
+    }
+
+    /// A focused preview — drawn as the keyboard owner (search view's
+    /// expanded file pane, plans/0012 M2); the browser's third column
+    /// stays unfocused.
+    pub fn focused() -> Self {
+        Preview {
+            focused: true,
+            ..Preview::new()
         }
     }
 
@@ -126,6 +141,18 @@ impl Preview {
             .cursor
             .saturating_add_signed(delta as i16)
             .min(self.line_count - 1);
+    }
+
+    /// Drop the cursor onto a 1-based line (hit expand, plans/0012
+    /// M2): clamped to the content, scroll follows on the next
+    /// render. No-op for cursorless content; `line = 0` (unknown
+    /// anchor) keeps the top.
+    pub fn set_cursor_line(&mut self, line: u32) {
+        if self.line_count == 0 || line == 0 {
+            return;
+        }
+        let target = line.saturating_sub(1).min(u32::from(self.line_count - 1));
+        self.cursor = target as u16;
     }
 
     /// Current cursor line, 1-based — what `␣ y` anchors to.
@@ -194,7 +221,11 @@ impl Preview {
         let mut block = Block::default()
             .borders(Borders::ALL)
             .border_type(theme.border_type())
-            .border_style(Style::default().fg(sem.border_unfocused))
+            .border_style(Style::default().fg(if self.focused {
+                sem.border_focused
+            } else {
+                sem.border_unfocused
+            }))
             .style(Style::default().bg(sem.base))
             .title(Span::styled(title, Style::default().fg(sem.subtext0)));
         if let Some(readout) = self.readout() {

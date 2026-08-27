@@ -100,3 +100,42 @@ pub fn leader(code: KeyCode) -> Action {
         _ => Action::Noop,
     }
 }
+
+/// Global search view (plans/0012 M2): the view owns dispatch — its
+/// state decides what a key means (fields, scope popup, results,
+/// expanded file pane) — so these rows are hint-source, not dispatch.
+/// They live with the other tables so the view's hint row can never
+/// drift from the keys `keys.rs` actually matches.
+pub fn search_results() -> &'static [(&'static str, &'static str)] {
+    &[
+        ("enter", "file"),
+        ("j/k", "hits"),
+        ("/", "filter"),
+        ("tab", "fields"),
+        ("esc", "close"),
+    ]
+}
+
+/// The expanded full-file pane (`Enter` on a hit): j/k walk lines,
+/// `Enter` opens the editor, `/` finds in the file, `Esc`/`h` folds
+/// back to the results list.
+pub fn search_file() -> &'static [(&'static str, &'static str)] {
+    &[
+        ("j/k", "lines"),
+        ("enter", "open"),
+        ("/", "find"),
+        ("n/N", "match"),
+        ("esc/h", "results"),
+    ]
+}
+
+/// Hint-row text for a table: ` k1 d1 · k2 d2 · … ` — the same rows
+/// the modeline and `?` popup render, packed into a border title.
+pub fn hint_row(rows: &[(&'static str, &'static str)]) -> String {
+    let body = rows
+        .iter()
+        .map(|(key, desc)| format!("{key} {desc}"))
+        .collect::<Vec<_>>()
+        .join(" · ");
+    format!(" {body} ")
+}

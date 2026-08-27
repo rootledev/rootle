@@ -97,6 +97,20 @@ pub enum AppEvent {
         sha: String,
         error: ProviderError,
     },
+    /// Expanded file pane (plans/0012 M2): the hit's whole blob, raw
+    /// bytes — the UI thread sanitizes + highlights at the boundary.
+    HitFileLoaded {
+        gen_id: u64,
+        repo: String,
+        path: String,
+        sha: String,
+        bytes: Vec<u8>,
+    },
+    HitFileFailed {
+        gen_id: u64,
+        sha: String,
+        error: crate::provider::ProviderError,
+    },
     CloneDone {
         ok: Vec<String>,
         failed: Vec<(String, String)>,

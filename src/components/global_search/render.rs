@@ -5,7 +5,10 @@ use super::GlobalSearch;
 use super::model::{Scope, SearchHit};
 use crate::components::pane::fit;
 use crate::components::{centered, scrollbar};
+use crate::keymap;
+use crate::mode::Mode;
 use crate::theme::Theme;
+
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
@@ -18,11 +21,15 @@ impl GlobalSearch {
         let sem = &theme.semantic;
 
         let hint = if self.filtering {
-            " type to filter · enter commit · esc cancel "
+            " type to filter · enter commit · esc cancel ".into()
         } else if self.scope_popup {
-            " j/k move · enter done · esc revert "
+            " j/k move · enter done · esc revert ".into()
+        } else if self.finding {
+            keymap::hint_row(keymap::hints(Mode::Find))
+        } else if self.expanded.is_some() {
+            keymap::hint_row(keymap::search_file())
         } else {
-            " tab fields · enter search/open · / filter · esc close "
+            keymap::hint_row(keymap::search_results())
         };
 
         let block = Block::default()
@@ -134,6 +141,13 @@ impl GlobalSearch {
     }
 
     fn render_results(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
+        // Expanded (plans/0012 M2): the results area becomes the hit's
+        // whole file — the re-used Preview renders into the same rect,
+        // no popup, nothing else drawn.
+        if let Some(exp) = &mut self.expanded {
+            exp.preview.render(frame, area, theme);
+            return;
+        }
         let sem = &theme.semantic;
         let focused = self.focus == super::Focus::Results;
         let border = if focused {

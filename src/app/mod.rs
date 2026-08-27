@@ -412,6 +412,54 @@ impl App {
                     view.update(&action);
                 }
             }
+            AppEvent::HitFileLoaded {
+                gen_id,
+                repo,
+                path,
+                sha,
+                bytes,
+            } => {
+                if gen_id != self.view_gen {
+                    return; // view moved on — drop the stale blob
+                }
+                // Sanitize + highlight at the boundary, on the UI
+                // thread (PLAN.md §9) — same rule as every blob.
+                let action = if crate::sanitize::is_binary(&bytes) {
+                    Action::HitFileFailed {
+                        error: crate::provider::ProviderError::other("binary file"),
+                        sha,
+                    }
+                } else {
+                    let text = crate::sanitize::sanitize(&bytes);
+                    let lines = self.highlighter.highlight(&path, &text);
+                    let lang = self.highlighter.language(&path);
+                    Action::HitFileLoaded {
+                        repo,
+                        path,
+                        sha,
+                        lang,
+                        lines,
+                    }
+                };
+                if let Some(view) = &mut self.search_view {
+                    view.update(&action);
+                }
+            }
+            AppEvent::HitFileFailed { gen_id, sha, error } => {
+                if gen_id != self.view_gen {
+                    return;
+                }
+                // Auth/throttle surface a status line; other kinds
+                // stay quiet — the pane itself shows the error
+                // (same rule as the lazy context, plans/0008 §2).
+                use crate::provider::ErrorKind;
+                if matches!(error.kind, ErrorKind::Auth | ErrorKind::RateLimited) {
+                    self.status = Some(provider_status(&error));
+                }
+                if let Some(view) = &mut self.search_view {
+                    view.update(&Action::HitFileFailed { sha, error });
+                }
+            }
             AppEvent::CloneExpanded { repos, errors } => {
                 if repos.is_empty() {
                     self.status = Some(if errors.is_empty() {
@@ -884,6 +932,20 @@ impl App {
                 self.spawn_hit_context(gen_id, hit, query);
             }
             Action::HitContextLoaded { .. } | Action::HitContextMissing { .. } => {
+                if let Some(view) = &mut self.search_view {
+                    view.update(&action);
+                }
+            }
+            // Expanded file pane (plans/0012 M2): fetch the hit's
+            // whole blob on a worker; the view shows a loading
+            // placeholder until the styled lines land.
+            Action::LoadHitFile { hit } => {
+                if !self.offline {
+                    let gen_id = self.view_gen;
+                    self.spawn_hit_file(gen_id, *hit);
+                }
+            }
+            Action::HitFileLoaded { .. } | Action::HitFileFailed { .. } => {
                 if let Some(view) = &mut self.search_view {
                     view.update(&action);
                 }
