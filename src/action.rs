@@ -35,8 +35,17 @@ pub enum Action {
     LeaderGrep,
     /// `␣ b` — revision switcher (branches/tags), plans/0016 M1a.
     LeaderRefs,
-    /// `␣ h` — file history lens over the preview, plans/0016 M1b.
+    /// `␣ p` — the preview pane takes the keyboard (plans/0016 M1).
+    LeaderPreview,
+    /// Esc/q out of the preview submode.
+    ExitPreview,
+    /// `␣ p h` — file history lens over the preview, plans/0016 M1b.
     LeaderHistory,
+    /// `␣ p b` — blame lens over the preview (margin runs), M1c.
+    BlameToggle,
+    /// Enter in the preview submode: editor — or the line's commit in
+    /// the history lens while blaming.
+    PreviewEnter,
     LeaderQuit,
 
     // Revision mocks (plans/0016 M1): the refs popup live-previews the
@@ -48,6 +57,8 @@ pub enum Action {
     HistoryDown,
     HistoryOpen,
     HistoryClose,
+    /// `/` in the history lens: commit-list filter session.
+    HistoryFilterBegin,
 
     // Popup
     ClosePopup,

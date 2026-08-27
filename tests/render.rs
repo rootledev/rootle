@@ -359,10 +359,12 @@ fn refs_switcher_preview_commit_revert() {
     assert!(!screen.contains("miller-panes @"), "preview must not stick");
 }
 
-/// plans/0016 M1b mock: `␣ h` swaps the preview for a commit list,
-/// Enter toasts the revision open, Esc restores the preview.
+/// plans/0016 M1 mock: `␣ p` zooms the preview and hands it the
+/// keyboard (j/k line cursor), `b` toggles the blame margin, Enter on
+/// a blame line opens the history lens at that commit, `/` filters
+/// the commits, Esc unwinds one lens at a time.
 #[test]
-fn history_lens_over_the_preview() {
+fn preview_submode_zoom_blame_history() {
     let mut app = browsing_app();
     app.handle_key(key(KeyCode::Char('l'))); // into ratatui root
     for _ in 0..3 {
@@ -372,43 +374,86 @@ fn history_lens_over_the_preview() {
     app.handle_action(rootle::action::Action::BlobLoaded {
         sha: sha.into(),
         name: "Cargo.toml".into(),
-        bytes: b"[package]\nname = \"ratatui\"\n".to_vec(),
+        bytes: b"[package]\nname = \"ratatui\"\nversion = \"0.29\"\nauthors = []\n".to_vec(),
     });
     let screen = render(&mut app, 140, 30).join("\n");
-    assert!(screen.contains("[package]"), "preview should show the blob");
+    assert!(screen.contains("[package]"), "preview shows the blob");
+    assert!(screen.contains("ratatui ─"), "columns visible before zoom");
 
+    // ␣ p: zoom — the columns vanish, the pane owns the keys.
     app.handle_key(key(KeyCode::Char(' ')));
-    app.handle_key(key(KeyCode::Char('h')));
+    app.handle_key(key(KeyCode::Char('p')));
     let screen = render(&mut app, 140, 30).join("\n");
     assert!(
-        screen.contains("HISTORY"),
-        "history chip missing:\n{screen}"
+        screen.contains("PREVIEW"),
+        "preview chip missing:\n{screen}"
     );
-    assert!(
-        screen.contains("history — Cargo.toml"),
-        "history title missing:\n{screen}"
-    );
-    assert!(screen.contains("a1b2c3d"), "commit rows missing:\n{screen}");
-    assert!(screen.contains("fold disjoint"));
-    assert!(
-        !screen.contains("[package]"),
-        "preview must not show through"
-    );
+    assert!(!screen.contains("docs/"), "columns must hide when zoomed");
+    assert!(screen.contains("2 │ name"), "zoomed preview content");
 
+    // j walks the line cursor (the submode's J/K).
     app.handle_key(key(KeyCode::Char('j')));
+    let screen = render(&mut app, 140, 30).join("\n");
+    assert!(screen.contains("▶ 2"), "line cursor must move:\n{screen}");
+
+    // b: the blame lens — run-start marks, dot-leader continuations.
+    app.handle_key(key(KeyCode::Char('b')));
+    let screen = render(&mut app, 140, 30).join("\n");
+    assert!(
+        screen.contains("e4f5a6b tarek"),
+        "blame margin missing:\n{screen}"
+    );
+    assert!(screen.contains("blame lens on (mock"), "mock toast missing");
+
+    // Enter on a blame line: history lens at that commit (composition).
     app.handle_key(key(KeyCode::Enter));
     let screen = render(&mut app, 140, 30).join("\n");
+    assert!(screen.contains("HISTORY"), "history chip:\n{screen}");
     assert!(
-        screen.contains("would open Cargo.toml @ e4f5a6b (mock"),
-        "revision-open toast missing:\n{screen}"
+        screen.contains("history — Cargo.toml"),
+        "lens title:\n{screen}"
+    );
+    assert!(
+        screen.contains("▌ e4f5a6b refactor(Cargo.toml)"),
+        "lens must sit on the blamed commit:\n{screen}"
     );
 
+    // / filters the commit list (house rule: every list filters).
+    app.handle_key(key(KeyCode::Char('/')));
+    for c in "syntax".chars() {
+        app.handle_key(key(KeyCode::Char(c)));
+    }
+    app.handle_key(key(KeyCode::Enter)); // commit the filter
+    let screen = render(&mut app, 140, 30).join("\n");
+    assert!(
+        screen.contains("syntax-highlighted preview"),
+        "filtered row:\n{screen}"
+    );
+    assert!(
+        !screen.contains("license headers"),
+        "unmatched rows must go"
+    );
+
+    // Esc ladder: clear the filter, then close the lens back to the
+    // zoomed preview, then Browse restores the columns.
     app.handle_key(key(KeyCode::Esc));
     let screen = render(&mut app, 140, 30).join("\n");
-    assert!(screen.contains("[package]"), "Esc must restore the preview");
-    assert!(screen.contains("BROWSE"), "mode must revert");
+    assert!(
+        screen.contains("license headers"),
+        "first Esc clears the filter"
+    );
+    app.handle_key(key(KeyCode::Esc));
+    let screen = render(&mut app, 140, 30).join("\n");
+    assert!(
+        screen.contains("PREVIEW"),
+        "lens closes back to zoomed preview"
+    );
+    assert!(screen.contains("e4f5a6b tarek"), "blame survives the lens");
+    app.handle_key(key(KeyCode::Esc));
+    let screen = render(&mut app, 140, 30).join("\n");
+    assert!(screen.contains("BROWSE"), "mode unwinds to browse");
+    assert!(screen.contains("docs/"), "columns restored");
 }
-
 #[test]
 fn file_preview_shows_highlighted_blob_and_scrolls() {
     let mut app = browsing_app();
@@ -964,8 +1009,8 @@ fn leader_chip_and_hints_show_over_search_view() {
     // plans/0016 M1: revision keys are in the row.
     assert!(screen.contains("branches"), "refs hint missing:\n{screen}");
     assert!(
-        screen.contains("history"),
-        "history hint missing:\n{screen}"
+        screen.contains("preview"),
+        "preview-submode hint missing:\n{screen}"
     );
 
     // Esc drops the layer; the view stays open with its own chip.

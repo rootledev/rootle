@@ -70,14 +70,38 @@ pub struct Browser {
     mock_history: Option<MockHistory>,
 }
 
+/// The mock commit set (plans/0016 M1b/M1c) — one table shared by the
+/// history lens and the blame margin so Enter-at-line lands on the
+/// commit the margin named. (sha, author, date)
+const MOCK_COMMITS: &[(&str, &str, &str)] = &[
+    ("a1b2c3d", "tarek", "2026-08-25"),
+    ("e4f5a6b", "tarek", "2026-08-19"),
+    ("c7d8e9f", "mira", "2026-07-30"),
+    ("0a1b2c3", "mira", "2026-07-02"),
+    ("d4e5f6a", "tarek", "2026-06-11"),
+];
+
+/// Which mock commit a line blames to — runs of three (mock data has
+/// no per-line truth; the wire will carry real ranges).
+fn mock_blame_idx(line: usize) -> usize {
+    (line / 3 + 1) % MOCK_COMMITS.len()
+}
+
 /// Mock commit list for the history lens (plans/0016 M1b). Real shape:
 /// `repo/log` items — sha, subject, author, date.
 pub struct MockHistory {
     /// The file the lens is open on.
     path: String,
+    /// Cursor over the visible (filtered) rows.
     cursor: usize,
     scroll: u16,
     entries: Vec<MockCommit>,
+    /// Transient `/` session over the commits (house rule: every list
+    /// filters) — subject, sha, and author match.
+    filter: VimInput,
+    filtering: bool,
+    filter_value: String,
+    pre_filter: String,
 }
 
 pub struct MockCommit {
@@ -91,45 +115,61 @@ impl MockHistory {
     /// Deterministic stand-ins, subjects referencing the file — what
     /// `repo/log {path}` will return.
     fn for_path(path: &str) -> Self {
+        Self::at(path, 0)
+    }
+
+    /// The lens positioned at a commit (blame → history composition).
+    fn at(path: &str, cursor: usize) -> Self {
         let stem = path.rsplit('/').next().unwrap_or(path);
-        let entries = vec![
-            MockCommit {
-                sha: "a1b2c3d",
-                subject: format!("fix({stem}): fold disjoint match regions"),
-                author: "tarek",
-                date: "2026-08-25",
-            },
-            MockCommit {
-                sha: "e4f5a6b",
-                subject: format!("refactor({stem}): extract the gutter row"),
-                author: "tarek",
-                date: "2026-08-19",
-            },
-            MockCommit {
-                sha: "c7d8e9f",
-                subject: format!("feat({stem}): syntax-highlighted preview"),
-                author: "mira",
-                date: "2026-07-30",
-            },
-            MockCommit {
-                sha: "0a1b2c3",
-                subject: format!("chore({stem}): license headers"),
-                author: "mira",
-                date: "2026-07-02",
-            },
-            MockCommit {
-                sha: "d4e5f6a",
-                subject: format!("feat: initial {stem}"),
-                author: "tarek",
-                date: "2026-06-11",
-            },
+        let subjects = [
+            format!("fix({stem}): fold disjoint match regions"),
+            format!("refactor({stem}): extract the gutter row"),
+            format!("feat({stem}): syntax-highlighted preview"),
+            format!("chore({stem}): license headers"),
+            format!("feat: initial {stem}"),
         ];
+        let entries = MOCK_COMMITS
+            .iter()
+            .zip(subjects)
+            .map(|((sha, author, date), subject)| MockCommit {
+                sha,
+                subject,
+                author,
+                date,
+            })
+            .collect();
         MockHistory {
             path: path.to_string(),
-            cursor: 0,
+            cursor,
             scroll: 0,
             entries,
+            filter: VimInput::transient(),
+            filtering: false,
+            filter_value: String::new(),
+            pre_filter: String::new(),
         }
+    }
+
+    /// Entry indices surviving the committed filter.
+    fn visible(&self) -> Vec<usize> {
+        let needle = self.filter_value.to_lowercase();
+        self.entries
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| {
+                needle.is_empty()
+                    || c.subject.to_lowercase().contains(&needle)
+                    || c.sha.contains(&needle)
+                    || c.author.to_lowercase().contains(&needle)
+            })
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    fn selected(&self) -> Option<&MockCommit> {
+        let vis = self.visible();
+        vis.get(self.cursor.min(vis.len().saturating_sub(1)))
+            .map(|&i| &self.entries[i])
     }
 }
 
@@ -208,6 +248,44 @@ impl Browser {
         self.mock_ref = name;
     }
 
+    /// `␣ p b` toggles the blame lens on the previewed file (plans/0016
+    /// M1c): per-run margin marks over the preview's own lines.
+    /// Returns false when the preview isn't file content.
+    pub fn toggle_blame(&mut self) -> bool {
+        if self.preview.blaming() {
+            self.preview.set_blame(None);
+            return true;
+        }
+        let lines = self.preview.text_line_count();
+        if lines == 0 {
+            return false;
+        }
+        // Runs of three lines per commit; run starts carry the mark.
+        let marks: Vec<Option<crate::components::preview::BlameMark>> = (0..lines)
+            .map(|i| {
+                let run_start = i % 3 == 0;
+                let (sha, author, _) = MOCK_COMMITS[mock_blame_idx(i)];
+                run_start.then_some(crate::components::preview::BlameMark { sha, author })
+            })
+            .collect();
+        self.preview.set_blame(Some(marks));
+        true
+    }
+
+    /// Enter on a blame line: the history lens positioned at the commit
+    /// the margin names for that line. Returns false outside blame.
+    pub fn blame_open_commit(&mut self) -> bool {
+        if !self.preview.blaming() {
+            return false;
+        }
+        let Some((path, _)) = self.selected_file() else {
+            return false;
+        };
+        let line = self.preview_line().unwrap_or(1).saturating_sub(1) as usize;
+        self.mock_history = Some(MockHistory::at(&path, mock_blame_idx(line)));
+        true
+    }
+
     /// `␣ h` opens the history lens on the previewed file, if any.
     /// Returns false when nothing file-shaped is under the cursor.
     pub fn open_history(&mut self) -> bool {
@@ -224,21 +302,73 @@ impl Browser {
         self.mock_history.is_some()
     }
 
+    /// History lens `/` session active (keys route to the filter).
+    pub fn history_filtering(&self) -> bool {
+        self.mock_history
+            .as_ref()
+            .map(|h| h.filtering)
+            .unwrap_or(false)
+    }
+
+    /// Begin the `/` session (remembers the committed filter so the
+    /// session's Esc restores it).
+    pub fn history_begin_filter(&mut self) {
+        if let Some(h) = &mut self.mock_history {
+            h.pre_filter = h.filter_value.clone();
+            h.filtering = true;
+        }
+    }
+
+    /// A key for the filter session; commits/cancels end it.
+    pub fn history_filter_key(&mut self, key: ratatui::crossterm::event::KeyEvent) {
+        if let Some(h) = &mut self.mock_history {
+            match h.filter.handle_key(key) {
+                crate::components::vim_input::Outcome::Submitted => {
+                    h.filtering = false;
+                    h.filter_value = h.filter.value();
+                    h.cursor = 0;
+                    h.scroll = 0;
+                }
+                crate::components::vim_input::Outcome::Cancelled => {
+                    h.filtering = false;
+                    h.filter_value = h.pre_filter.clone();
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Esc in the lens: a committed filter clears first (the wizard
+    /// ladder), the second Esc closes. Returns true when it closed.
+    pub fn history_esc(&mut self) -> bool {
+        if let Some(h) = &mut self.mock_history
+            && !h.filter_value.is_empty()
+        {
+            h.filter_value.clear();
+            h.cursor = 0;
+            return false;
+        }
+        self.close_history();
+        true
+    }
+
     pub fn close_history(&mut self) {
         self.mock_history = None;
     }
 
     pub fn history_move(&mut self, delta: i64) {
         if let Some(h) = &mut self.mock_history {
-            let len = h.entries.len() as i64;
-            h.cursor = ((h.cursor as i64 + delta).rem_euclid(len)) as usize;
+            let len = h.visible().len() as i64;
+            if len > 0 {
+                h.cursor = ((h.cursor as i64 + delta).rem_euclid(len)) as usize;
+            }
         }
     }
 
     /// The picked commit, for the mock "open at revision" toast.
     pub fn history_pick(&self) -> Option<(String, String)> {
         let h = self.mock_history.as_ref()?;
-        let c = &h.entries[h.cursor];
+        let c = h.selected()?;
         Some((h.path.clone(), c.sha.to_string()))
     }
 
@@ -707,7 +837,18 @@ impl Browser {
         }
     }
 
-    pub fn render(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
+    pub fn render(&mut self, frame: &mut Frame, area: Rect, theme: &Theme, zoomed: bool) {
+        // ␣ p zoom (tmux `prefix z` model, plans/0016 M1): the preview
+        // — or the history lens over it — takes the whole content row;
+        // the miller columns are untouched underneath, Esc restores.
+        if zoomed {
+            if self.mock_history.is_some() {
+                self.render_history(frame, area, theme);
+            } else {
+                self.preview.render(frame, area, theme);
+            }
+            return;
+        }
         // Top level (orgs): fold to a single full-width pane. There is
         // no parent above orgs, so a three-pane split would leave the
         // left column empty (PLAN.md §5).
@@ -746,25 +887,28 @@ impl Browser {
             return;
         };
         let sem = &theme.semantic;
+        let mut title = format!(" history — {} ", h.path);
+        if h.filtering || !h.filter_value.is_empty() {
+            title = format!(" history — {} /{} ", h.path, h.filter.value());
+        }
         let block = Block::default()
             .borders(Borders::ALL)
             .border_type(theme.border_type())
             .border_style(Style::default().fg(sem.border_focused))
             .style(Style::default().bg(sem.base))
-            .title(Span::styled(
-                format!(" history — {} ", h.path),
-                Style::default().fg(sem.subtext0),
-            ))
+            .title(Span::styled(title, Style::default().fg(sem.subtext0)))
             .title_bottom(Span::styled(
-                " j/k commit · enter file at commit · esc back ",
+                " j/k commit · enter file at commit · / filter · esc back ",
                 Style::default().fg(sem.hint),
             ));
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
+        let vis = h.visible();
         let mut lines: Vec<Line> = Vec::new();
-        for (i, c) in h.entries.iter().enumerate() {
-            let selected = i == h.cursor;
+        for (row, &i) in vis.iter().enumerate() {
+            let c = &h.entries[i];
+            let selected = row == h.cursor;
             let style = if selected {
                 Style::default().fg(sem.selection_fg).bg(sem.selection_bg)
             } else {
@@ -787,6 +931,12 @@ impl Browser {
                 Span::raw("    "),
                 Span::styled(format!("{} · {}", c.author, c.date), dim),
             ]));
+        }
+        if vis.is_empty() {
+            lines.push(Line::from(Span::styled(
+                "  no matching commits",
+                Style::default().fg(sem.subtext0),
+            )));
         }
         let height = inner.height as usize;
         let total = lines.len();

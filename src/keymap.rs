@@ -29,7 +29,7 @@ pub fn hints(mode: Mode) -> &'static [(&'static str, &'static str)] {
             ("f", "find file"),
             ("g", "grep"),
             ("b", "branches"),
-            ("h", "history"),
+            ("p", "preview"),
             ("/", "find in file"),
             ("y", "yank url"),
             ("c", "clear marks"),
@@ -48,8 +48,34 @@ pub fn hints(mode: Mode) -> &'static [(&'static str, &'static str)] {
         Mode::History => &[
             ("j/k", "commit"),
             ("enter", "file at commit"),
+            ("/", "filter"),
             ("esc", "back"),
         ],
+        Mode::Preview => &[
+            ("j/k", "line"),
+            ("/", "find"),
+            ("h", "history"),
+            ("b", "blame"),
+            ("enter", "editor or commit"),
+            ("esc", "back"),
+        ],
+    }
+}
+
+/// The preview pane owns the keyboard (plans/0016 M1, `␣ p`): the
+/// line cursor walks, `/` reuses the find-in-file session, `h` opens
+/// the history lens, `b` toggles the blame lens, Enter opens the
+/// editor — or the line's commit in the history lens while blaming.
+pub fn preview(code: KeyCode) -> Action {
+    match code {
+        KeyCode::Char('j') | KeyCode::Down => Action::PreviewLineDown,
+        KeyCode::Char('k') | KeyCode::Up => Action::PreviewLineUp,
+        KeyCode::Char('/') => Action::LeaderFindInFile,
+        KeyCode::Char('h') => Action::LeaderHistory,
+        KeyCode::Char('b') => Action::BlameToggle,
+        KeyCode::Enter => Action::PreviewEnter,
+        KeyCode::Esc | KeyCode::Char('q') => Action::ExitPreview,
+        _ => Action::Noop,
     }
 }
 
@@ -59,6 +85,7 @@ pub fn history(code: KeyCode) -> Action {
         KeyCode::Char('j') | KeyCode::Down => Action::HistoryDown,
         KeyCode::Char('k') | KeyCode::Up => Action::HistoryUp,
         KeyCode::Enter => Action::HistoryOpen,
+        KeyCode::Char('/') => Action::HistoryFilterBegin,
         KeyCode::Esc => Action::HistoryClose,
         _ => Action::Noop,
     }
@@ -111,7 +138,7 @@ pub fn leader(code: KeyCode) -> Action {
         KeyCode::Char('/') => Action::LeaderFindInFile,
         KeyCode::Char('y') => Action::LeaderYank,
         KeyCode::Char('b') => Action::LeaderRefs,
-        KeyCode::Char('h') => Action::LeaderHistory,
+        KeyCode::Char('p') => Action::LeaderPreview,
         KeyCode::Char('c') => Action::ClearMarks,
         KeyCode::Char('d') => Action::DeleteMarked,
         KeyCode::Char('r') => Action::LeaderReload,

@@ -16,6 +16,9 @@ pub enum Mode {
     Visual,
     /// File-history lens over the preview pane (plans/0016 M1b).
     History,
+    /// The preview pane owns the keyboard (plans/0016 M1): line
+    /// cursor, find-in-file, history, blame.
+    Preview,
 }
 
 impl Mode {
@@ -29,6 +32,7 @@ impl Mode {
             Mode::Leader => "LEADER",
             Mode::Visual => "VISUAL",
             Mode::History => "HISTORY",
+            Mode::Preview => "PREVIEW",
         }
     }
 }

@@ -48,6 +48,10 @@ pub struct App {
     /// revision committed when it opened — Esc reverts the crumb.
     refs_popup: Option<RefsPopup>,
     refs_baseline: Option<String>,
+    /// Mode to restore when a lens opened from the preview submode
+    /// closes (history from blame, find from preview).
+    history_return: Option<Mode>,
+    find_return: Option<Mode>,
     modeline: Modeline,
     theme: Theme,
     config: Config,
@@ -174,6 +178,8 @@ impl App {
             wizard: None,
             refs_popup: None,
             refs_baseline: None,
+            history_return: None,
+            find_return: None,
             modeline: Modeline {
                 forge,
                 icon,
@@ -548,7 +554,16 @@ impl App {
                 Outcome::Noop => Action::Noop,
             },
             Mode::Leader => keymap::leader(key.code),
-            Mode::History => keymap::history(key.code),
+            Mode::History => {
+                // An active `/` session owns the keys until commit.
+                if self.browser.history_filtering() {
+                    self.browser.history_filter_key(key);
+                    Action::Noop
+                } else {
+                    keymap::history(key.code)
+                }
+            }
+            Mode::Preview => keymap::preview(key.code),
             _ => Action::Noop,
         }
     }
@@ -784,14 +799,49 @@ impl App {
                     "switched to {name} (mock — tree refetch not wired yet)"
                 ));
             }
+            Action::LeaderPreview => {
+                self.mode = Mode::Browse;
+                if self.browser.repo_coords().is_none() {
+                    self.status = Some("open a repo first".into());
+                } else {
+                    self.mode = Mode::Preview;
+                }
+            }
+            Action::ExitPreview => self.mode = Mode::Browse,
+            Action::BlameToggle => {
+                if self.browser.toggle_blame() {
+                    if self.browser.preview.blaming() {
+                        self.status = Some("blame lens on (mock ranges)".into());
+                    }
+                } else {
+                    self.status = Some("blame: preview is not a text file".into());
+                }
+            }
+            Action::PreviewEnter => {
+                // Blaming: Enter opens the line's commit in the history
+                // lens; otherwise Enter is the editor handoff.
+                if self.browser.blame_open_commit() {
+                    self.history_return = Some(Mode::Preview);
+                    self.mode = Mode::History;
+                } else {
+                    self.handle_action(Action::OpenSelected);
+                }
+            }
             Action::LeaderHistory => {
+                let back = self.mode;
                 self.mode = Mode::Browse;
                 if self.browser.open_history() {
+                    self.history_return = Some(if back == Mode::Preview {
+                        Mode::Preview
+                    } else {
+                        Mode::Browse
+                    });
                     self.mode = Mode::History;
                 } else {
                     self.status = Some("preview a file for its history".into());
                 }
             }
+            Action::HistoryFilterBegin => self.browser.history_begin_filter(),
             Action::HistoryUp => self.browser.history_move(-1),
             Action::HistoryDown => self.browser.history_move(1),
             Action::HistoryOpen => {
@@ -800,8 +850,11 @@ impl App {
                 }
             }
             Action::HistoryClose => {
-                self.browser.close_history();
-                self.mode = Mode::Browse;
+                // The wizard ladder: a committed filter clears first,
+                // the next Esc closes.
+                if self.browser.history_esc() {
+                    self.mode = self.history_return.take().unwrap_or(Mode::Browse);
+                }
             }
             Action::LeaderYank => {
                 // Mock stage (plans/0003 §1): toast the URL that would
@@ -1146,6 +1199,15 @@ impl App {
                 self.mode = Mode::Browse;
             }
             Action::LeaderFindInFile => {
+                // Reachable from the leader layer (Browse underneath)
+                // and from the preview submode — FIND returns to
+                // whichever raised it.
+                let back = self.mode;
+                self.find_return = Some(if back == Mode::Preview {
+                    Mode::Preview
+                } else {
+                    Mode::Browse
+                });
                 self.mode = Mode::Browse; // leader layer down either way
                 if self.browser.preview.findable() {
                     self.browser.find_input.clear();
@@ -1153,6 +1215,7 @@ impl App {
                     self.browser.preview.begin_find();
                     self.mode = Mode::Find;
                 } else {
+                    self.mode = self.find_return.take().unwrap_or(Mode::Browse);
                     self.status = Some("find: preview is not a text file".into());
                 }
             }
@@ -1160,11 +1223,13 @@ impl App {
                 let query = self.browser.find_input.value();
                 self.browser.preview.update_find(query);
             }
-            Action::CommitFind => self.mode = Mode::Browse,
+            Action::CommitFind => {
+                self.mode = self.find_return.take().unwrap_or(Mode::Browse);
+            }
             Action::CancelFind => {
                 self.browser.preview.cancel_find();
                 self.browser.find_input.clear();
-                self.mode = Mode::Browse;
+                self.mode = self.find_return.take().unwrap_or(Mode::Browse);
             }
             Action::FindNext => {
                 self.browser.preview.find_step(1);
@@ -1299,7 +1364,12 @@ impl App {
             view.render(frame, rows[0], &theme);
             self.modeline.context = view.context();
         } else {
-            self.browser.render(frame, rows[0], &theme);
+            // The preview submode (␣ p) and its lenses zoom the pane to
+            // the full row; FIND raised from it keeps the zoom.
+            let zoomed = matches!(self.mode, Mode::Preview | Mode::History)
+                || (self.mode == Mode::Find && self.find_return == Some(Mode::Preview));
+            self.browser.preview.focused = zoomed;
+            self.browser.render(frame, rows[0], &theme, zoomed);
             self.modeline.context = self.browser.context();
         }
         self.modeline.status = self.status.clone();

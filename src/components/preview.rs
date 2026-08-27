@@ -28,6 +28,15 @@ pub enum PreviewContent {
     },
 }
 
+/// A blame run's first-line mark (plans/0016 M1c): the margin shows
+/// sha + author where a commit's run starts; continuation lines carry
+/// `None` and get a dim leader.
+#[derive(Debug, Clone, Copy)]
+pub struct BlameMark {
+    pub sha: &'static str,
+    pub author: &'static str,
+}
+
 pub struct Preview {
     pub content: PreviewContent,
     pub title: String,
@@ -50,6 +59,9 @@ pub struct Preview {
     lang: Option<String>,
     /// Find-in-file session (`␣ /`); chips + `n`/`N` target.
     find: Option<FindState>,
+    /// Blame lens (plans/0016 M1c): one mark per logical line,
+    /// `Some` at run starts. Drawn as a margin before the gutter.
+    blame: Option<Vec<Option<BlameMark>>>,
 }
 
 impl Default for Preview {
@@ -70,7 +82,23 @@ impl Preview {
             numbered: false,
             lang: None,
             find: None,
+            blame: None,
         }
+    }
+
+    /// Line total for blame-mark computation (plans/0016 M1c).
+    pub fn text_line_count(&self) -> usize {
+        self.line_count as usize
+    }
+
+    /// The blame lens: per-line marks, or None to leave it.
+    pub fn set_blame(&mut self, marks: Option<Vec<Option<BlameMark>>>) {
+        self.blame = marks;
+    }
+
+    /// Blame lens active?
+    pub fn blaming(&self) -> bool {
+        self.blame.is_some()
     }
 
     /// A focused preview — drawn as the keyboard owner (search view's
@@ -348,6 +376,33 @@ impl Preview {
                 );
                 line.spans
                     .insert(2, Span::styled(" │ ", Style::default().fg(sem.overlay0)));
+            }
+        }
+
+        // Blame lens (plans/0016 M1c): a margin before the gutter —
+        // sha + author at each run's first line, a dim dot leader on
+        // continuations (fugitive-style runs, not a per-line column).
+        if self.numbered
+            && let Some(blame) = &self.blame
+        {
+            for (i, line) in lines.iter_mut().enumerate() {
+                let spans: Vec<Span<'static>> = match blame.get(i).copied().flatten() {
+                    Some(m) => vec![
+                        Span::styled(m.sha.to_string(), Style::default().fg(sem.warning)),
+                        Span::styled(
+                            format!(" {:<5}", m.author),
+                            Style::default().fg(sem.subtext0),
+                        ),
+                        Span::styled(" │ ".to_string(), Style::default().fg(sem.overlay0)),
+                    ],
+                    None => vec![Span::styled(
+                        "       ·     │ ".to_string(),
+                        Style::default().fg(sem.overlay0),
+                    )],
+                };
+                for (j, sp) in spans.into_iter().enumerate() {
+                    line.spans.insert(j, sp);
+                }
             }
         }
 
