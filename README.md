@@ -81,6 +81,26 @@ make a minimal useful provider, and the conformance suite in
 [skills/rootle-provider](skills/rootle-provider/SKILL.md) gates correctness.
 More providers are planned and the protocol will evolve with them.
 
+The built-in manager installs stdio providers as verified binaries:
+
+```
+rootle provider install gitlab                 # bare name → rootledev/rootle-gitlab
+rootle provider install owner/repo@v0.1.0      # GitHub releases, tag-pinned
+rootle provider install https://artifacts.corp.example/p/rootle-gitlab-0.1.0-x86_64-unknown-linux-musl.tar.gz
+rootle provider install myprovider --path /opt/providers/rootle-myprovider
+```
+
+Every networked install is checksum-verified against the mandatory
+`.sha256` sidecar, whatever the host. Sources split into two
+deployment shapes: **releases-API sources** (github.com slugs/URLs)
+are tracked — `rootle provider update` refreshes their latest-known
+tags and `upgrade` swaps binaries. **Plain-HTTP and `--path`
+installs are install-and-pin** — `update`/`upgrade` never touch them;
+upgrades come from whatever deployed them (a config manager, an
+artifact-publishing pipeline). `--path` is a first-class deployment
+shape, not a testing convenience: it is the steady state for
+config-managed installs.
+
 ## Development
 
 ```

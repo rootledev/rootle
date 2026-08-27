@@ -30,11 +30,19 @@ pub struct Cli {
 /// switch the active backend.
 #[derive(Debug, Subcommand)]
 pub enum ProviderCommand {
-    /// Install a provider binary from GitHub releases.
+    /// Install a provider binary from a release or a plain-HTTP tarball.
     ///
     /// REF: `gitlab` (bare name, resolves to rootledev/rootle-gitlab),
     /// `owner/repo`, `https://github.com/owner/repo`, each optionally
-    /// `@tag`-pinned. Checksum verification is mandatory.
+    /// `@tag`-pinned — or a plain-HTTP URL naming the platform tarball
+    /// (`…/rootle-NAME[-vX.Y.Z]-TARGET.tar.gz`; the mandatory `.sha256`
+    /// sidecar rides next to it). Checksum verification is mandatory.
+    ///
+    /// Plain-HTTP and `--path` installs are install-and-pin:
+    /// `update`/`upgrade` track only releases-API sources (github.com
+    /// slugs/URLs); upgrades for the rest come from whatever deployed
+    /// them. `--path` is a first-class deployment shape — the steady
+    /// state for config-managed installs.
     Install {
         ref_: String,
 
