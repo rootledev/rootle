@@ -13,6 +13,7 @@ use crate::components::global_search::{GlobalSearch, SearchKind};
 use crate::components::keybinds_popup::KeybindsPopup;
 use crate::components::modeline::Modeline;
 use crate::components::pane::EntryKind;
+use crate::components::refs_popup::RefsPopup;
 use crate::components::search_popup::SearchPopup;
 use crate::components::settings_popup::SettingsPopup;
 use crate::components::vim_input::Outcome;
@@ -43,6 +44,10 @@ pub struct App {
     command_line: Option<CommandLine>,
     settings: Option<SettingsPopup>,
     wizard: Option<CloneWizard>,
+    /// Revision switcher overlay (plans/0016 M1a mock) and the
+    /// revision committed when it opened — Esc reverts the crumb.
+    refs_popup: Option<RefsPopup>,
+    refs_baseline: Option<String>,
     modeline: Modeline,
     theme: Theme,
     config: Config,
@@ -167,6 +172,8 @@ impl App {
             command_line: None,
             settings: None,
             wizard: None,
+            refs_popup: None,
+            refs_baseline: None,
             modeline: Modeline {
                 forge,
                 icon,
@@ -508,6 +515,9 @@ impl App {
         if let Some(help) = &mut self.help {
             return help.handle_key(key);
         }
+        if let Some(refs) = &mut self.refs_popup {
+            return refs.handle_key(key);
+        }
         if let Some(command_line) = &mut self.command_line {
             return command_line.handle_key(key);
         }
@@ -538,6 +548,7 @@ impl App {
                 Outcome::Noop => Action::Noop,
             },
             Mode::Leader => keymap::leader(key.code),
+            Mode::History => keymap::history(key.code),
             _ => Action::Noop,
         }
     }
@@ -557,6 +568,13 @@ impl App {
                     || self.help.take().is_some()
                     || self.command_line.take().is_some()
                 {
+                    return;
+                }
+                if self.refs_popup.take().is_some() {
+                    // Revisions switcher cancelled: the live preview
+                    // reverts to the committed revision.
+                    let baseline = self.refs_baseline.clone();
+                    self.browser.set_mock_ref(baseline);
                     return;
                 }
                 self.popup = None;
@@ -739,6 +757,52 @@ impl App {
                 self.browser.clear_marks();
                 self.status = Some("marks cleared".into());
             }
+            Action::LeaderRefs => {
+                self.mode = Mode::Browse;
+                if self.browser.repo_coords().is_none() {
+                    self.status = Some("open a repo to switch revisions".into());
+                } else {
+                    let current = self
+                        .browser
+                        .mock_ref()
+                        .or_else(|| self.browser.branch())
+                        .unwrap_or("main")
+                        .to_string();
+                    self.refs_baseline = self.browser.mock_ref().map(str::to_string);
+                    self.refs_popup = Some(RefsPopup::new(&current));
+                }
+            }
+            Action::RefsPreview(name) => {
+                // Live preview: the crumb follows the cursor.
+                self.browser.set_mock_ref(Some(name));
+            }
+            Action::RefsCommit(name) => {
+                self.refs_popup = None;
+                self.refs_baseline = Some(name.clone());
+                self.browser.set_mock_ref(Some(name.clone()));
+                self.status = Some(format!(
+                    "switched to {name} (mock — tree refetch not wired yet)"
+                ));
+            }
+            Action::LeaderHistory => {
+                self.mode = Mode::Browse;
+                if self.browser.open_history() {
+                    self.mode = Mode::History;
+                } else {
+                    self.status = Some("preview a file for its history".into());
+                }
+            }
+            Action::HistoryUp => self.browser.history_move(-1),
+            Action::HistoryDown => self.browser.history_move(1),
+            Action::HistoryOpen => {
+                if let Some((path, sha)) = self.browser.history_pick() {
+                    self.status = Some(format!("would open {path} @ {sha} (mock — no fetch yet)"));
+                }
+            }
+            Action::HistoryClose => {
+                self.browser.close_history();
+                self.mode = Mode::Browse;
+            }
             Action::LeaderYank => {
                 // Mock stage (plans/0003 §1): toast the URL that would
                 // be yanked; clipboard (OSC 52) wires up later.
@@ -806,13 +870,21 @@ impl App {
                     .search_scope
                     .as_deref()
                     .and_then(crate::components::global_search::Scope::from_stored);
-                self.search_view = Some(GlobalSearch::new(
+                let mut view = GlobalSearch::new(
                     kind,
                     repo,
                     org,
                     persisted_scope,
                     self.state.search_extension.clone(),
-                ));
+                );
+                // plans/0016 M1a: off the default branch, index-backed
+                // search (GitHub) can't follow — the title says so.
+                if let (Some(r), Some(b)) = (self.browser.mock_ref(), self.browser.branch())
+                    && r != b
+                {
+                    view.search_ref_note = Some(format!("search: {b} only"));
+                }
+                self.search_view = Some(view);
                 self.mode = Mode::Browse;
             }
             Action::CloseSearchView => {
@@ -1246,6 +1318,9 @@ impl App {
         }
         if let Some(wizard) = &mut self.wizard {
             wizard.render(frame, rows[0], &theme);
+        }
+        if let Some(refs) = &mut self.refs_popup {
+            refs.render(frame, rows[0], &theme);
         }
         // Command strip sits on the modeline's doorstep, last.
         if let Some(command_line) = &mut self.command_line {

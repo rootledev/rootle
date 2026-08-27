@@ -33,7 +33,21 @@ pub enum Action {
     LeaderSearch,
     LeaderFileFind,
     LeaderGrep,
+    /// `␣ b` — revision switcher (branches/tags), plans/0016 M1a.
+    LeaderRefs,
+    /// `␣ h` — file history lens over the preview, plans/0016 M1b.
+    LeaderHistory,
     LeaderQuit,
+
+    // Revision mocks (plans/0016 M1): the refs popup live-previews the
+    // crumb, Enter commits, Esc reverts; the history lens navigates
+    // commits and "opens" a revision (mock: status line, no fetch).
+    RefsPreview(String),
+    RefsCommit(String),
+    HistoryUp,
+    HistoryDown,
+    HistoryOpen,
+    HistoryClose,
 
     // Popup
     ClosePopup,

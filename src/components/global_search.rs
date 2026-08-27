@@ -108,6 +108,9 @@ pub struct GlobalSearch {
     /// rootle couldn't express anywhere — both are title chips.
     client_filtered: usize,
     unfiltered: Vec<String>,
+    /// plans/0016 M1a: off-default revisions on index-backed backends
+    /// can't be searched — the title says what the scope really is.
+    pub search_ref_note: Option<String>,
 }
 
 /// The expanded full-file pane (plans/0012 M2). The re-used browser
@@ -176,6 +179,7 @@ impl GlobalSearch {
             index_as_of: None,
             client_filtered: 0,
             unfiltered: vec![],
+            search_ref_note: None,
             filtering: false,
             pre_filter: String::new(),
             filter_value: String::new(),

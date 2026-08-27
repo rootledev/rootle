@@ -305,6 +305,110 @@ fn drilling_into_dir_uses_correct_relative_path() {
     );
 }
 
+/// plans/0016 M1a mock: `␣ b` opens the revision switcher, the crumb
+/// live-previews the cursor's ref, Enter commits (toast says mock),
+/// Esc reverts to the committed ref.
+#[test]
+fn refs_switcher_preview_commit_revert() {
+    let mut app = browsing_app();
+    app.handle_key(key(KeyCode::Char(' ')));
+    app.handle_key(key(KeyCode::Char('b')));
+    let screen = render(&mut app, 140, 30).join("\n");
+    assert!(screen.contains("revisions"), "switcher missing:\n{screen}");
+    assert!(
+        screen.contains("(•) main"),
+        "default radio missing:\n{screen}"
+    );
+    assert!(
+        screen.contains("release/2.7"),
+        "branches missing:\n{screen}"
+    );
+    assert!(screen.contains("tags"), "tags section missing:\n{screen}");
+
+    // Live preview: j moves to release/2.7, the crumb follows.
+    app.handle_key(key(KeyCode::Char('j')));
+    let screen = render(&mut app, 140, 30).join("\n");
+    assert!(
+        screen.contains("@ release/2.7"),
+        "crumb did not follow the cursor:\n{screen}"
+    );
+
+    // Enter commits: popup closes, toast admits the mock.
+    app.handle_key(key(KeyCode::Enter));
+    let screen = render(&mut app, 140, 30).join("\n");
+    assert!(!screen.contains("revisions —"), "popup should be closed");
+    assert!(
+        screen.contains("switched to release/2.7 (mock"),
+        "toast missing:\n{screen}"
+    );
+    assert!(
+        screen.contains("ratatui @ release/2.7"),
+        "committed crumb:\n{screen}"
+    );
+
+    // Reopen and Esc: reverts to the committed ref.
+    app.handle_key(key(KeyCode::Char(' ')));
+    app.handle_key(key(KeyCode::Char('b')));
+    app.handle_key(key(KeyCode::Char('j'))); // preview feature/miller-panes
+    app.handle_key(key(KeyCode::Esc));
+    let screen = render(&mut app, 140, 30).join("\n");
+    assert!(
+        screen.contains("@ release/2.7"),
+        "Esc must revert:\n{screen}"
+    );
+    assert!(!screen.contains("miller-panes @"), "preview must not stick");
+}
+
+/// plans/0016 M1b mock: `␣ h` swaps the preview for a commit list,
+/// Enter toasts the revision open, Esc restores the preview.
+#[test]
+fn history_lens_over_the_preview() {
+    let mut app = browsing_app();
+    app.handle_key(key(KeyCode::Char('l'))); // into ratatui root
+    for _ in 0..3 {
+        app.handle_key(key(KeyCode::Char('j'))); // onto Cargo.toml
+    }
+    let sha = "abc1234def5678";
+    app.handle_action(rootle::action::Action::BlobLoaded {
+        sha: sha.into(),
+        name: "Cargo.toml".into(),
+        bytes: b"[package]\nname = \"ratatui\"\n".to_vec(),
+    });
+    let screen = render(&mut app, 140, 30).join("\n");
+    assert!(screen.contains("[package]"), "preview should show the blob");
+
+    app.handle_key(key(KeyCode::Char(' ')));
+    app.handle_key(key(KeyCode::Char('h')));
+    let screen = render(&mut app, 140, 30).join("\n");
+    assert!(
+        screen.contains("HISTORY"),
+        "history chip missing:\n{screen}"
+    );
+    assert!(
+        screen.contains("history — Cargo.toml"),
+        "history title missing:\n{screen}"
+    );
+    assert!(screen.contains("a1b2c3d"), "commit rows missing:\n{screen}");
+    assert!(screen.contains("fold disjoint"));
+    assert!(
+        !screen.contains("[package]"),
+        "preview must not show through"
+    );
+
+    app.handle_key(key(KeyCode::Char('j')));
+    app.handle_key(key(KeyCode::Enter));
+    let screen = render(&mut app, 140, 30).join("\n");
+    assert!(
+        screen.contains("would open Cargo.toml @ e4f5a6b (mock"),
+        "revision-open toast missing:\n{screen}"
+    );
+
+    app.handle_key(key(KeyCode::Esc));
+    let screen = render(&mut app, 140, 30).join("\n");
+    assert!(screen.contains("[package]"), "Esc must restore the preview");
+    assert!(screen.contains("BROWSE"), "mode must revert");
+}
+
 #[test]
 fn file_preview_shows_highlighted_blob_and_scrolls() {
     let mut app = browsing_app();
@@ -848,14 +952,21 @@ fn leader_chip_and_hints_show_over_search_view() {
     assert!(screen.contains("find file"), "search view missing");
 
     // ␣ raises the leader layer over the view — the modeline must
-    // flip to the LEADER chip with the leader hints.
+    // flip to the LEADER chip with the leader hints (wide enough that
+    // none drop off the tail).
     app.handle_key(key(KeyCode::Char(' ')));
-    let screen = render(&mut app, 120, 30).join("\n");
+    let screen = render(&mut app, 140, 30).join("\n");
     assert!(
         screen.contains("LEADER"),
         "leader chip missing over the search view:\n{screen}"
     );
     assert!(screen.contains("yank"), "leader hints missing:\n{screen}");
+    // plans/0016 M1: revision keys are in the row.
+    assert!(screen.contains("branches"), "refs hint missing:\n{screen}");
+    assert!(
+        screen.contains("history"),
+        "history hint missing:\n{screen}"
+    );
 
     // Esc drops the layer; the view stays open with its own chip.
     app.handle_key(key(KeyCode::Esc));

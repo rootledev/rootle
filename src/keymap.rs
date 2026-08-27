@@ -28,6 +28,8 @@ pub fn hints(mode: Mode) -> &'static [(&'static str, &'static str)] {
             ("s", "search"),
             ("f", "find file"),
             ("g", "grep"),
+            ("b", "branches"),
+            ("h", "history"),
             ("/", "find in file"),
             ("y", "yank url"),
             ("c", "clear marks"),
@@ -43,6 +45,22 @@ pub fn hints(mode: Mode) -> &'static [(&'static str, &'static str)] {
             (":", "command"),
             ("v", "exit"),
         ],
+        Mode::History => &[
+            ("j/k", "commit"),
+            ("enter", "file at commit"),
+            ("esc", "back"),
+        ],
+    }
+}
+
+/// File-history lens (plans/0016 M1b): the preview pane lists commits.
+pub fn history(code: KeyCode) -> Action {
+    match code {
+        KeyCode::Char('j') | KeyCode::Down => Action::HistoryDown,
+        KeyCode::Char('k') | KeyCode::Up => Action::HistoryUp,
+        KeyCode::Enter => Action::HistoryOpen,
+        KeyCode::Esc => Action::HistoryClose,
+        _ => Action::Noop,
     }
 }
 
@@ -92,6 +110,8 @@ pub fn leader(code: KeyCode) -> Action {
         KeyCode::Char('g') => Action::LeaderGrep,
         KeyCode::Char('/') => Action::LeaderFindInFile,
         KeyCode::Char('y') => Action::LeaderYank,
+        KeyCode::Char('b') => Action::LeaderRefs,
+        KeyCode::Char('h') => Action::LeaderHistory,
         KeyCode::Char('c') => Action::ClearMarks,
         KeyCode::Char('d') => Action::DeleteMarked,
         KeyCode::Char('r') => Action::LeaderReload,

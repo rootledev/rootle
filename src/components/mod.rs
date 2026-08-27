@@ -9,6 +9,7 @@ pub mod keybinds_popup;
 pub mod modeline;
 pub mod pane;
 pub mod preview;
+pub mod refs_popup;
 pub mod search_popup;
 pub mod settings_popup;
 pub mod vim_input;

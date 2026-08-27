@@ -28,6 +28,7 @@ pub(crate) fn mode_color(mode: Mode, sem: &Semantic) -> Color {
         Mode::Normal => sem.mode_normal,
         Mode::Leader => sem.mode_leader,
         Mode::Visual => sem.mode_visual,
+        Mode::History => sem.mode_search,
     }
 }
 

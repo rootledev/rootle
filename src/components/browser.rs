@@ -7,13 +7,16 @@
 
 use super::pane::{Entry, EntryKind, Pane};
 use super::preview::Preview;
+use super::scrollbar;
 use super::vim_input::VimInput;
 use crate::action::Action;
 use crate::provider::TreeNode;
 use crate::theme::Theme;
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::text::Line;
+use ratatui::style::Style;
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, Borders, Paragraph};
 use std::collections::{HashMap, HashSet};
 
 mod tree;
@@ -59,6 +62,75 @@ pub struct Browser {
     /// `"<pane title>/<entry name>"` so marks survive cascades.
     visual: bool,
     marks: std::collections::HashSet<String>,
+    /// plans/0016 M1a mock: the switched revision — the modeline crumb
+    /// shows it; nothing refetches (mock stage).
+    mock_ref: Option<String>,
+    /// plans/0016 M1b mock: the file-history lens over the preview
+    /// pane. Some(_) while active; the preview survives underneath.
+    mock_history: Option<MockHistory>,
+}
+
+/// Mock commit list for the history lens (plans/0016 M1b). Real shape:
+/// `repo/log` items — sha, subject, author, date.
+pub struct MockHistory {
+    /// The file the lens is open on.
+    path: String,
+    cursor: usize,
+    scroll: u16,
+    entries: Vec<MockCommit>,
+}
+
+pub struct MockCommit {
+    sha: &'static str,
+    subject: String,
+    author: &'static str,
+    date: &'static str,
+}
+
+impl MockHistory {
+    /// Deterministic stand-ins, subjects referencing the file — what
+    /// `repo/log {path}` will return.
+    fn for_path(path: &str) -> Self {
+        let stem = path.rsplit('/').next().unwrap_or(path);
+        let entries = vec![
+            MockCommit {
+                sha: "a1b2c3d",
+                subject: format!("fix({stem}): fold disjoint match regions"),
+                author: "tarek",
+                date: "2026-08-25",
+            },
+            MockCommit {
+                sha: "e4f5a6b",
+                subject: format!("refactor({stem}): extract the gutter row"),
+                author: "tarek",
+                date: "2026-08-19",
+            },
+            MockCommit {
+                sha: "c7d8e9f",
+                subject: format!("feat({stem}): syntax-highlighted preview"),
+                author: "mira",
+                date: "2026-07-30",
+            },
+            MockCommit {
+                sha: "0a1b2c3",
+                subject: format!("chore({stem}): license headers"),
+                author: "mira",
+                date: "2026-07-02",
+            },
+            MockCommit {
+                sha: "d4e5f6a",
+                subject: format!("feat: initial {stem}"),
+                author: "tarek",
+                date: "2026-06-11",
+            },
+        ];
+        MockHistory {
+            path: path.to_string(),
+            cursor: 0,
+            scroll: 0,
+            entries,
+        }
+    }
 }
 
 impl Default for Browser {
@@ -93,6 +165,8 @@ impl Browser {
             find_input: VimInput::transient(),
             visual: false,
             marks: std::collections::HashSet::new(),
+            mock_ref: None,
+            mock_history: None,
         };
         browser.sync();
         browser
@@ -122,6 +196,50 @@ impl Browser {
             .filter(|e| e.kind == EntryKind::Repo)
             .map(|e| format!("{org}/{}", e.name))
             .collect()
+    }
+
+    /// The mock-switched revision (plans/0016 M1a), if any.
+    pub fn mock_ref(&self) -> Option<&str> {
+        self.mock_ref.as_deref()
+    }
+
+    /// Live-preview or commit a revision switch (mock: crumb only).
+    pub fn set_mock_ref(&mut self, name: Option<String>) {
+        self.mock_ref = name;
+    }
+
+    /// `␣ h` opens the history lens on the previewed file, if any.
+    /// Returns false when nothing file-shaped is under the cursor.
+    pub fn open_history(&mut self) -> bool {
+        match self.selected_file() {
+            Some((path, _)) => {
+                self.mock_history = Some(MockHistory::for_path(&path));
+                true
+            }
+            None => false,
+        }
+    }
+
+    pub fn history_active(&self) -> bool {
+        self.mock_history.is_some()
+    }
+
+    pub fn close_history(&mut self) {
+        self.mock_history = None;
+    }
+
+    pub fn history_move(&mut self, delta: i64) {
+        if let Some(h) = &mut self.mock_history {
+            let len = h.entries.len() as i64;
+            h.cursor = ((h.cursor as i64 + delta).rem_euclid(len)) as usize;
+        }
+    }
+
+    /// The picked commit, for the mock "open at revision" toast.
+    pub fn history_pick(&self) -> Option<(String, String)> {
+        let h = self.mock_history.as_ref()?;
+        let c = &h.entries[h.cursor];
+        Some((h.path.clone(), c.sha.to_string()))
     }
 
     /// VISUAL mode on: checkboxes appear on every pane.
@@ -289,13 +407,19 @@ impl Browser {
 
     pub fn context(&self) -> String {
         // Path up to the focused level (level 0 = orgs, not shown).
-        self.levels
+        let crumbs = self
+            .levels
             .iter()
             .skip(1)
             .take(self.focus)
             .map(|p| p.title.clone())
             .collect::<Vec<_>>()
-            .join(" · ")
+            .join(" · ");
+        // plans/0016 M1a: off-default revisions say so in the crumb.
+        match &self.mock_ref {
+            Some(r) if !crumbs.is_empty() => format!("{crumbs} @ {r}"),
+            _ => crumbs,
+        }
     }
 
     pub fn selected_kind(&self) -> Option<EntryKind> {
@@ -606,7 +730,78 @@ impl Browser {
         self.levels[parent].render(frame, cols[0], theme);
         let focus = self.focus;
         self.levels[focus].render(frame, cols[1], theme);
-        self.preview.render(frame, cols[2], theme);
+        // plans/0016 M1b: the history lens swaps the preview's content
+        // (same rect, same border idiom) — the preview is untouched
+        // underneath and Esc restores it.
+        if self.mock_history.is_some() {
+            self.render_history(frame, cols[2], theme);
+        } else {
+            self.preview.render(frame, cols[2], theme);
+        }
+    }
+
+    /// tig-shaped commit list for the previewed file (mock data).
+    fn render_history(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
+        let Some(h) = &mut self.mock_history else {
+            return;
+        };
+        let sem = &theme.semantic;
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(theme.border_type())
+            .border_style(Style::default().fg(sem.border_focused))
+            .style(Style::default().bg(sem.base))
+            .title(Span::styled(
+                format!(" history — {} ", h.path),
+                Style::default().fg(sem.subtext0),
+            ))
+            .title_bottom(Span::styled(
+                " j/k commit · enter file at commit · esc back ",
+                Style::default().fg(sem.hint),
+            ));
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+
+        let mut lines: Vec<Line> = Vec::new();
+        for (i, c) in h.entries.iter().enumerate() {
+            let selected = i == h.cursor;
+            let style = if selected {
+                Style::default().fg(sem.selection_fg).bg(sem.selection_bg)
+            } else {
+                Style::default().fg(sem.text)
+            };
+            let dim = if selected {
+                style
+            } else {
+                Style::default().fg(sem.subtext0)
+            };
+            lines.push(Line::from(vec![
+                Span::styled(
+                    if selected { "▌ " } else { "  " },
+                    Style::default().fg(sem.border_focused),
+                ),
+                Span::styled(format!("{} ", c.sha), Style::default().fg(sem.warning)),
+                Span::styled(c.subject.clone(), style),
+            ]));
+            lines.push(Line::from(vec![
+                Span::raw("    "),
+                Span::styled(format!("{} · {}", c.author, c.date), dim),
+            ]));
+        }
+        let height = inner.height as usize;
+        let total = lines.len();
+        let max_scroll = total.saturating_sub(height) as u16;
+        // Keep the selected commit's two-line row visible.
+        let want = (h.cursor * 2) as u16;
+        if want < h.scroll {
+            h.scroll = want;
+        } else if want + 1 >= h.scroll + height as u16 {
+            h.scroll = (want + 2).saturating_sub(height as u16);
+        }
+        h.scroll = h.scroll.min(max_scroll);
+        let scroll = h.scroll;
+        frame.render_widget(Paragraph::new(lines).scroll((scroll, 0)), inner);
+        scrollbar(frame, area, height, total, scroll as usize, theme);
     }
 }
 

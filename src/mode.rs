@@ -14,6 +14,8 @@ pub enum Mode {
     /// Later phases (multi-select).
     #[allow(dead_code)]
     Visual,
+    /// File-history lens over the preview pane (plans/0016 M1b).
+    History,
 }
 
 impl Mode {
@@ -26,6 +28,7 @@ impl Mode {
             Mode::Normal => "NORMAL",
             Mode::Leader => "LEADER",
             Mode::Visual => "VISUAL",
+            Mode::History => "HISTORY",
         }
     }
 }

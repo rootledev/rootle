@@ -77,8 +77,12 @@ fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cli: Cli) -> io::R
     let (tx, rx) = rootle::event::channel();
     let mut app = App::new(tx, config, theme);
     // `rootle owner/repo`: skip search, go straight to browsing.
-    if let Some((owner, name)) = cli.repo_parts() {
+    // `owner/repo@ref` (plans/0016 M1a): open AT the revision.
+    if let Some((owner, name, ref_)) = cli.repo_parts() {
         app.handle_action(rootle::action::Action::RepoSelected { owner, name });
+        if let Some(r) = ref_ {
+            app.handle_action(rootle::action::Action::RefsCommit(r));
+        }
     }
     let mut last_cursor_style: Option<SetCursorStyle> = None;
     loop {
