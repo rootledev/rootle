@@ -18,6 +18,7 @@ use crate::mode::Mode;
 use ratatui::crossterm::cursor::SetCursorStyle;
 
 mod backend;
+mod grammar;
 mod keys;
 pub mod mock;
 mod model;
@@ -86,6 +87,11 @@ pub struct GlobalSearch {
     /// here, matches + chips in the re-used `Preview`.
     find_input: VimInput,
     finding: bool,
+    /// plans/0012 M1: hits the client-side grammar filter subtracted
+    /// (a grammar-incapable backend over-served), and the tokens
+    /// rootle couldn't express anywhere — both are title chips.
+    client_filtered: usize,
+    unfiltered: Vec<String>,
 }
 
 /// The expanded full-file pane (plans/0012 M2). The re-used browser
@@ -152,6 +158,8 @@ impl GlobalSearch {
             clipped: false,
             dropped: 0,
             index_as_of: None,
+            client_filtered: 0,
+            unfiltered: vec![],
             filtering: false,
             pre_filter: String::new(),
             filter_value: String::new(),
@@ -295,6 +303,8 @@ impl GlobalSearch {
                 self.dropped = 0;
                 self.clipped = false;
                 self.index_as_of = None;
+                self.client_filtered = 0;
+                self.unfiltered = vec![];
                 self.focus = Focus::Results;
                 self.selected = 0;
                 self.scroll = 0;
@@ -307,10 +317,14 @@ impl GlobalSearch {
                 hits,
                 clipped,
                 index,
+                client_filtered,
+                unfiltered,
             } => {
                 self.pending = false;
                 self.clipped = *clipped || self.dropped > 0;
                 self.index_as_of = index.clone();
+                self.client_filtered = *client_filtered;
+                self.unfiltered = unfiltered.clone();
                 // A streamed final is metadata-only (empty hits) — the
                 // accumulated set stands. A full set replaces it.
                 if !hits.is_empty() {
@@ -523,6 +537,8 @@ mod tests {
             hits: mock::hits(SearchKind::Grep, query, ""),
             clipped: false,
             index: None,
+            client_filtered: 0,
+            unfiltered: vec![],
         });
     }
 

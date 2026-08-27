@@ -51,6 +51,11 @@ pub enum AppEvent {
         /// v1.3: index freshness ("2026-08-20T14:00:00Z") for indexed
         /// backends — rendered next to the result count.
         index: Option<String>,
+        /// v1.2-grammar (plans/0012 M1): hits the client-side
+        /// subtraction filter removed.
+        client_filtered: usize,
+        /// Grammar tokens not expressible anywhere (title chip).
+        unfiltered: Vec<String>,
     },
     /// Streamed batch (v1.3, plans/0011): raw hits as the provider
     /// emits them; styled on the UI thread, appended under `gen_id`.

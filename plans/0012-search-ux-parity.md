@@ -1,6 +1,6 @@
 # 0012 — Search UX parity: grammar depth, full-file preview, facets
 
-Status: **M2 done** (M1, M3 not started)
+Status: **M1 + M2 done** (2026-08-27); M3 (facets) not started
 
 ## Problem
 

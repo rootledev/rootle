@@ -2,6 +2,7 @@
 //! thread; everything here is pure I/O → RawHit, styling happens on
 //! the UI thread.
 
+use super::grammar;
 use super::model::{RawHit, SearchKind};
 use crate::provider::Provider;
 
@@ -20,6 +21,12 @@ const BACKEND_CAP: usize = 500;
 pub struct SearchOutcome {
     pub clipped: bool,
     pub index_as_of: Option<String>,
+    /// Hits the client-side grammar filter removed (plans/0012 M1) —
+    /// the title's `filtered` chip.
+    pub client_filtered: usize,
+    /// Grammar tokens rootle couldn't express anywhere — the title's
+    /// `unfiltered` chip.
+    pub unfiltered: Vec<String>,
 }
 
 /// Build the `/search/code` query: file find matches paths, grep
@@ -81,11 +88,10 @@ fn tree_file_find(
 ) -> crate::provider::ProviderResult<SearchOutcome> {
     let tree = provider.fetch_tree(repo_full)?;
     let branch = tree.branch;
-    let needles: Vec<String> = query
-        .to_lowercase()
-        .split_whitespace()
-        .map(str::to_string)
-        .collect();
+    // v1.2 grammar (plans/0012 M1): quoted literals are one needle,
+    // negation subtracts, language:/extension: filter by extension.
+    let g = grammar::parse(query);
+    let needles: Vec<String> = g.terms.iter().map(|t| t.to_lowercase()).collect();
     let ext = extension.trim_start_matches('.').to_lowercase();
     let mut scored: Vec<(i32, RawHit)> = Vec::new();
     for entry in tree.entries {
@@ -94,6 +100,20 @@ fn tree_file_find(
         }
         let path_lower = entry.path.to_lowercase();
         if !ext.is_empty() && !path_lower.ends_with(&format!(".{ext}")) {
+            continue;
+        }
+        if let Some(inline) = &g.extension
+            && !path_lower.ends_with(&format!(".{}", inline.to_lowercase()))
+        {
+            continue;
+        }
+        if let Some(false) = grammar::lang_matches(&g.language, &path_lower) {
+            continue;
+        }
+        if let Some(true) = grammar::lang_matches(&g.negated_language, &path_lower) {
+            continue;
+        }
+        if g.negated.iter().any(|n| path_lower.contains(n)) {
             continue;
         }
         let Some(score) = file_find_score(&path_lower, &needles) else {
@@ -126,6 +146,8 @@ fn tree_file_find(
     Ok(SearchOutcome {
         clipped: client_capped,
         index_as_of: None,
+        client_filtered: 0,
+        unfiltered: grammar::unexpressible(&g),
     })
 }
 
@@ -206,6 +228,14 @@ fn code_search(
     on_hits: &(dyn Fn(Vec<RawHit>) + Send + Sync),
 ) -> crate::provider::ProviderResult<SearchOutcome> {
     let q = code_query(kind, query, scope_label, extension);
+    // plans/0012 M1: the raw query goes out verbatim (GitHub's grammar
+    // is a superset natively; adapters translate what they can) — and
+    // the client-side subtraction filter is the no-op-safe net for
+    // backends that can't express negation or language:. What rootle
+    // can't express anywhere lands on the title's unfiltered chip.
+    let g = grammar::parse(query);
+    let unfiltered = grammar::unexpressible(&g);
+    let client_filtered = std::sync::atomic::AtomicUsize::new(0);
     let preview_budget = std::sync::atomic::AtomicUsize::new(PREVIEW_CAP);
     let result =
         provider.search_code_progressive(&q, &|items: &[crate::provider::CodeMatch]| {
@@ -242,11 +272,15 @@ fn code_search(
             if kind == SearchKind::FileFind {
                 add_blob_heads(provider, &mut batch);
             }
+            let (batch, dropped) = grammar::filter_hits(&g, batch);
+            client_filtered.fetch_add(dropped, std::sync::atomic::Ordering::Relaxed);
             on_hits(batch);
         })?;
     Ok(SearchOutcome {
         clipped: result.truncated,
         index_as_of: result.index_as_of,
+        client_filtered: client_filtered.load(std::sync::atomic::Ordering::Relaxed),
+        unfiltered,
     })
 }
 

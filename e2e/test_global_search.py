@@ -56,6 +56,38 @@ def test_extension_field_narrows_over_provider(provider_tui: Tui) -> None:
     assert "README.md" not in screen  # ext:rs drops the markdown hit
 
 
+def test_grep_grammar_quotes_negation_language(provider_tui: Tui) -> None:
+    """plans/0012 M1: quoted literals, negation, and language: against
+    the fs reference adapter (it post-filters; rootle's own filter is
+    a no-op net over its sets)."""
+    tui = provider_tui
+    open_fs_repo(tui)  # local/alpha — repo scope
+
+    tui.send(" ")
+    tui.send("g")
+    # Negation: -docs drops the README hit (its content says "docs").
+    tui.type_query("render -docs")
+    tui.key("ENTER")
+    screen = tui.expect("local/alpha/src/main.rs")
+    assert "README.md" not in screen, f"negated hit still shown: {screen}"
+
+    # Quoted literal: one needle, not two terms.
+    tui.send(" ")
+    tui.send("g")
+    tui.type_query('"fn render"')
+    tui.key("ENTER")
+    screen = tui.expect("local/alpha/src/main.rs")
+    assert "README.md" not in screen, f"quoted literal split: {screen}"
+
+    # language:markdown keeps only the README.
+    tui.send(" ")
+    tui.send("g")
+    tui.type_query("render language:markdown")
+    tui.key("ENTER")
+    screen = tui.expect("README.md")
+    assert "main.rs" not in screen, f"language filter failed: {screen}"
+
+
 def test_grep_view_scope_radio_popup(provider_tui: Tui) -> None:
     tui = provider_tui
     open_fs_repo(tui)

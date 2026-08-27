@@ -30,6 +30,7 @@ import hashlib
 import json
 import os
 import pathlib
+import shlex
 import subprocess
 import sys
 
@@ -106,30 +107,91 @@ def blob_by_sha(root: str, repo: str, sha: str) -> bytes:
     raise ValueError(f"no blob {sha} in {repo}")
 
 
-def parse_query(q: str) -> tuple[str, str | None, str | None, str | None]:
-    """Split a rootle code query into (terms, repo, org, extension)."""
-    repo = org = ext = None
-    terms = []
-    for token in q.split():
-        if token.startswith("repo:"):
-            repo = token[5:]
-        elif token.startswith("org:"):
-            org = token[4:]
-        elif token.startswith("extension:"):
-            ext = token[10:]
-        elif token.startswith("path:"):
-            terms.append(token[5:])  # path match ≈ term match for fs
+LANG_EXTS = {
+    "rust": ["rs"], "python": ["py", "pyi"], "javascript": ["js", "jsx", "mjs"],
+    "typescript": ["ts", "tsx"], "go": ["go"], "c": ["c", "h"],
+    "c++": ["cpp", "cc", "hpp"], "java": ["java"], "ruby": ["rb"],
+    "shell": ["sh", "bash"], "bash": ["sh", "bash"], "toml": ["toml"],
+    "yaml": ["yaml", "yml"], "json": ["json"], "markdown": ["md"],
+    "html": ["html"], "css": ["css"],
+}
+
+
+def parse_query(q: str) -> dict:
+    """Split a rootle code query (plans/0012 M1 grammar): quoted
+    literals are one term; `-term` / `NOT term` negate;
+    `language:`/`extension:` filter by extension. Scope qualifiers
+    (`repo:`/`org:`) scope the walk; `path:` counts as a term (path
+    match ≈ term match for fs)."""
+    try:
+        tokens = shlex.split(q)
+    except ValueError:  # unterminated quote — the phrase is one term
+        tokens = shlex.split(q + '"')
+    parsed: dict = {
+        "terms": [], "negated": [], "repo": None, "org": None,
+        "ext": None, "lang": None, "neglang": None,
+    }
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
+        neg = False
+        if tok == "NOT" and i + 1 < len(tokens):
+            neg = True
+            i += 1
+            tok = tokens[i]
+        elif tok.startswith("-"):
+            neg = True
+            tok = tok[1:]
+        if not tok:
+            pass
+        elif tok.startswith("repo:"):
+            parsed["repo"] = tok[5:]
+        elif tok.startswith("org:"):
+            parsed["org"] = tok[4:]
+        elif tok.startswith("extension:"):
+            parsed["ext"] = tok[10:].lstrip(".")
+        elif tok.startswith("language:"):
+            parsed["neglang" if neg else "lang"] = tok[9:].lower()
+        elif tok.startswith("path:"):
+            (parsed["negated"] if neg else parsed["terms"]).append(tok[5:])
         else:
-            terms.append(token)
-    return " ".join(terms), repo, org, ext
+            (parsed["negated"] if neg else parsed["terms"]).append(tok)
+        i += 1
+    return parsed
+
+
+def file_in_scope(path: str, text: str, parsed: dict) -> list[str] | None:
+    """The matched needles, or None when the file is out — negation
+    and language: are post-filters (the fs backend has no query
+    grammar of its own to translate to)."""
+    low = text.lower()
+    needles = [t.lower() for t in parsed["terms"]]
+    matched = [n for n in needles if n in low]
+    if needles and not matched:
+        return None
+    path_low = path.lower()
+    for n in parsed["negated"]:
+        if n.lower() in low or n.lower() in path_low:
+            return None
+    ext = path.rsplit(".", 1)[-1].lower() if "." in path else ""
+    if parsed["lang"]:
+        exts = LANG_EXTS.get(parsed["lang"], [parsed["lang"]])
+        if ext not in exts:
+            return None
+    if parsed["neglang"]:
+        exts = LANG_EXTS.get(parsed["neglang"], [parsed["neglang"]])
+        if ext in exts:
+            return None
+    return matched
 
 
 def search_code(root: str, q: str, limit: int | None) -> tuple[list[dict], bool]:
     """One-shot search. Honors the v1.4 advisory `limit`: stop
     scanning at ~N and set `truncated` — which means exactly what a
     provider's own cap means (doc/provider-protocol.md)."""
-    terms, repo_scope, _org, ext = parse_query(q)
-    needles = [t.lower() for t in terms.split() if t]
+    parsed = parse_query(q)
+    repo_scope = parsed["repo"]
+    ext = parsed["ext"]
     repos = [f"{ORG}/{repo_scope.split('/', 1)[1]}"] if repo_scope else [
         f"{ORG}/{d}" for d in sorted(os.listdir(root))
         if os.path.isdir(os.path.join(root, d)) and d not in SKIP_DIRS
@@ -153,8 +215,8 @@ def search_code(root: str, q: str, limit: int | None) -> tuple[list[dict], bool]
                 continue
             if text.startswith("\x00") or "\x00" in text[:8192]:
                 continue  # binary
-            matched = [n for n in needles if n in text.lower()]
-            if needles and not matched:
+            matched = file_in_scope(entry["path"], text, parsed)
+            if matched is None:
                 continue
             items.append(
                 {
@@ -178,8 +240,9 @@ def search_code_batches(
     caller as a $/partial notification. Honors the v1.4 advisory
     `limit`: stop scanning at ~N (batch granularity) and report
     `truncated` in the metadata-only reply."""
-    terms, repo_scope, _org, ext = parse_query(q)
-    needles = [t.lower() for t in terms.split() if t]
+    parsed = parse_query(q)
+    repo_scope = parsed["repo"]
+    ext = parsed["ext"]
     repos = [f"{ORG}/{repo_scope.split('/', 1)[1]}"] if repo_scope else [
         f"{ORG}/{d}" for d in sorted(os.listdir(root))
         if os.path.isdir(os.path.join(root, d)) and d not in SKIP_DIRS
@@ -205,8 +268,8 @@ def search_code_batches(
                 continue
             if text.startswith("\x00") or "\x00" in text[:8192]:
                 continue  # binary
-            matched = [n for n in needles if n in text.lower()]
-            if needles and not matched:
+            matched = file_in_scope(entry["path"], text, parsed)
+            if matched is None:
                 continue
             # v1.3: we know the real line — first one matching the first
             # needle (the backend hands us offsets nobody has).
