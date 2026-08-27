@@ -78,8 +78,9 @@ pub struct GlobalSearch {
 }
 
 /// Max rendered hits for a streamed search (v1.3, plans/0011): past
-/// it the view counts and clips instead of growing without bound.
-const RENDER_CAP: usize = 500;
+/// it the view counts and clips instead of growing without bound. The
+/// same number goes out on the wire as `limit` (v1.4 advisory).
+const RENDER_CAP: usize = crate::provider::RENDER_BUDGET;
 
 impl GlobalSearch {
     /// The scope waterfalls from the current browser context: an open

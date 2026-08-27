@@ -146,7 +146,10 @@ impl Provider for StdioProvider {
     }
 
     fn search_code(&self, q: &str) -> ProviderResult<SearchCodeResult> {
-        let r: CodeReply = de(self.request("search/code", json!({ "q": q }))?)?;
+        let r: CodeReply = de(self.request(
+            "search/code",
+            json!({ "q": q, "limit": crate::provider::RENDER_BUDGET }),
+        )?)?;
         Ok(SearchCodeResult {
             hits: code_matches(&r.items),
             truncated: r.truncated,
@@ -173,7 +176,7 @@ impl Provider for StdioProvider {
         };
         let reply: CodeReply = de(self.exchange_with_partials(
             "search/code",
-            json!({ "q": q, "partial": true }),
+            json!({ "q": q, "partial": true, "limit": crate::provider::RENDER_BUDGET }),
             &sink,
         )?)?;
         Ok(SearchCodeResult {
