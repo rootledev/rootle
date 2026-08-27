@@ -176,6 +176,47 @@ def test_enter_expands_hit_into_full_file_pane(provider_tui: Tui) -> None:
     tui.expect("2 matches")
 
 
+def test_facet_chips_narrow_and_restore(provider_tui: Tui) -> None:
+    """plans/0012 M3: chips appear from the accumulated hits, Enter on
+    one commits it as a local filter, Enter again restores the set."""
+    tui = provider_tui
+    open_fs_repo(tui)
+
+    tui.send(" ")
+    tui.send("g")
+    tui.type_query("fn")
+    tui.key("TAB")  # query → scope
+    tui.send("j")  # repo → org (scope follows the field cursor)
+    tui.send("j")  # org → global: alpha and nested/sub/deep both hit
+    tui.key("TAB")  # scope → extension (no facets yet: skipped)
+    tui.key("ENTER")  # submit from the extension field
+
+    # Chips over the accumulated set: both repos, rust only ("fn" is
+    # in main.rs and lib.rs, not README/notes).
+    screen = tui.expect("facets")
+    assert "local/alpha·1" in screen
+    assert "local/nested·1" in screen, f"deep repo chip: {screen}"
+    assert "rust·2" in screen
+
+    # Tab to the chip row (results → query → scope → extension →
+    # facets); cursor 0 is the alpha chip. Enter commits it.
+    for _ in range(4):
+        tui.key("TAB")
+    tui.key("ENTER")
+    screen = tui.expect("local/alpha/src/main.rs")
+    assert "lib.rs" not in screen, f"facet should drop the deep hit: {screen}"
+
+    # Enter on the active chip restores the full accumulated set.
+    tui.key("ENTER")
+    tui.expect("lib.rs")
+
+    # Esc from the chip row clears nothing (no committed filter) and
+    # closes the view; the browser shows no chip residue.
+    tui.key("ESC")
+    screen = tui.expect_gone("facets")
+    assert "README.md" in screen
+
+
 def test_closing_view_restores_browser(provider_tui: Tui) -> None:
     tui = provider_tui
     open_fs_repo(tui)
