@@ -37,21 +37,58 @@ depth, not breadth.
 The gap: trees/blobs/search all pin the default branch today
 (`repo/tree` params carry only `{"repo"}`; the reply's `branch` is
 informative, not selectable). "This only happens on release/2.7"
-should make someone reach for rootle.
+should make someone reach for rootle. Three sub-milestones, each
+shippable alone.
 
-- `rootle owner/repo@branch` CLI grammar + an in-app revision
-  switcher (branches/tags popup on the repo pane).
-- Protocol: additive `ref?` param on `repo/tree`, `repo/blob`,
-  `search/code` scope, `repo/web_url`; replies already carry `branch`.
-  Refs listing: `repo/refs` (branches + tags). Conformance cases in
-  forge-conformance; adapters translate (GitLab `ref=`, Bitbucket
-  `at=`, GitHub `ref`).
-- Then: commits view (`repo/log`), file history, and blame
-  (`repo/blame` — the heaviest; GitHub REST has no blame, GraphQL
-  does — decide backend-by-backend, capability-gated, honest when
-  absent).
-- Design gate: how refs interact with the content-keyed cache (sha
-  addressing makes this safe by construction — verify, don't assume).
+**M1a — branches & tags (v1.5 candidate, additive).**
+Wire:
+- `repo/refs` — `{"repo"}` →
+  `{"branches":[{"name","sha","default"?}], "tags":[{"name","sha"}]}`.
+  GitHub `/branches` + `/git/refs/tags`, GitLab `repository/branches` +
+  `tags`, Bitbucket `refs/branches` all map directly.
+- `ref?` param on `repo/tree` (the only content call that needs it —
+  `repo/blob` is sha-keyed, `repo/web_url` already takes `branch`).
+- Capability `refs` (default false = default-branch only, said
+  honestly where the switcher would be).
+UX:
+- CLI: `rootle owner/repo@ref` (ref = everything after the first `@`;
+  slashes legal: `release/2.7`).
+- The repo's modeline crumb reads `repo @ branch` when off-default.
+- `␣ b` opens the refs popup — the scope-radio pattern (live follow,
+  Enter commits, Esc reverts, `/` filters): branches first, tags
+  dimmed below. Switching refetches the tree; the status line names
+  the switch.
+- Search honesty: GitHub REST code search only indexes the default
+  branch — grep off-default shows a `search: <default> only` chip
+  there; GitLab translates (`ref` param); fs/bitbucket walk the
+  switched tree, so they search the revision you're looking at.
+Cache: ref→sha is the only mutable mapping and already exists
+ETag-revalidated in the github provider (`index/refs/…`); trees/blobs
+stay content-keyed and immutable. Verify this by construction, not by
+hope — a conformance case pins "tree at ref A ≠ tree at ref B ⇒
+different shas, both cached".
+
+**M1b — file history (`repo/log`).**
+Wire: `{"repo","path"?,"ref"?,"limit"?}` →
+`{"items":[{"sha","subject","author","date"}], "truncated"?}` —
+`limit` rides the bounded-compute decision (0014 #4). All three
+backends have it (GitHub `/commits?path=&sha=`, GitLab
+`repository/commits?path=&ref_name=`, Bitbucket `commits?path=`).
+UX: `␣ h` on a previewed file turns the preview pane into the commit
+list (subject · author · relative date, tig-shaped); Enter opens the
+file AT that commit in the preview (read-only; the adapter resolves
+commit → tree → blob sha), Esc returns to the present. Yanking from a
+historical view anchors the URL to the commit sha — a permalink that
+never rots. v1 has no diffs (see non-goals: not a git frontend).
+
+**M1c — blame.** Deferred on evidence: GitHub REST has no blame
+(GraphQL only), so a v1 would be GitLab/Bitbucket-only — a
+one-backend capability teaches the protocol nothing (same argument as
+symbol/references in 0013). Revisit with M1a/b landed.
+
+Conformance: forge-conformance gains FC-09x cases (refs listing
+shape, tree-at-ref sha discipline, log shape + limit) with the wire
+spec — the suite is where these land first.
 
 ### M2 — Provider onboarding polish
 
@@ -63,14 +100,15 @@ trust signals, arbitrary-host installs in 0.7.0). Remaining:
 - First-run hint when a search fails for capability reasons
   (`code_search: false` → "install X for content search" guidance).
 
-### M3 — PR/MR as a lens over source
+### M3 — PR/MR support: **declined by the owner (2026-08-27)**
 
-Read-only, source-centric: select PR → changed files as a miller
-column → diff view → surrounding file context → open locally / yank
-permalink. Wire: `pr/list`, `pr/files`, `pr/diff` shapes designed
-when the first provider implements it (gitlab's MRs API and GitHub's
-pulls/files both map). Explicitly NOT: reviews, comments threads,
-checkout/push/update actions.
+"I don't want to expand the tool to PRs/issues — PRs/issues are for
+gh-dash or the web side." rootle stays focused on code. The review's
+caution is adopted as a boundary: not even the read-only lens. If a
+provider-shaped argument ever changes this (e.g. reviewing a PR's
+*source* without a checkout turns out to be the same browsing
+problem), it comes back as a fresh plan — this paragraph is the
+graveyard marker, not a backlog item.
 
 ### M4 — Enterprise/self-hosted story
 
