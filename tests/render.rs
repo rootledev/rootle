@@ -393,6 +393,24 @@ fn refs_switcher_preview_commit_revert() {
 /// plans/0016 M1b/M1c: blame lens from real ranges, Enter opens the
 /// history lens at the blamed commit, Enter again opens the file at
 /// that commit, Esc unwinds to the present.
+/// 0017 M3: a newer release lands the `↑` chip and a one-line status.
+#[test]
+fn update_notice_chips_in_the_modeline() {
+    let mut app = browsing_app();
+    app.handle_app_event(rootle::event::AppEvent::UpdateAvailable {
+        tag: "v9.9.9".into(),
+    });
+    let screen = render(&mut app, 100, 30).join("\n");
+    assert!(
+        screen.contains("↑ v9.9.9"),
+        "modeline chip missing:\n{screen}"
+    );
+    assert!(
+        screen.contains("rootle v9.9.9 is out"),
+        "status line missing:\n{screen}"
+    );
+}
+
 #[test]
 fn preview_submode_zoom_blame_history() {
     let mut app = browsing_app();

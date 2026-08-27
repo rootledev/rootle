@@ -67,9 +67,12 @@ pub struct Modeline {
     /// Provider-declared icon spec (builtin name or literal glyph).
     pub icon: Option<String>,
     pub context: String,
-    /// Transient one-line status ("searching…", errors) shown after
+    /// Transient one-line status ("searching/loading/error") shown after
     /// the caret, in warning color.
     pub status: Option<String>,
+    /// A newer release tag when the startup check found one (0017 M3)
+    /// — an accent ` ↑ vX.Y.Z ` before the keys affordance.
+    pub update_tag: Option<String>,
 }
 
 impl Default for Modeline {
@@ -85,6 +88,7 @@ impl Modeline {
             icon: None,
             context: String::new(),
             status: None,
+            update_tag: None,
         }
     }
 
@@ -158,13 +162,31 @@ impl Modeline {
             ));
         }
 
+        // The update chip (0017 M3): a newer release, accent — left of
+        // the keys affordance.
+        let chip = self.update_tag.as_ref().map(|t| format!(" ↑ {t} "));
+        let chip_w = chip
+            .as_ref()
+            .map(|c| UnicodeWidthStr::width(c.as_str()))
+            .unwrap_or(0);
         let pad = w
             .saturating_sub(spans.iter().map(|s| s.content.width()).sum::<usize>())
-            .saturating_sub(afford_w);
+            .saturating_sub(afford_w + chip_w);
         spans.push(Span::styled(
             " ".repeat(pad),
             Style::default().bg(sem.mantle),
         ));
+        if let Some(chip) = chip
+            && w >= left_w + afford_w + chip_w + 4
+        {
+            spans.push(Span::styled(
+                chip,
+                Style::default()
+                    .fg(sem.warning)
+                    .bg(sem.mantle)
+                    .add_modifier(Modifier::BOLD),
+            ));
+        }
         if w >= left_w + afford_w + 4 {
             spans.push(Span::styled(
                 format!(" {affordance} "),
@@ -260,6 +282,7 @@ mod tests {
             icon: Some("github".into()),
             context: "ratatui/ratatui · main".into(),
             status: None,
+            update_tag: None,
         }
     }
 

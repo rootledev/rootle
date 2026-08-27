@@ -25,6 +25,16 @@ pub struct Cli {
     /// upgrade, pin, remove, use.
     #[command(subcommand)]
     pub provider: Option<ProviderCommand>,
+
+    /// Update rootle itself (tarball/install.sh installs self-update,
+    /// checksum-verified; brew/cargo/mise installs get their channel's
+    /// command).
+    #[arg(long)]
+    pub update: bool,
+
+    /// With --update: report only, don't write.
+    #[arg(long, requires = "update")]
+    pub check: bool,
 }
 
 /// Install a provider from a GitHub release, manage it locally, and
@@ -139,6 +149,8 @@ mod tests {
             config: None,
             theme: None,
             provider: None,
+            update: false,
+            check: false,
         }
     }
 

@@ -12,6 +12,7 @@ pub struct Config {
     pub cache: CacheConfig,
     pub provider: ProviderConfig,
     pub ui: UiConfig,
+    pub update: UpdateConfig,
 }
 
 /// Backend selection (plans/0005): built-in GitHub by default, or an
@@ -62,6 +63,21 @@ pub struct ThemeConfig {
     pub name: String,
     pub path: Option<PathBuf>,
 }
+/// Update notice (0017 M3): the 24h-cached startup check.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default)]
+pub struct UpdateConfig {
+    /// Modeline notice when a newer release exists; false disables
+    /// the one startup call entirely.
+    pub check: bool,
+}
+
+impl Default for UpdateConfig {
+    fn default() -> Self {
+        UpdateConfig { check: true }
+    }
+}
+
 /// Chrome preferences.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default)]
@@ -104,6 +120,7 @@ impl Default for Config {
                 nerd_font: false,
                 separator: "pipe".into(),
             },
+            update: UpdateConfig { check: true },
         }
     }
 }

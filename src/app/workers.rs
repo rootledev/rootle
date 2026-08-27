@@ -155,6 +155,19 @@ impl App {
         });
     }
 
+    /// Startup update check (0017 M3): 24h-cached, one network call a
+    /// day at most; failures are silent by design.
+    pub(super) fn spawn_update_check(&self) {
+        let tx = self.tx.clone();
+        std::thread::spawn(move || {
+            if let Some(tag) = crate::update::latest_known()
+                && crate::update::is_newer(&tag)
+            {
+                let _ = tx.send(AppEvent::UpdateAvailable { tag });
+            }
+        });
+    }
+
     /// Revision fetches (v1.5, plans/0016 M1): one worker per lens;
     /// landings are identity-checked by the UI.
     pub(super) fn spawn_refs(&self, repo: String) {

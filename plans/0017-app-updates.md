@@ -1,7 +1,9 @@
 # 0017 — App updates: changelog, update notice, `rootle update`
 
-Status: **accepted (2026-08-27)** — owner ask: TUI update path +
-a visible notice + a changelog to link to.
+Status: **done (2026-08-27)** — changelog landed, `rootle update`
+self-updates tarball installs (verified, atomic), the modeline chips
+`↑ vX.Y.Z` (24h-cached startup check, silent offline, `[update]
+check = false` disables).
 
 ## Problem
 

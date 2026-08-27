@@ -169,6 +169,10 @@ pub enum AppEvent {
         path: String,
         error: ProviderError,
     },
+    /// Startup update check (0017 M3): a newer release tag exists.
+    UpdateAvailable {
+        tag: String,
+    },
 }
 
 pub type AppTx = std::sync::mpsc::Sender<AppEvent>;

@@ -53,6 +53,9 @@ pub struct App {
     /// closes (history from blame, find from preview).
     history_return: Option<Mode>,
     find_return: Option<Mode>,
+    /// A newer release tag when the startup check found one (0017 M3)
+    /// — the modeline's `↑ vX.Y.Z` chip.
+    update_tag: Option<String>,
     modeline: Modeline,
     theme: Theme,
     config: Config,
@@ -138,6 +141,11 @@ impl App {
         if let Some(warning) = warning {
             app.status = Some(warning);
         }
+        // 0017 M3: the 24h-cached update notice — never offline, never
+        // blocking, silent on failure.
+        if !app.offline && app.config.update.check {
+            app.spawn_update_check();
+        }
         // Warm the repos level for the initially selected org.
         if let Some(org) = app.browser.selected_org() {
             app.handle_action(Action::LoadOrgRepos(org));
@@ -194,11 +202,13 @@ impl App {
             refs_baseline: None,
             history_return: None,
             find_return: None,
+            update_tag: None,
             modeline: Modeline {
                 forge,
                 icon,
                 context: String::new(),
                 status: None,
+                update_tag: None,
             },
             theme,
             config,
@@ -575,6 +585,10 @@ impl App {
             }
             AppEvent::BlobAtFailed { path: _, error } => {
                 self.status = Some(provider_status(&error));
+            }
+            AppEvent::UpdateAvailable { tag } => {
+                self.update_tag = Some(tag.clone());
+                self.status = Some(format!("rootle {tag} is out — run `rootle update`"));
             }
         }
     }
@@ -1550,6 +1564,7 @@ impl App {
         }
         let modeline_row = rows[rows.len() - 1];
         self.modeline.status = self.status.clone();
+        self.modeline.update_tag = self.update_tag.clone();
         self.modeline.render(frame, modeline_row, mode, &theme);
 
         if let Some(popup) = &mut self.popup {
