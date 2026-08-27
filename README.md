@@ -66,7 +66,7 @@ search (it says so in the status line when it matters).
 | Doc | Contents |
 |---|---|
 | [settings](https://rootle.dev/docs/settings.html) | every config key, env var, CLI flag |
-| [themes](https://rootle.dev/docs/themes.html) | writing your own palette (role reference) |
+| [themes](doc/themes.md) | writing your own palette (role reference) |
 | [provider protocol](doc/provider-protocol.md) | wrap your own backend (NDJSON-RPC over stdio) |
 | [development](doc/development.md) | architecture, dev workflow, e2e harness |
 | [house style](doc/house-style.md) | the component behavior contract |
