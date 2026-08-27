@@ -161,7 +161,10 @@ Details:
 - **Bounded compute (advisory):** `search/code` MAY carry `"limit": N`
   — the client's render budget (rootle renders 500 hits and clips
   beyond). The provider SHOULD stop scanning at ~N, set
-  `truncated: true`, and never compute results the client would clip:
+  `truncated: true` — which means exactly what a provider's own cap
+  means (provably fewer results than the query matches, whatever chose
+  the budget; three providers must not guess three ways) — and never
+  compute results the client would clip:
   pagination-shaped input, streaming output, no cursor, no load-more.
   The load-more loop lives in the adapter, not the protocol: drive
   your backend's own paging lazily (compute a page only when you are
