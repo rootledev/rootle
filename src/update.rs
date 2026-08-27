@@ -120,7 +120,7 @@ fn update_inner(
         use std::os::unix::fs::PermissionsExt;
         let _ = std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o755));
     }
-    std::fs::rename(&staged, &exe).map_err(|e| e.to_string())?;
+    std::fs::rename(&staged, exe).map_err(|e| e.to_string())?;
     Ok(format!(
         "{current} → {tag} (sha256 {}…) — takes effect on next launch",
         &mgr::sha256_hex(&bytes)[..12]

@@ -276,10 +276,10 @@ def git_blame(root: str, repo: str, path: str, ref: str | None) -> dict:
         elif line.startswith("\t"):
             if sha is not None:
                 by_sha.setdefault(sha, (author or "", ts))
+                # Full ISO-8601 — the same shape repo/log's %aI emits,
+                # so the suite can cross-check blame date == commit date.
                 date = (
-                    datetime.datetime.fromtimestamp(ts, datetime.timezone.utc)
-                    .date()
-                    .isoformat()
+                    datetime.datetime.fromtimestamp(ts, datetime.timezone.utc).isoformat()
                     if ts
                     else ""
                 )
