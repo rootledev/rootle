@@ -34,4 +34,6 @@ jobs:
       - name: Conformance suite vs the fs reference provider
         run: |
           python3 -m pip install pytest
-          python3 forge-conformance/run -- python3 examples/providers/fs_provider.py
+          # `run` chdirs into the suite root — the provider path must
+          # be absolute.
+          python3 forge-conformance/run -- python3 "$GITHUB_WORKSPACE/examples/providers/fs_provider.py"
