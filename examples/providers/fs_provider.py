@@ -17,6 +17,10 @@ Protocol v1 methods:
     repo/blob     {repo, sha} -> {bytes_b64}
     search/code   {q}     -> {items: [{repo, path, sha, branch, matches}]}
 
+Advisory params honored: `partial` (v1.3 — stream $/partial batches,
+metadata-only reply) and `limit` (v1.4 — stop scanning at ~N hits,
+set truncated: true).
+
 Contract: blob shas are content hashes (sha256) — they change when
 content changes, which is what rootle's cache requires.
 """
@@ -28,7 +32,6 @@ import os
 import pathlib
 import subprocess
 import sys
-from typing import Iterator
 
 ORG = "local"
 SKIP_DIRS = {".git", "__pycache__", "target", "node_modules"}
@@ -121,7 +124,10 @@ def parse_query(q: str) -> tuple[str, str | None, str | None, str | None]:
     return " ".join(terms), repo, org, ext
 
 
-def search_code(root: str, q: str) -> list[dict]:
+def search_code(root: str, q: str, limit: int | None) -> tuple[list[dict], bool]:
+    """One-shot search. Honors the v1.4 advisory `limit`: stop
+    scanning at ~N and set `truncated` — which means exactly what a
+    provider's own cap means (doc/provider-protocol.md)."""
     terms, repo_scope, _org, ext = parse_query(q)
     needles = [t.lower() for t in terms.split() if t]
     repos = [f"{ORG}/{repo_scope.split('/', 1)[1]}"] if repo_scope else [
@@ -129,7 +135,10 @@ def search_code(root: str, q: str) -> list[dict]:
         if os.path.isdir(os.path.join(root, d)) and d not in SKIP_DIRS
     ]
     items = []
+    truncated = False
     for repo in repos:
+        if truncated:
+            break
         if not os.path.isdir(os.path.join(root, repo.split("/", 1)[1])):
             continue
         for entry in walk_tree(root, repo):
@@ -156,19 +165,31 @@ def search_code(root: str, q: str) -> list[dict]:
                     "matches": matched,
                 }
             )
-    return items
+            if limit is not None and len(items) >= limit:
+                truncated = True
+                break
+    return items, truncated
 
 
-def search_code_batches(root: str, q: str) -> Iterator[list[dict]]:
-    """v1.3 progressive search: yield per-repo batches; the caller
-    streams each as a $/partial notification."""
+def search_code_batches(
+    root: str, q: str, limit: int | None
+) -> tuple[list[list[dict]], bool]:
+    """v1.3 progressive search: per-repo batches, each streamed by the
+    caller as a $/partial notification. Honors the v1.4 advisory
+    `limit`: stop scanning at ~N (batch granularity) and report
+    `truncated` in the metadata-only reply."""
     terms, repo_scope, _org, ext = parse_query(q)
     needles = [t.lower() for t in terms.split() if t]
     repos = [f"{ORG}/{repo_scope.split('/', 1)[1]}"] if repo_scope else [
         f"{ORG}/{d}" for d in sorted(os.listdir(root))
         if os.path.isdir(os.path.join(root, d)) and d not in SKIP_DIRS
     ]
+    batches: list[list[dict]] = []
+    sent = 0
+    truncated = False
     for repo in repos:
+        if truncated:
+            break
         if not os.path.isdir(os.path.join(root, repo.split("/", 1)[1])):
             continue
         batch = []
@@ -206,8 +227,13 @@ def search_code_batches(root: str, q: str) -> Iterator[list[dict]]:
                     "line": line,
                 }
             )
+            if limit is not None and sent + len(batch) >= limit:
+                truncated = True
+                break
         if batch:
-            yield batch
+            batches.append(batch)
+            sent += len(batch)
+    return batches, truncated
 
 
 def handle(root: str, method: str, params: dict) -> dict:
@@ -257,7 +283,8 @@ def handle(root: str, method: str, params: dict) -> dict:
         data = blob_by_sha(root, params["repo"], params["sha"])
         return {"bytes_b64": base64.b64encode(data).decode()}
     if method == "search/code":
-        return {"items": search_code(root, params.get("q", ""))}
+        items, truncated = search_code(root, params.get("q", ""), params.get("limit"))
+        return {"items": items, "truncated": truncated}
     raise ValueError(f"unknown method {method!r}")
 
 
@@ -284,7 +311,10 @@ def main() -> None:
                 # v1.3: stream batches as $/partial notifications keyed
                 # by the request id; the reply is metadata-only.
                 partial = req.get("id")
-                for batch in search_code_batches(root, params.get("q", "")):
+                batches, truncated = search_code_batches(
+                    root, params.get("q", ""), params.get("limit")
+                )
+                for batch in batches:
                     note = {
                         "jsonrpc": "2.0",
                         "method": "$/partial",
@@ -292,7 +322,7 @@ def main() -> None:
                     }
                     sys.stdout.write(json.dumps(note) + "\n")
                     sys.stdout.flush()
-                result = {"items": [], "truncated": False}
+                result = {"items": [], "truncated": truncated}
             else:
                 result = handle(root, req.get("method", ""), params)
             reply = {"jsonrpc": "2.0", "id": req.get("id"), "result": result}
