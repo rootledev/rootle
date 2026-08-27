@@ -151,17 +151,22 @@ jobs:
           mkdir -p /tmp/tap/Casks
           sha_arm="$(cut -d' ' -f1 "dist/rootle-$ver-aarch64-apple-darwin.tar.gz.sha256")"
           sha_x64="$(cut -d' ' -f1 "dist/rootle-$ver-x86_64-apple-darwin.tar.gz.sha256")"
+          # Canonical brew-cask layout (brew style's stanza order,
+          # grouping, aligned sha256 continuation, capitalized desc,
+          # homepage trailing slash) — the Style step on the tap runs
+          # rubocop against exactly this shape.
           cat > /tmp/tap/Casks/rootle.rb <<EOF
           cask "rootle" do
-            version "$ver"
-
             arch arm: "aarch64", intel: "x86_64"
-            sha256 arm: "$sha_arm", intel: "$sha_x64"
+
+            version "$ver"
+            sha256 arm:   "$sha_arm",
+                   intel: "$sha_x64"
 
             url "https://github.com/rootledev/rootle/releases/download/v#{version}/rootle-#{version}-#{arch}-apple-darwin.tar.gz"
             name "rootle"
-            desc "modal TUI for browsing remote source-control systems from the terminal"
-            homepage "https://rootle.dev"
+            desc "Modal TUI for browsing remote source-control systems from the terminal"
+            homepage "https://rootle.dev/"
 
             binary "rootle-#{version}-#{arch}-apple-darwin/rootle"
           end
