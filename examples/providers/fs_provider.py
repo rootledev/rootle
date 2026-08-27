@@ -187,6 +187,15 @@ def search_code_batches(root: str, q: str) -> Iterator[list[dict]]:
             matched = [n for n in needles if n in text.lower()]
             if needles and not matched:
                 continue
+            # v1.3: we know the real line — first one matching the first
+            # needle (the backend hands us offsets nobody has).
+            line = 1
+            if matched:
+                lowered = text.lower()
+                for n, ln in enumerate(lowered.splitlines(), start=1):
+                    if matched[0] in ln:
+                        line = n
+                        break
             batch.append(
                 {
                     "repo": repo,
@@ -194,6 +203,7 @@ def search_code_batches(root: str, q: str) -> Iterator[list[dict]]:
                     "sha": entry["sha"],
                     "branch": "main",
                     "matches": matched,
+                    "line": line,
                 }
             )
         if batch:

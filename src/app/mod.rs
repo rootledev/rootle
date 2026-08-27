@@ -304,6 +304,7 @@ impl App {
                 gen_id,
                 hits,
                 clipped,
+                index,
             } => {
                 if gen_id != self.view_gen {
                     return; // stale submission
@@ -319,7 +320,11 @@ impl App {
                     .collect();
                 let hits = self.finish_hits(hits, kind, &query);
                 if let Some(view) = &mut self.search_view {
-                    view.update(&Action::GlobalSearchResults { hits, clipped });
+                    view.update(&Action::GlobalSearchResults {
+                        hits,
+                        clipped,
+                        index,
+                    });
                 }
                 // Bare selected hit (beyond the eager preview cap): ask
                 // for its context lazily (plans/0006 §1).
@@ -779,6 +784,7 @@ impl App {
                         view.update(&Action::GlobalSearchResults {
                             hits,
                             clipped: false,
+                            index: None,
                         });
                     }
                     self.status = None;

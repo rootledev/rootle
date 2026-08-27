@@ -72,6 +72,9 @@ pub struct GlobalSearch {
     /// Streamed hits past RENDER_CAP (v1.3): counted, not kept — the
     /// title's clipped chip covers them.
     dropped: usize,
+    /// v1.3: when the provider's index was built (None = live/unknown)
+    /// — shown next to the result count.
+    index_as_of: Option<String>,
 }
 
 /// Max rendered hits for a streamed search (v1.3, plans/0011): past
@@ -122,6 +125,7 @@ impl GlobalSearch {
             filter: VimInput::transient(),
             clipped: false,
             dropped: 0,
+            index_as_of: None,
             filtering: false,
             pre_filter: String::new(),
             filter_value: String::new(),
@@ -225,6 +229,7 @@ impl GlobalSearch {
                 self.hits.clear();
                 self.dropped = 0;
                 self.clipped = false;
+                self.index_as_of = None;
                 self.focus = Focus::Results;
                 self.selected = 0;
                 self.scroll = 0;
@@ -232,9 +237,14 @@ impl GlobalSearch {
             Action::GlobalSearchDelta { hits } => {
                 self.append_hits(hits.clone());
             }
-            Action::GlobalSearchResults { hits, clipped } => {
+            Action::GlobalSearchResults {
+                hits,
+                clipped,
+                index,
+            } => {
                 self.pending = false;
                 self.clipped = *clipped || self.dropped > 0;
+                self.index_as_of = index.clone();
                 // A streamed final is metadata-only (empty hits) — the
                 // accumulated set stands. A full set replaces it.
                 if !hits.is_empty() {
@@ -383,6 +393,7 @@ mod tests {
         view.update(&Action::GlobalSearchResults {
             hits: mock::hits(SearchKind::Grep, query, ""),
             clipped: false,
+            index: None,
         });
     }
 

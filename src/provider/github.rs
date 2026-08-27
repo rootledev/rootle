@@ -58,6 +58,7 @@ impl Provider for GitHubProvider {
         Capabilities {
             orgs: true,
             code_search: true,
+            file_search: true,
         }
     }
 
@@ -134,6 +135,7 @@ impl Provider for GitHubProvider {
         Ok(super::SearchCodeResult {
             hits: items.iter().map(CodeMatch::from).collect(),
             truncated,
+            index_as_of: None,
         })
     }
 
@@ -164,6 +166,8 @@ impl Provider for GitHubProvider {
         Ok(super::SearchCodeResult {
             hits: Vec::new(),
             truncated: (total as usize) > fetched,
+            // GitHub's index freshness isn't exposed — no badge.
+            index_as_of: None,
         })
     }
 }
@@ -185,6 +189,9 @@ impl From<&crate::github::types::CodeItem> for CodeMatch {
                 .flat_map(|tm| tm.matches.iter().map(|m| m.text.clone()))
                 .collect(),
             located: true,
+            // GitHub text-match fragments carry no absolute line
+            // numbers — locating fills them.
+            line: None,
         }
     }
 }

@@ -142,15 +142,19 @@ Details:
 - `search/code` — `q` is the full query with qualifiers (`repo:`,
   `org:`, `extension:`, `path:`). Items: `{"repo","path","sha","branch",
   "matches":[str,…]}`; `sha` defaults to `""`, `branch` to `"main"`,
-  `matches` to `[]`. `matches` are matched substrings — the UI locates
-  them in the blob to compute real line numbers and previews. Optional
-  per-item `located` (bool, default `true`): `false` means the provider
-  knows its index is stale for this hit — the UI shows a `stale` chip
-  instead of line numbers until client-side locating self-heals it.
-  Optional top-level `truncated` (bool, v1.2, default `false`): `true`
-  means the provider capped its own result set — the UI marks the
-  results as clipped so a complete set is distinguishable from a cut
-  one.
+  `matches` to `[]`. `matches` are matched substrings — rootle locates
+  them in the blob for previews; optional per-item `line` (v1.3,
+  1-based) is a provider-known anchor used as-is (the first substring
+  occurrence is often the wrong one). **An item with empty `matches`
+  is a legal path-only hit** — "this file matched". Optional top-level
+  `truncated` (v1.2): the provider capped its set; optional
+  `index: {"as_of": …}` (v1.3): when an indexed backend built its
+  index — rootle shows it next to the result count (`located: false`
+  covers the per-hit case, this the index-wide one).
+- **Capabilities (v1.3):** optional `file_search` splits filename
+  search from content search — absent inherits `code_search`. A forge
+  with no global content index (Bitbucket Cloud, GitLab without
+  Advanced Search) says `code_search: false, file_search: true`.
 - **Progressive search (v1.3, plans/0011):** rootle sends
   `search/code` with `"partial": true` and renders `$/partial` batches
   as they arrive — see the section below.
@@ -219,6 +223,25 @@ Rules:
 The reference adapter (`fs_provider.py`) streams `search/code` per
 repo; the in-tree GitHub provider streams per REST page (100/page,
 3-page budget, `truncated` past that).
+
+## Reserved (designed, not yet consumed)
+
+Shapes agreed with adapter authors — safe to emit early (reader
+tolerance ignores unknown fields), deliberately not consumed by rootle
+yet so no adapter builds on an unfinished surface:
+
+- **`repo/clone_plan`** — `{"url", "args"?: [str], "env"?: {str: str}}`:
+  the provider controls everything git-related (credential helper via
+  `-c` args or `GIT_CONFIG_*` env, SSH-vs-HTTPS via url, shallow or
+  partial clone policy via args, internal mirrors via url) while
+  rootle keeps destination choice, progress, and per-repo failure
+  handling in the wizard. The declarative bridge short of
+  provider-performed clone (which needs notifications + a deadline
+  exemption and stays a v2 question with `$/progress`).
+- **Search paging names** — request `offset`/`limit`, reply
+  `next_offset`: the shapes pagination would take if the results view
+  grows a load-more; streaming (`$/partial`) covers the need today.
+
 
 
 ## Errors

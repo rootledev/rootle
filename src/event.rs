@@ -47,8 +47,10 @@ pub enum AppEvent {
     GlobalSearchResults {
         gen_id: u64,
         hits: Vec<crate::components::global_search::RawHit>,
-        /// Provider-truncated or client-capped (plans/0008 §4).
         clipped: bool,
+        /// v1.3: index freshness ("2026-08-20T14:00:00Z") for indexed
+        /// backends — rendered next to the result count.
+        index: Option<String>,
     },
     /// Streamed batch (v1.3, plans/0011): raw hits as the provider
     /// emits them; styled on the UI thread, appended under `gen_id`.

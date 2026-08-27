@@ -150,6 +150,7 @@ impl Provider for StdioProvider {
         Ok(SearchCodeResult {
             hits: code_matches(&r.items),
             truncated: r.truncated,
+            index_as_of: r.index.as_of,
         })
     }
 
@@ -178,6 +179,7 @@ impl Provider for StdioProvider {
         Ok(SearchCodeResult {
             hits: Vec::new(),
             truncated: reply.truncated,
+            index_as_of: reply.index.as_of,
         })
     }
 
@@ -216,6 +218,15 @@ struct CodeReply {
     /// v1.2 (plans/0008 §4): provider capped its result set.
     #[serde(default)]
     truncated: bool,
+    /// v1.3: index-wide freshness for indexed backends.
+    #[serde(default)]
+    index: IndexInfo,
+}
+
+#[derive(serde::Deserialize, Default)]
+struct IndexInfo {
+    #[serde(default)]
+    as_of: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -231,6 +242,9 @@ struct WireItem {
     /// v1.1: absent = located (verified placement).
     #[serde(default = "located")]
     located: bool,
+    /// v1.3: provider-known line number; absent = unknown.
+    #[serde(default)]
+    line: Option<u32>,
 }
 
 fn main_branch() -> String {
@@ -251,6 +265,7 @@ fn code_matches(items: &[WireItem]) -> Vec<CodeMatch> {
             branch: i.branch.clone(),
             matches: i.matches.clone(),
             located: i.located,
+            line: i.line,
         })
         .collect()
 }

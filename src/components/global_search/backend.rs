@@ -13,6 +13,15 @@ const PREVIEW_CAP: usize = 8;
 /// view keeps its own render cap.
 const BACKEND_CAP: usize = 500;
 
+/// Search outcome metadata: the clipped flag plus v1.3 index
+/// freshness (indexed backends say when their index was built — a
+/// lagging index is worth a badge next to the results).
+#[derive(Debug, Clone, Default)]
+pub struct SearchOutcome {
+    pub clipped: bool,
+    pub index_as_of: Option<String>,
+}
+
 /// Build the `/search/code` query: file find matches paths, grep
 /// matches content; scope/ext map to GitHub qualifiers.
 ///
@@ -47,7 +56,7 @@ pub fn run_view_search(
     scope_label: &str,
     extension: &str,
     on_hits: &(dyn Fn(Vec<RawHit>) + Send + Sync),
-) -> crate::provider::ProviderResult<bool> {
+) -> crate::provider::ProviderResult<SearchOutcome> {
     if kind == SearchKind::FileFind && scope_label.starts_with("repo:") {
         return tree_file_find(
             provider,
@@ -69,7 +78,7 @@ fn tree_file_find(
     repo_full: &str,
     extension: &str,
     on_hits: &(dyn Fn(Vec<RawHit>) + Send + Sync),
-) -> crate::provider::ProviderResult<bool> {
+) -> crate::provider::ProviderResult<SearchOutcome> {
     let tree = provider.fetch_tree(repo_full)?;
     let branch = tree.branch;
     let needles: Vec<String> = query
@@ -114,7 +123,10 @@ fn tree_file_find(
         .collect();
     add_blob_heads(provider, &mut hits);
     on_hits(hits);
-    Ok(client_capped)
+    Ok(SearchOutcome {
+        clipped: client_capped,
+        index_as_of: None,
+    })
 }
 
 /// GitHub-"go-to-file"-style match (behavior verified against
@@ -192,7 +204,7 @@ fn code_search(
     scope_label: &str,
     extension: &str,
     on_hits: &(dyn Fn(Vec<RawHit>) + Send + Sync),
-) -> crate::provider::ProviderResult<bool> {
+) -> crate::provider::ProviderResult<SearchOutcome> {
     let q = code_query(kind, query, scope_label, extension);
     let preview_budget = std::sync::atomic::AtomicUsize::new(PREVIEW_CAP);
     let result =
@@ -205,14 +217,16 @@ fn code_search(
                     path: item.path.clone(),
                     sha: item.sha.clone(),
                     branch: item.branch.clone(),
-                    line: 1,
+                    // v1.3: a provider-known line is the anchor; locating
+                    // refines it (and fills the preview) when it runs.
+                    line: item.line.unwrap_or(1),
                     preview: vec![],
                     match_count: needles.len() as u32,
                     stale: !item.located,
                 };
                 // Grep: real line numbers come from locating the matched
-                // texts in the blob (fragments carry no absolute numbers).
                 if kind == SearchKind::Grep
+                    && !needles.is_empty()
                     && preview_budget.load(std::sync::atomic::Ordering::Relaxed) > 0
                     && let Some((line, preview, count)) =
                         locate_matches(provider, &hit.repo, &hit.sha, &needles)
@@ -220,6 +234,7 @@ fn code_search(
                     hit.line = line;
                     hit.preview = preview;
                     hit.match_count = count;
+                    hit.stale = false; // located client-side: self-healed
                     preview_budget.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
                 }
                 batch.push(hit);
@@ -229,7 +244,10 @@ fn code_search(
             }
             on_hits(batch);
         })?;
-    Ok(result.truncated)
+    Ok(SearchOutcome {
+        clipped: result.truncated,
+        index_as_of: result.index_as_of,
+    })
 }
 
 /// (first match line, preview lines, matched-line count).

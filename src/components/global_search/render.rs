@@ -141,7 +141,6 @@ impl GlobalSearch {
         } else {
             sem.border_unfocused
         };
-
         let mut title = if let Some(error) = &self.error {
             format!(" results — error: {error} ")
         } else if self.pending && self.hits.is_empty() {
@@ -153,7 +152,16 @@ impl GlobalSearch {
         } else if self.hits.is_empty() && self.submitted_once {
             " results — no matches ".into()
         } else if self.submitted_once {
-            let suffix = if self.clipped { " · clipped" } else { "" };
+            let mut suffix = String::new();
+            if let Some(as_of) = &self.index_as_of {
+                // Indexed backends say when the index was built — a
+                // lagging index is worth the badge.
+                let short: String = as_of.chars().take(19).collect();
+                suffix.push_str(&format!(" · index {short}"));
+            }
+            if self.clipped {
+                suffix.push_str(" · clipped");
+            }
             format!(" results — {}{suffix} ", self.visible().len())
         } else {
             " results ".into()
