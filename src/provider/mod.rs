@@ -83,11 +83,16 @@ impl From<&str> for ProviderError {
 
 pub type ProviderResult<T> = std::result::Result<T, ProviderError>;
 
-/// What a provider supports; the UI degrades on `false`.
+/// What a provider supports; the UI degrades on `false`. `file_search`
+/// (v1.3) covers path-only search (the `path:` grammar); absent on the
+/// wire it inherits `code_search` — a forge with filename search but
+/// no global content index (Bitbucket Cloud, GitLab without Advanced
+/// Search) says `code_search: false, file_search: true`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Capabilities {
     pub orgs: bool,
     pub code_search: bool,
+    pub file_search: bool,
 }
 
 /// Repo/org search result for the launch popup.
@@ -116,8 +121,12 @@ pub struct TreeResult {
     pub branch: String,
 }
 
-/// One code-search hit. `matches` are the matched substrings (the UI
-/// locates them in the blob for real line numbers).
+/// One code-search hit. `matches` are the matched substrings — an
+/// empty vec is a legal **path-only hit** ("this file matched"). When
+/// `matches` is non-empty the UI locates them in the blob for real
+/// line numbers; `line`, when the provider knows it, is the anchor
+/// used as-is (the first occurrence of a substring is often not the
+/// occurrence that matched).
 #[derive(Debug, Clone)]
 pub struct CodeMatch {
     pub repo: String,
@@ -128,15 +137,22 @@ pub struct CodeMatch {
     /// v1.1: provider knows its index is stale for this hit (the UI
     /// shows a stale chip until client-side locating self-heals).
     pub located: bool,
+    /// v1.3: provider-known line number (1-based); `None` = unknown,
+    /// the UI locates or anchors at 1.
+    pub line: Option<u32>,
 }
 
-/// Code-search page plus the provider's own truncation signal
-/// (plans/0008 §4): a backend that caps its result set says so;
-/// absent on the wire means `false` (complete).
+/// Code-search outcome metadata: the provider's own truncation signal
+/// (plans/0008 §4) and, for indexed backends, when the index was
+/// built (`located: false` covers the per-hit case; this is the
+/// index-wide one — a lagging index is worth a badge next to the
+/// results).
 #[derive(Debug, Clone)]
 pub struct SearchCodeResult {
     pub hits: Vec<CodeMatch>,
     pub truncated: bool,
+    /// v1.3: e.g. "2026-08-20T14:00:00Z"; `None` = live or unknown.
+    pub index_as_of: Option<String>,
 }
 
 /// The backend contract. Blocking; calls run on worker threads.
@@ -185,6 +201,7 @@ pub trait Provider: Send + Sync {
         Ok(SearchCodeResult {
             hits: Vec::new(),
             truncated: result.truncated,
+            index_as_of: result.index_as_of,
         })
     }
 
@@ -303,6 +320,7 @@ pub fn offline() -> Arc<dyn Provider> {
             Capabilities {
                 orgs: false,
                 code_search: false,
+                file_search: false,
             }
         }
         fn search(&self, _: &str) -> ProviderResult<Vec<SearchItem>> {

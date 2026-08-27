@@ -858,6 +858,7 @@ fn streamed_batches_merge_and_metadata_final_keeps_the_set() {
     app.handle_action(rootle::action::Action::GlobalSearchResults {
         hits: vec![],
         clipped: true,
+        index: Some("2026-08-20T14:00:00Z".into()),
     });
 
     let rows = render(&mut app, 100, 30);
@@ -872,6 +873,10 @@ fn streamed_batches_merge_and_metadata_final_keeps_the_set() {
     );
     assert!(screen.contains("42"), "merged region line visible");
     assert!(screen.contains("clipped"), "metadata final applies clipped");
+    assert!(
+        screen.contains("index 2026-08-20T14:00"),
+        "v1.3 index badge in title: {screen}"
+    );
     assert!(!screen.contains("streaming"), "final clears pending");
 }
 
@@ -1008,6 +1013,7 @@ fn stale_hit_shows_chip_until_located() {
     app.handle_action(rootle::action::Action::GlobalSearchResults {
         hits: vec![stale],
         clipped: false,
+        index: None,
     });
     let screen = render(&mut app, 100, 30).join("\n");
     assert!(
@@ -1222,6 +1228,7 @@ fn unlocatable_hit_flips_from_stale_to_its_own_chip() {
     app.handle_action(rootle::action::Action::GlobalSearchResults {
         hits: vec![hit],
         clipped: false,
+        index: None,
     });
     let screen = render(&mut app, 100, 30).join("\n");
     assert!(screen.contains("stale"), "stale chip renders:\n{screen}");
@@ -1259,6 +1266,7 @@ fn clipped_result_set_says_so_in_the_title() {
     app.handle_action(rootle::action::Action::GlobalSearchResults {
         hits: vec![hit],
         clipped: true,
+        index: None,
     });
     let screen = render(&mut app, 100, 30).join("\n");
     assert!(

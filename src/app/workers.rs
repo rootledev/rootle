@@ -95,12 +95,16 @@ impl App {
                 &extension,
                 &on_hits,
             ) {
-                Ok(clipped) => {
-                    trace(&format!("view search ok gen={gen_id} clipped={clipped}"));
+                Ok(outcome) => {
+                    trace(&format!(
+                        "view search ok gen={gen_id} clipped={} index={:?}",
+                        outcome.clipped, outcome.index_as_of
+                    ));
                     AppEvent::GlobalSearchResults {
                         gen_id,
                         hits: Vec::new(),
-                        clipped,
+                        clipped: outcome.clipped,
+                        index: outcome.index_as_of,
                     }
                 }
                 Err(error) => {

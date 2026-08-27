@@ -47,6 +47,15 @@ impl StdioProvider {
                     .get("code_search")
                     .and_then(Value::as_bool)
                     .unwrap_or(true),
+                // v1.3: absent inherits code_search (back-compat).
+                file_search: caps
+                    .get("file_search")
+                    .and_then(Value::as_bool)
+                    .unwrap_or_else(|| {
+                        caps.get("code_search")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(true)
+                    }),
             };
         }
         if let Some(bytes) = reply.pointer("/cache/bytes").and_then(Value::as_u64) {

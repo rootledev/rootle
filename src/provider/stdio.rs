@@ -168,6 +168,7 @@ impl StdioProvider {
             capabilities: Capabilities {
                 orgs: true,
                 code_search: true,
+                file_search: true,
             },
             process: Mutex::new(process),
             shared,

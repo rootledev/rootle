@@ -74,6 +74,9 @@ pub enum Action {
         /// Provider-truncated or client-capped result set (plans/0008
         /// §4) — complete and clipped sets are distinguishable.
         clipped: bool,
+        /// v1.3: index freshness for indexed backends; `None` = live
+        /// or unknown.
+        index: Option<String>,
     },
     /// Streamed batch (v1.3, plans/0011): merged into the result set
     /// by file identity; selection survives.

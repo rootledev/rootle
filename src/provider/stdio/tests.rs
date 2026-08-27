@@ -108,7 +108,7 @@ fn fake_provider_child() {
                 for n in 1..=2 {
                     writeln!(
                         stdout,
-                        r#"{{"jsonrpc":"2.0","method":"$/partial","params":{{"id":{id},"items":[{{"repo":"o/r","path":"f{n}.rs","sha":"s{n}","matches":["hit"]}}]}}}}"#
+                        r#"{{"jsonrpc":"2.0","method":"$/partial","params":{{"id":{id},"items":[{{"repo":"o/r","path":"f{n}.rs","sha":"s{n}","matches":["hit"],"line":{n}}}]}}}}"#
                     )
                     .unwrap();
                     stdout.flush().unwrap();
@@ -139,7 +139,7 @@ fn fake_provider_child() {
                     std::thread::sleep(Duration::from_millis(150));
                     writeln!(
                         stdout,
-                        r#"{{"jsonrpc":"2.0","method":"$/partial","params":{{"id":{id},"items":[{{"repo":"o/r","path":"f{n}.rs","sha":"s{n}","matches":["hit"]}}]}}}}"#
+                        r#"{{"jsonrpc":"2.0","method":"$/partial","params":{{"id":{id},"items":[{{"repo":"o/r","path":"f{n}.rs","sha":"s{n}","matches":["hit"],"line":{n}}}]}}}}"#
                     )
                     .unwrap();
                     stdout.flush().unwrap();
@@ -283,14 +283,18 @@ fn streaming_search_delivers_ordered_batches_then_metadata() {
             batches.lock().unwrap().push(
                 items
                     .iter()
-                    .map(|m| m.path.clone())
-                    .collect::<Vec<String>>(),
+                    .map(|m| (m.path.clone(), m.line))
+                    .collect::<Vec<(String, Option<u32>)>>(),
             );
         })
         .unwrap();
     assert_eq!(
         batches.into_inner().unwrap(),
-        vec![vec!["f1.rs".to_string()], vec!["f2.rs".to_string()]]
+        vec![
+            vec![("f1.rs".to_string(), Some(1))],
+            vec![("f2.rs".to_string(), Some(2))],
+        ],
+        "ordered batches, provider-known lines (v1.3)"
     );
     assert!(result.hits.is_empty(), "streamed final is metadata-only");
     assert!(result.truncated);
@@ -337,7 +341,7 @@ fn partials_reset_the_inactivity_deadline() {
 fn backend_streams_fake_provider_batches_through_the_sink() {
     let provider = fake("stream-search", Duration::from_secs(5));
     let batches = std::sync::atomic::AtomicUsize::new(0);
-    let clipped = crate::components::global_search::run_view_search(
+    let outcome = crate::components::global_search::run_view_search(
         &provider,
         crate::components::global_search::SearchKind::Grep,
         "hit",
@@ -349,7 +353,7 @@ fn backend_streams_fake_provider_batches_through_the_sink() {
     )
     .expect("streamed search succeeds");
     assert_eq!(batches.load(std::sync::atomic::Ordering::Relaxed), 2);
-    assert!(clipped); // the fake replies truncated: true
+    assert!(outcome.clipped); // the fake replies truncated: true
 }
 
 /// S2, now load-bearing: two requests in flight at once, replies
@@ -371,8 +375,6 @@ fn concurrent_requests_route_out_of_order_replies() {
             tx.send(("A", std::time::Instant::now())).unwrap();
         })
     };
-    // Give A's line time to reach the child so it holds id 2 back.
-    std::thread::sleep(Duration::from_millis(150));
     let b = {
         let provider = Arc::clone(&provider);
         std::thread::spawn(move || {
