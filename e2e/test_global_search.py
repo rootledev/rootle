@@ -93,11 +93,55 @@ def test_results_slash_filter_and_editor_open(provider_tui: Tui) -> None:
     tui.key("ESC")  # cancel → full list
     tui.expect("README.md")
 
-    # Enter on a hit opens the editor (VISUAL=true: no-op suspend/
-    # resume) — the blob comes through the provider.
+    # Enter expands the hit into the whole file (plans/0012 M2); a
+    # second Enter opens the editor (VISUAL=true: no-op suspend/
+    # resume) — the blob comes through the provider. The fixture's
+    # hit order is README.md, src/main.rs — j lands on main.rs.
+    tui.send("j")
+    tui.key("ENTER")
+    tui.expect("local/alpha/src/main.rs:2")
     tui.key("ENTER")
     screen = tui.expect("local/alpha/src/main.rs")
     assert "grep" in screen
+
+
+def test_enter_expands_hit_into_full_file_pane(provider_tui: Tui) -> None:
+    tui = provider_tui
+    open_fs_repo(tui)
+
+    tui.send(" ")
+    tui.send("g")
+    tui.type_query("render")
+    tui.key("ENTER")
+    tui.expect("local/alpha/src/main.rs")
+    tui.send("j")  # fixture order: README.md, src/main.rs
+
+    # Enter expands the results area into the hit's whole file,
+    # anchored at the match line — the lazy context already warmed
+    # the blob, so the pane lands filled.
+    tui.key("ENTER")
+    # PTY diffs can tear mid-draw — poll each marker, never assert on
+    # one captured frame.
+    tui.expect("local/alpha/src/main.rs:2")
+    tui.expect("fn main() {")  # the whole file, from the top
+    tui.expect("2/8")  # cursor on the anchor line
+
+    # j/k walk the file; the readout follows.
+    tui.send("j")
+    tui.expect("3/8")
+
+    # Esc folds back to the results list — selection intact, no
+    # lingering file content.
+    tui.key("ESC")
+    screen = tui.expect("2 matches")
+    assert "local/alpha/src/main.rs" in screen
+    assert "3/8" not in screen
+
+    # h collapses too, and the expand survives a second round.
+    tui.key("ENTER")
+    tui.expect("local/alpha/src/main.rs:2")
+    tui.send("h")
+    tui.expect("2 matches")
 
 
 def test_closing_view_restores_browser(provider_tui: Tui) -> None:
