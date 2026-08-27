@@ -48,6 +48,7 @@ pub fn hints(mode: Mode) -> &'static [(&'static str, &'static str)] {
         Mode::History => &[
             ("j/k", "commit"),
             ("enter", "file at commit"),
+            ("y", "yank at commit"),
             ("/", "filter"),
             ("esc", "back"),
         ],
@@ -77,6 +78,11 @@ pub fn preview_named(code: KeyCode) -> Action {
         KeyCode::Char(':') => Action::CommandLine,
         KeyCode::Char('h') => Action::LeaderHistory,
         KeyCode::Char('b') => Action::BlameToggle,
+        // Yank the cursor line's URL — a main reason to be here.
+        KeyCode::Char('y') => Action::LeaderYank,
+        // Find-match cycling — same as Browse mode.
+        KeyCode::Char('n') => Action::FindNext,
+        KeyCode::Char('N') => Action::FindPrev,
         KeyCode::Enter => Action::PreviewEnter,
         KeyCode::Esc | KeyCode::Char('q') => Action::ExitPreview,
         _ => Action::Noop,
@@ -89,6 +95,7 @@ pub fn history(code: KeyCode) -> Action {
         KeyCode::Char('j') | KeyCode::Down => Action::HistoryDown,
         KeyCode::Char('k') | KeyCode::Up => Action::HistoryUp,
         KeyCode::Enter => Action::HistoryOpen,
+        KeyCode::Char('y') => Action::HistoryYank,
         KeyCode::Char('/') => Action::HistoryFilterBegin,
         KeyCode::Esc => Action::HistoryClose,
         _ => Action::Noop,

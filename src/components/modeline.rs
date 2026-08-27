@@ -123,9 +123,8 @@ impl Modeline {
             Span::styled(arrow, Style::default().fg(sem.forge).bg(sem.mantle)),
         ];
 
-        // Transient status, capped at half the line so it can't eat
-        // the hints; middle-truncated (head + … + tail) so paths and
-        // URLs keep their meaningful end.
+        // Transient status, capped at half the line; middle-truncated
+        // (head + … + tail) so paths and URLs keep their meaningful end.
         if let Some(status) = &self.status {
             let cap = (w / 2).max(20);
             spans.push(Span::styled(
@@ -134,44 +133,15 @@ impl Modeline {
             ));
         }
         let left_w: usize = spans.iter().map(|s| s.content.width()).sum();
-        // The context reserves room first (capped at a quarter of the
-        // line), then hints fit the remainder — dropping whole hints
-        // from the tail, an ellipsis marking the cut.
+        // State only — helix/kakoune rule: a statusline shows WHERE you
+        // are, never a key catalog. Keys live in the mode strip above
+        // (transient modes) and the `?` popup; the modeline keeps one
+        // affordance pointing at them.
         let ctx = &self.context;
         let ctx_w = UnicodeWidthStr::width(ctx.as_str());
-        let reserved = (ctx_w + 2).min((w / 4).max(20));
-        let mut hints: Vec<Span> = Vec::new();
-        let mut hints_w = 0;
-        let hint_room = w.saturating_sub(left_w + reserved);
-        for (k, desc) in keymap::hints(mode) {
-            let needed = UnicodeWidthStr::width(*k) + UnicodeWidthStr::width(*desc) + 4;
-            if hints_w + needed <= hint_room {
-                hints.push(Span::styled(
-                    format!(" {k}"),
-                    Style::default()
-                        .fg(sem.text)
-                        .bg(sem.mantle)
-                        .add_modifier(Modifier::BOLD),
-                ));
-                hints.push(Span::styled(
-                    format!(" {desc} ·"),
-                    Style::default().fg(sem.hint).bg(sem.mantle),
-                ));
-                hints_w += needed;
-            } else {
-                if hint_room - hints_w >= 2 {
-                    hints.push(Span::styled(
-                        " …",
-                        Style::default().fg(sem.hint).bg(sem.mantle),
-                    ));
-                    hints_w += 2;
-                }
-                break;
-            }
-        }
-
-        // Context: whatever remains after the hints.
-        let ctx_room = w.saturating_sub(left_w + hints_w);
+        let affordance = "? keys";
+        let afford_w = UnicodeWidthStr::width(affordance) + 2;
+        let ctx_room = w.saturating_sub(left_w + afford_w);
         if ctx_room >= ctx_w + 2 {
             spans.push(Span::styled(
                 format!(" {ctx} "),
@@ -184,16 +154,51 @@ impl Modeline {
             ));
         }
 
-        let pad =
-            w.saturating_sub(spans.iter().map(|s| s.content.width()).sum::<usize>() + hints_w);
+        let pad = w
+            .saturating_sub(spans.iter().map(|s| s.content.width()).sum::<usize>())
+            .saturating_sub(afford_w);
         spans.push(Span::styled(
             " ".repeat(pad),
             Style::default().bg(sem.mantle),
         ));
-        spans.extend(hints);
+        if w >= left_w + afford_w + 4 {
+            spans.push(Span::styled(
+                format!(" {affordance} "),
+                Style::default().fg(sem.hint).bg(sem.mantle),
+            ));
+        }
 
         frame.render_widget(Paragraph::new(Line::from(spans)), area);
     }
+}
+
+/// The mode hint strip — helix's glued space-menu flattened to one
+/// line, rendered directly above the modeline in transient modes
+/// (never in Browse: the catalog would just eat a content row).
+/// Packs whole hints, drops from the tail with an ellipsis.
+pub fn hint_strip_line(mode: Mode, width: usize, theme: &Theme) -> Line<'static> {
+    let sem = &theme.semantic;
+    let base = Style::default().bg(sem.mantle);
+    let mut spans: Vec<Span> = vec![Span::styled(" ", base)];
+    let mut used = 1;
+    for (k, desc) in keymap::hints(mode) {
+        let needed = UnicodeWidthStr::width(*k) + UnicodeWidthStr::width(*desc) + 5;
+        if used + needed > width {
+            if width - used >= 2 {
+                spans.push(Span::styled(" …", base.fg(sem.hint)));
+            }
+            break;
+        }
+        spans.push(Span::styled(
+            format!(" {k}"),
+            base.fg(sem.text).add_modifier(Modifier::BOLD),
+        ));
+        spans.push(Span::styled(format!(" {desc} ·"), base.fg(sem.hint)));
+        used += needed;
+    }
+    let pad = width.saturating_sub(spans.iter().map(|s| s.content.width()).sum::<usize>());
+    spans.push(Span::styled(" ".repeat(pad), base));
+    Line::from(spans)
 }
 
 /// Middle truncation: keep the first third and the tail, `…` between —
@@ -307,22 +312,46 @@ mod tests {
     }
 
     #[test]
-    fn wide_line_shows_forge_caret_context_and_all_hints() {
+    fn wide_line_shows_state_and_the_keys_affordance_no_catalog() {
         let line = row(&sample(), Mode::Browse, 180);
         assert!(line.contains("BROWSE"));
         assert!(line.contains("github"));
         assert!(line.contains('❯'), "powerline caret: {line}");
         assert!(line.contains("ratatui/ratatui · main"));
-        assert!(line.contains("q quit"), "last hint should survive: {line}");
+        assert!(line.contains("? keys"), "the on-ramp affordance: {line}");
+        assert!(
+            !line.contains("q quit"),
+            "the modeline carries no key catalog anymore: {line}"
+        );
         assert_eq!(line.chars().count(), 180);
     }
 
     #[test]
-    fn narrow_line_drops_tail_hints_with_ellipsis() {
+    fn hint_strip_packs_and_marks_the_cut() {
+        let theme = crate::theme::Theme::catppuccin_mocha();
+        let backend = TestBackend::new(52, 1);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|f| {
+                let area = f.area();
+                let line = hint_strip_line(Mode::Browse, area.width as usize, &theme);
+                f.render_widget(ratatui::widgets::Paragraph::new(line), area);
+            })
+            .unwrap();
+        let buf = terminal.backend().buffer();
+        let line: String = (0..52).map(|x| buf[(x, 0)].symbol().to_string()).collect();
+        assert!(line.contains("j/k move"), "first hints survive: {line}");
+        assert!(line.contains("…"), "the cut is marked: {line}");
+        assert!(!line.contains("q quit"), "tail dropped: {line}");
+        assert_eq!(line.chars().count(), 52, "no overflow: {line}");
+    }
+
+    #[test]
+    fn narrow_line_keeps_state_drops_context_before_the_affordance() {
         let line = row(&sample(), Mode::Browse, 60);
-        assert!(line.contains("…"), "cut should be marked: {line}");
-        assert!(line.contains("j/k move"));
-        assert!(!line.contains("q quit"));
+        assert!(line.contains("BROWSE"));
+        assert!(line.contains("? keys"), "the affordance survives: {line}");
+        assert!(!line.contains("j/k move"), "no inline catalog: {line}");
         assert_eq!(line.chars().count(), 60, "must not overflow: {line}");
     }
 

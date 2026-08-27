@@ -59,6 +59,9 @@ pub enum Action {
     HistoryClose,
     /// `/` in the history lens: commit-list filter session.
     HistoryFilterBegin,
+    /// `y` in the history lens: yank the file URL anchored to the
+    /// commit — the permalink that never rots (plans/0016 M1b).
+    HistoryYank,
 
     // Popup
     ClosePopup,

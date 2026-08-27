@@ -28,6 +28,7 @@ use crate::theme::{BorderShape, Theme};
 use ratatui::Frame;
 use ratatui::crossterm::event::KeyEvent;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::widgets::Paragraph;
 use std::sync::Arc;
 
 mod workers;
@@ -862,6 +863,13 @@ impl App {
                 }
             }
             Action::HistoryFilterBegin => self.browser.history_begin_filter(),
+            Action::HistoryYank => {
+                // Mock permalink: the real call is web_url with the
+                // commit sha as the ref — a URL that never rots.
+                if let Some((path, sha)) = self.browser.history_pick() {
+                    self.status = Some(format!("would yank {path} @ {sha} (mock permalink)"));
+                }
+            }
             Action::HistoryUp => self.browser.history_move(-1),
             Action::HistoryDown => self.browser.history_move(1),
             Action::HistoryOpen => {
@@ -879,7 +887,11 @@ impl App {
             Action::LeaderYank => {
                 // Mock stage (plans/0003 §1): toast the URL that would
                 // be yanked; clipboard (OSC 52) wires up later.
-                self.mode = Mode::Browse;
+                // From the leader layer it drops back to Browse; from
+                // the preview submode (␣ p y) the pane stays focused.
+                if self.mode == Mode::Leader {
+                    self.mode = Mode::Browse;
+                }
                 // URLs come from the provider — no GitHub grammar
                 // outside the GitHub impl (plans/0005).
                 let url = if let Some(view) = &self.search_view {
@@ -1375,9 +1387,22 @@ impl App {
 
     pub fn render(&mut self, frame: &mut Frame, area: Rect) {
         let theme = self.effective_theme();
+        let mode = self.effective_mode();
+        // State vs keys: the modeline is state-only (helix/kakoune
+        // rule); the keys of a transient mode ride a one-line strip
+        // glued above it. Browse gets the row back for content.
+        let strip = mode != Mode::Browse;
         let rows = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Min(1), Constraint::Length(1)])
+            .constraints(if strip {
+                vec![
+                    Constraint::Min(1),
+                    Constraint::Length(1),
+                    Constraint::Length(1),
+                ]
+            } else {
+                vec![Constraint::Min(1), Constraint::Length(1)]
+            })
             .split(area);
 
         if let Some(view) = &mut self.search_view {
@@ -1392,9 +1417,19 @@ impl App {
             self.browser.render(frame, rows[0], &theme, zoomed);
             self.modeline.context = self.browser.context();
         }
+        if strip {
+            frame.render_widget(
+                Paragraph::new(crate::components::modeline::hint_strip_line(
+                    mode,
+                    rows[1].width as usize,
+                    &theme,
+                )),
+                rows[1],
+            );
+        }
+        let modeline_row = rows[rows.len() - 1];
         self.modeline.status = self.status.clone();
-        self.modeline
-            .render(frame, rows[1], self.effective_mode(), &theme);
+        self.modeline.render(frame, modeline_row, mode, &theme);
 
         if let Some(popup) = &mut self.popup {
             popup.render(frame, rows[0], &theme);
