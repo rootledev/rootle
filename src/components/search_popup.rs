@@ -25,6 +25,8 @@ enum Focus {
 }
 
 pub struct SearchPopup {
+    /// Active provider identity for the title (e.g. "search github").
+    pub forge: String,
     pub input: VimInput,
     results: Pane,
     focus: Focus,
@@ -62,6 +64,7 @@ impl SearchPopup {
             input.prefill(p);
         }
         SearchPopup {
+            forge: String::new(),
             input,
             results,
             focus: Focus::Input,
@@ -234,7 +237,7 @@ impl SearchPopup {
             .border_style(Style::default().fg(sem.border_focused))
             .style(Style::default().bg(sem.mantle))
             .title(Span::styled(
-                " search github ",
+                format!(" search {} ", self.forge),
                 Style::default().fg(sem.text).add_modifier(Modifier::BOLD),
             ))
             .title_bottom(Span::styled(hint, Style::default().fg(sem.hint)));

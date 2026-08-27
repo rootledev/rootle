@@ -22,10 +22,10 @@ def tui(binary):
 def dismiss_launch_popup(tui: Tui) -> None:
     """rootle opens on the repo search popup; close it (INSERT→NORMAL→close).
     ESCs go one call at a time — merged bytes parse as Alt+<key>."""
-    tui.expect("search github")
+    tui.expect("search ")
     tui.key("ESC")
     tui.key("ESC")
-    tui.expect_gone("search github")
+    tui.expect_gone("search ")
 
 
 # --- fs stdio provider (plans/0005) --------------------------------------

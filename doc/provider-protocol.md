@@ -158,6 +158,17 @@ Details:
 - **Progressive search (v1.3, plans/0011):** rootle sends
   `search/code` with `"partial": true` and renders `$/partial` batches
   as they arrive — see the section below.
+- **Bounded compute (advisory):** `search/code` MAY carry `"limit": N`
+  — the client's render budget (rootle renders 500 hits and clips
+  beyond). The provider SHOULD stop scanning at ~N, set
+  `truncated: true`, and never compute results the client would clip:
+  pagination-shaped input, streaming output, no cursor, no load-more.
+  The load-more loop lives in the adapter, not the protocol: drive
+  your backend's own paging lazily (compute a page only when you are
+  about to send it), honor `$/cancelRequest` by killing the scan
+  (query churn is the hammering vector, not depth), and let
+  `truncated` tell the user to narrow. Adapters may honor `limit`
+  today — reader tolerance makes early consumption safe.
 
 ## Content ids
 
