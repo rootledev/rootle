@@ -1,6 +1,6 @@
 # 0016 — Product direction: the browser for repos you don't have
 
-Status: **M1 in progress (2026-08-27)** — mock reviewed + approved, protocol v1.5 specced (refs/log/blame/blob_at), implementation landing; from the external
+Status: **M1 done (2026-08-27)** — mock reviewed + approved, protocol v1.5 landed (refs/log/blame/blob_at), all four providers implement (bitbucket blame:false honestly), conformance FC-090..099 gate it; from the external
 product review of the 0.7.0 state. The positioning work (site,
 provider comms) shipped the same day (rootledev.github.io#12/#13);
 this plan sequences the product investments it names.
