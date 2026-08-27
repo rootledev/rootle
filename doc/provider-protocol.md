@@ -1,4 +1,4 @@
-# The rootle provider protocol, v1.3
+# The rootle provider protocol, v1.4
 
 rootle talks to source-control backends through one seam (`trait
 Provider`, `src/provider/mod.rs`). The built-in `github` provider is
@@ -109,7 +109,7 @@ Optional/missing fields noted per method; everything else is required.
 |---|---|---|
 | `initialize` | `{"protocol":1}` | `{protocol, name?, capabilities?}` |
 | `search/repos` | `{"query"}` | `{"items":[{"full_name":"o/r"} \| {"org":"o"}]}` |
-| `org/repos` | `{"org"}` | `{"repos":[name, …]}` |
+| `org/repos` | `{"org"}` | `{"repos":[name \| {…}, …]}` |
 | `repo/tree` | `{"repo"}` | `{"entries":[…], "truncated":bool, "branch":"main"}` |
 | `repo/blob` | `{"repo","sha"}` | `{"bytes_b64":"…"}` |
 | `repo/clone_url` | `{"repo"}` | `{"clone_url":"…"}` |
@@ -122,6 +122,13 @@ Details:
 - `search/repos` — `items` defaults to `[]`. An item with `full_name`
   is a repo; else `org` is an org; items with neither are dropped.
 - `org/repos` — `repos` defaults to `[]` (repo names, not full paths).
+  **Richer items (v1.4, plans/0014 #1):** entries MAY be objects
+  instead of bare strings —
+  `{"name":"repo", "description"?, "private"?, "archived"?, "pushed_at"?}`
+  with `pushed_at` ISO-8601. Union-free: the optional fields ride
+  reader tolerance, and the string form stays legal — a provider with
+  only names changes nothing. rootle's clone wizard sorts by
+  `pushed_at` and greys `archived` repos when metadata is present.
 - `repo/tree` — one entry per path, recursive over the default branch.
   Pagination is the adapter's job: backends that page (GitLab keyset,
   GitHub none) are aggregated up to an adapter-chosen budget, with
