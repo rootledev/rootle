@@ -94,6 +94,29 @@ impl GlobalSearch {
                 KeyCode::Esc => Action::CloseSearchView,
                 _ => Action::Noop,
             },
+            // plans/0012 M3: the chip row. h/l walk chips (a one-row
+            // list), Enter/Space toggles the chip under the cursor —
+            // selecting commits the facet, toggling the active chip
+            // restores the full accumulated set. Rows live in
+            // `keymap::search_facets`.
+            Focus::Facets => match key.code {
+                KeyCode::Char('h') | KeyCode::Left => {
+                    self.move_facet_cursor(-1);
+                    Action::Noop
+                }
+                KeyCode::Char('l') | KeyCode::Right => {
+                    self.move_facet_cursor(1);
+                    Action::Noop
+                }
+                KeyCode::Enter | KeyCode::Char(' ') => {
+                    self.toggle_facet();
+                    Action::Noop
+                }
+                // Same Esc ladder as the results pane: peel the
+                // committed filters (text, then facet) before closing.
+                KeyCode::Esc => self.clear_committed_or_close(),
+                _ => Action::Noop,
+            },
             Focus::Results => match key.code {
                 // Leader layer works over the search view too (yank,
                 // re-search); App routes leader keys while it's up.
@@ -126,9 +149,16 @@ impl GlobalSearch {
                     Some(hit) => self.expand_hit(&hit),
                     None => Action::Noop,
                 },
-                // Committed filter? First Esc clears it, second closes.
+                // Committed filters peel one Esc at a time: the `/`
+                // text filter first, then the committed facet
+                // (plans/0012 M3); the last Esc closes.
                 KeyCode::Esc if !self.filter_value.is_empty() => {
                     self.set_filter(String::new());
+                    Action::Noop
+                }
+                KeyCode::Esc if self.facet.is_some() => {
+                    self.facet = None;
+                    self.clamp_selection();
                     Action::Noop
                 }
                 KeyCode::Esc => Action::CloseSearchView,
@@ -263,18 +293,76 @@ impl GlobalSearch {
             .position(|f| *f == self.focus)
             .unwrap_or(0);
         let len = super::FOCUS_ORDER.len();
-        let next = if reverse {
-            (idx + len - 1) % len
-        } else {
-            (idx + 1) % len
+        let step = |idx: usize| {
+            if reverse {
+                (idx + len - 1) % len
+            } else {
+                (idx + 1) % len
+            }
         };
+        let mut next = step(idx);
+        // The chip row only exists once hits hold a facet — cycle
+        // past it when there's nothing to focus.
+        while super::FOCUS_ORDER[next] == Focus::Facets && self.facets().is_empty() {
+            next = step(next);
+        }
         self.focus = super::FOCUS_ORDER[next];
         // Focusing a text field always lands in INSERT (plans/0001 §1).
         match self.focus {
             Focus::Query => self.query.submode = SubMode::Insert,
             Focus::Extension => self.extension.submode = SubMode::Insert,
+            // Land on the committed chip when there is one.
+            Focus::Facets => self.snap_facet_cursor(),
             _ => {}
         }
+    }
+
+    /// Move the chip cursor, wrapping across the row.
+    fn move_facet_cursor(&mut self, delta: i32) {
+        let len = self.facets().len();
+        if len == 0 {
+            return;
+        }
+        self.facet_cursor = (self.facet_cursor as i32 + delta).rem_euclid(len as i32) as usize;
+    }
+
+    /// Toggle the chip under the cursor: selecting commits the facet
+    /// (a local filter over the accumulated set), toggling the active
+    /// chip clears it — the full set comes back.
+    fn toggle_facet(&mut self) {
+        let Some(id) = self.facets().get(self.facet_cursor).map(|c| c.id.clone()) else {
+            return;
+        };
+        self.facet = if self.facet.as_ref() == Some(&id) {
+            None
+        } else {
+            Some(id)
+        };
+        self.clamp_selection();
+    }
+
+    /// Land the chip cursor on the committed facet when there is one.
+    fn snap_facet_cursor(&mut self) {
+        if let Some(id) = &self.facet
+            && let Some(idx) = self.facets().iter().position(|c| &c.id == id)
+        {
+            self.facet_cursor = idx;
+        }
+    }
+
+    /// Esc from the results pane or the chip row: peel the committed
+    /// filters (text, then facet) before closing the view.
+    fn clear_committed_or_close(&mut self) -> Action {
+        if !self.filter_value.is_empty() {
+            self.set_filter(String::new());
+            return Action::Noop;
+        }
+        if self.facet.is_some() {
+            self.facet = None;
+            self.clamp_selection();
+            return Action::Noop;
+        }
+        Action::CloseSearchView
     }
 
     /// Move to the next/previous enabled scope without the popup.
@@ -309,6 +397,17 @@ impl GlobalSearch {
             self.selected = 0;
         } else if self.selected >= len {
             self.selected = len - 1;
+        }
+    }
+
+    /// Keep the chip cursor on a chip as the row reshapes (batches
+    /// landing, full-set replacement).
+    pub(super) fn clamp_facet_cursor(&mut self) {
+        let len = self.facets().len();
+        if len == 0 {
+            self.facet_cursor = 0;
+        } else if self.facet_cursor >= len {
+            self.facet_cursor = len - 1;
         }
     }
 

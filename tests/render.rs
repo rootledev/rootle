@@ -967,6 +967,122 @@ fn grammar_chips_say_what_was_filtered() {
     println!("{screen}");
 }
 
+/// plans/0012 M3: facet chips appear while a search streams and
+/// re-count as batches land.
+#[test]
+fn facet_chips_appear_and_update_as_batches_stream() {
+    let mut app = browsing_app();
+    app.handle_key(key(KeyCode::Char(' ')));
+    app.handle_key(key(KeyCode::Char('g')));
+    app.handle_action(rootle::action::Action::GlobalSearchSubmitted {
+        kind: rootle::components::global_search::SearchKind::Grep,
+        query: "zzqqx-no-mock-match".into(),
+        scope: "global".into(),
+        extension: String::new(),
+    });
+    let mk = |repo: &str, path: &str| {
+        rootle::components::global_search::SearchHit::plain(
+            repo,
+            path,
+            3,
+            vec![(3, "let zzqqx = 1;".to_string())],
+            1,
+            String::new(),
+        )
+    };
+
+    // First streamed batch lands — the chip row appears with
+    // per-batch counts while the set is still growing.
+    app.handle_action(rootle::action::Action::GlobalSearchDelta {
+        hits: vec![
+            mk("local/alpha", "src/one.rs"),
+            mk("local/beta", "docs/x.md"),
+        ],
+    });
+    let screen = render(&mut app, 100, 30).join("\n");
+    assert!(
+        screen.contains(" results — 2 "),
+        "two hits so far: {screen}"
+    );
+    for chip in ["local/alpha·1", "local/beta·1", "markdown·1", "rust·1"] {
+        assert!(screen.contains(chip), "chip {chip} missing: {screen}");
+    }
+
+    // Second batch: another alpha rust hit — its counts climb, the
+    // chip order re-sorts (alpha first).
+    app.handle_action(rootle::action::Action::GlobalSearchDelta {
+        hits: vec![mk("local/alpha", "src/two.rs")],
+    });
+    let screen = render(&mut app, 100, 30).join("\n");
+    assert!(screen.contains(" results — 3 "), "the set grows: {screen}");
+    assert!(screen.contains("local/alpha·2"), "count climbs: {screen}");
+    let alpha = screen.find("local/alpha·2").expect("chip");
+    let beta = screen.find("local/beta·1").expect("chip");
+    assert!(alpha < beta, "most-hits-first within the repo group");
+}
+
+/// plans/0012 M3: Enter on a chip commits the facet (list narrows),
+/// Enter again restores, and closing the view leaves no chip residue.
+#[test]
+fn facet_selection_narrows_clears_and_leaves_no_residue() {
+    let mut app = browsing_app();
+    app.handle_key(key(KeyCode::Char(' ')));
+    app.handle_key(key(KeyCode::Char('g')));
+    app.handle_action(rootle::action::Action::GlobalSearchSubmitted {
+        kind: rootle::components::global_search::SearchKind::Grep,
+        query: "hit".into(),
+        scope: "global".into(),
+        extension: String::new(),
+    });
+    let mk = |repo: &str, path: &str| {
+        rootle::components::global_search::SearchHit::plain(
+            repo,
+            path,
+            3,
+            vec![(3, "let hit = 1;".to_string())],
+            1,
+            String::new(),
+        )
+    };
+    app.handle_action(rootle::action::Action::GlobalSearchResults {
+        hits: vec![
+            mk("local/alpha", "src/one.rs"),
+            mk("local/beta", "docs/x.md"),
+        ],
+        clipped: false,
+        index: None,
+        client_filtered: 0,
+        unfiltered: vec![],
+    });
+    // Tab to the chip row from results: results → query → scope →
+    // extension → facets.
+    for _ in 0..4 {
+        app.handle_key(key(KeyCode::Tab));
+    }
+    // Cursor 0 = local/alpha (most hits first). Enter commits it.
+    app.handle_key(key(KeyCode::Enter));
+    let screen = render(&mut app, 100, 30).join("\n");
+    assert!(screen.contains("src/one.rs"), "faceted hit stays: {screen}");
+    assert!(
+        !screen.contains("docs/x.md"),
+        "other repo's hit is filtered out"
+    );
+
+    // Enter on the active chip restores the full accumulated set.
+    app.handle_key(key(KeyCode::Enter));
+    let screen = render(&mut app, 100, 30).join("\n");
+    assert!(screen.contains("docs/x.md"), "full set restored: {screen}");
+
+    // Closing the view puts the browser back with no chip residue.
+    app.handle_key(key(KeyCode::Esc)); // Esc from the chip row closes
+    let screen = render(&mut app, 100, 30).join("\n");
+    assert!(screen.contains("ratatui"), "browser restored");
+    assert!(
+        !screen.contains("local/alpha·"),
+        "no chip residue after leaving the view: {screen}"
+    );
+}
+
 #[test]
 fn launch_popup_only_when_state_has_no_repos() {
     // Fresh state → popup opens automatically.
