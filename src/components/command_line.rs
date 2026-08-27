@@ -56,7 +56,16 @@ impl CommandLine {
                 // still runs even if the list cursor is elsewhere.
                 match options.get(self.selected) {
                     Some(cmd) => Action::RunCommand(cmd.name.to_string()),
-                    None => Action::ClosePopup, // no match: just dismiss
+                    None => {
+                        // `:<line>` — vim's line jump; digits with no
+                        // matching command still run (plans/0016 M1).
+                        let text = self.input.value();
+                        if !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit()) {
+                            Action::RunCommand(text)
+                        } else {
+                            Action::ClosePopup // no match: just dismiss
+                        }
+                    }
                 }
             }
             Outcome::Cancelled => Action::ClosePopup,

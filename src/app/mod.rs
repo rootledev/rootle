@@ -563,7 +563,7 @@ impl App {
                     keymap::history(key.code)
                 }
             }
-            Mode::Preview => keymap::preview(key.code),
+            Mode::Preview => self.browser.preview_key(key),
             _ => Action::Noop,
         }
     }
@@ -721,7 +721,27 @@ impl App {
                             }
                         }
                     }
-                    other => self.status = Some(format!("unknown command: {other}")),
+                    other => {
+                        // `:42` jumps to line 42 in a file view — the
+                        // zoomed preview submode or a search hit's
+                        // expanded file pane (plans/0016 M1).
+                        match other.parse::<u32>() {
+                            Ok(line) if line > 0 => {
+                                let jumped = if let Some(view) = &mut self.search_view {
+                                    view.expanded_goto_line(line)
+                                } else if self.browser.preview.text_line_count() > 0 {
+                                    self.browser.preview.set_cursor_line(line);
+                                    true
+                                } else {
+                                    false
+                                };
+                                if !jumped {
+                                    self.status = Some(format!(":{other}: not in a file view"));
+                                }
+                            }
+                            _ => self.status = Some(format!("unknown command: {other}")),
+                        }
+                    }
                 }
             }
             Action::Visual => {

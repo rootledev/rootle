@@ -53,6 +53,11 @@ pub fn hints(mode: Mode) -> &'static [(&'static str, &'static str)] {
         ],
         Mode::Preview => &[
             ("j/k", "line"),
+            ("gg/G", "top/bottom"),
+            ("^D/^U", "½ page"),
+            ("{/}", "paragraph"),
+            ("%", "match bracket"),
+            (":42", "goto line"),
             ("/", "find"),
             ("h", "history"),
             ("b", "blame"),
@@ -62,15 +67,14 @@ pub fn hints(mode: Mode) -> &'static [(&'static str, &'static str)] {
     }
 }
 
-/// The preview pane owns the keyboard (plans/0016 M1, `␣ p`): the
-/// line cursor walks, `/` reuses the find-in-file session, `h` opens
-/// the history lens, `b` toggles the blame lens, Enter opens the
-/// editor — or the line's commit in the history lens while blaming.
-pub fn preview(code: KeyCode) -> Action {
+/// The preview submode's NAMED keys (plans/0016 M1, `␣ p`). Motions
+/// (j/k with counts, gg, G, pages, paragraphs, %, zt/zz/zb) are owned
+/// by `Preview::motion_key` — the same situation as the search view:
+/// these rows are hint-source, dispatch lives with the component.
+pub fn preview_named(code: KeyCode) -> Action {
     match code {
-        KeyCode::Char('j') | KeyCode::Down => Action::PreviewLineDown,
-        KeyCode::Char('k') | KeyCode::Up => Action::PreviewLineUp,
         KeyCode::Char('/') => Action::LeaderFindInFile,
+        KeyCode::Char(':') => Action::CommandLine,
         KeyCode::Char('h') => Action::LeaderHistory,
         KeyCode::Char('b') => Action::BlameToggle,
         KeyCode::Enter => Action::PreviewEnter,
@@ -182,6 +186,9 @@ pub fn search_facets() -> &'static [(&'static str, &'static str)] {
 pub fn search_file() -> &'static [(&'static str, &'static str)] {
     &[
         ("j/k", "lines"),
+        ("gg/G", "top/bottom"),
+        ("^D/^U", "½ page"),
+        (":42", "goto line"),
         ("enter", "open"),
         ("/", "find"),
         ("n/N", "match"),

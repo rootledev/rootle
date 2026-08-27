@@ -248,6 +248,17 @@ impl Browser {
         self.mock_ref = name;
     }
 
+    /// Preview submode keys (plans/0016 M1, `␣ p`): the vim vertical
+    /// motions are owned by `Preview::motion_key` (counts, gg/G,
+    /// pages, paragraphs, %, zt/zz/zb); everything else maps through
+    /// the named table in keymap.rs (hint rows derive from it).
+    pub fn preview_key(&mut self, key: ratatui::crossterm::event::KeyEvent) -> Action {
+        if self.preview.motion_key(key) {
+            return Action::Noop;
+        }
+        crate::keymap::preview_named(key.code)
+    }
+
     /// `␣ p b` toggles the blame lens on the previewed file (plans/0016
     /// M1c): per-run margin marks over the preview's own lines.
     /// Returns false when the preview isn't file content.
@@ -319,10 +330,16 @@ impl Browser {
         }
     }
 
-    /// A key for the filter session; commits/cancels end it.
+    /// A key for the filter session; commits/cancels end it. The list
+    /// narrows as you type (pane-style live filter, not commit-only).
     pub fn history_filter_key(&mut self, key: ratatui::crossterm::event::KeyEvent) {
         if let Some(h) = &mut self.mock_history {
             match h.filter.handle_key(key) {
+                crate::components::vim_input::Outcome::Changed => {
+                    h.filter_value = h.filter.value();
+                    h.cursor = 0;
+                    h.scroll = 0;
+                }
                 crate::components::vim_input::Outcome::Submitted => {
                     h.filtering = false;
                     h.filter_value = h.filter.value();

@@ -79,6 +79,8 @@ pub struct RefsPopup {
     filter: VimInput,
     filtering: bool,
     filter_value: String,
+    /// Committed filter before the live session — Esc restores it.
+    pre_filter: String,
 }
 
 impl RefsPopup {
@@ -93,6 +95,7 @@ impl RefsPopup {
             filter: VimInput::transient(),
             filtering: false,
             filter_value: String::new(),
+            pre_filter: String::new(),
         }
     }
 
@@ -121,19 +124,25 @@ impl RefsPopup {
         use ratatui::crossterm::event::KeyCode;
         if self.filtering {
             return match self.filter.handle_key(key) {
-                Outcome::Changed => Action::Noop,
-                Outcome::Submitted => {
-                    self.filtering = false;
+                Outcome::Changed => {
+                    // Pane-style live filter: the list narrows per
+                    // keystroke and the live crumb preview follows.
                     self.filter_value = self.filter.value();
                     self.cursor = 0;
-                    // The committed filter moves the selection — the
-                    // live preview follows it, same as j/k.
+                    self.selected()
+                        .map(|r| Action::RefsPreview(r.name.to_string()))
+                        .unwrap_or(Action::Noop)
+                }
+                Outcome::Submitted => {
+                    self.filtering = false;
+                    self.cursor = 0;
                     self.selected()
                         .map(|r| Action::RefsPreview(r.name.to_string()))
                         .unwrap_or(Action::Noop)
                 }
                 Outcome::Cancelled => {
                     self.filtering = false;
+                    self.filter_value = self.pre_filter.clone();
                     Action::Noop
                 }
                 Outcome::Noop => Action::Noop,
@@ -142,6 +151,7 @@ impl RefsPopup {
         match key.code {
             KeyCode::Esc => Action::ClosePopup,
             KeyCode::Char('/') => {
+                self.pre_filter = self.filter_value.clone();
                 self.filtering = true;
                 Action::Noop
             }

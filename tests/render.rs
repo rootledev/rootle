@@ -398,12 +398,30 @@ fn preview_submode_zoom_blame_history() {
 
     // b: the blame lens — run-start marks, dot-leader continuations.
     app.handle_key(key(KeyCode::Char('b')));
-    let screen = render(&mut app, 140, 30).join("\n");
+    let rows = render(&mut app, 140, 30);
+    let screen = rows.join("\n");
     assert!(
         screen.contains("e4f5a6b tarek"),
         "blame margin missing:\n{screen}"
     );
     assert!(screen.contains("blame lens on (mock"), "mock toast missing");
+    // The margin divider sits at the same column on run starts and
+    // continuations (the off-by-one the owner caught).
+    // char indices, not byte offsets — the dot leader is 2 bytes.
+    let divider_col = |row: &String| {
+        row.chars()
+            .enumerate()
+            .filter(|(_, c)| *c == '│')
+            .nth(1)
+            .map(|(i, _)| i)
+    };
+    let run = rows.iter().find(|r| r.contains("e4f5a6b tarek")).unwrap();
+    let cont = rows.iter().find(|r| r.contains("·      │")).unwrap();
+    assert_eq!(
+        divider_col(run),
+        divider_col(cont),
+        "blame divider misaligned:\n{screen}"
+    );
 
     // Enter on a blame line: history lens at that commit (composition).
     app.handle_key(key(KeyCode::Enter));
