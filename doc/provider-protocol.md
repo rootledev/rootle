@@ -345,8 +345,13 @@ cold-start suggestions), then register it in `provider::build`. The
 same content-id and opaque-repo rules apply.
 
 Scaffolding: `skills/rootle-provider/SKILL.md` (in this repo) walks
-through building a provider — capability questionnaire, adapter
-skeleton, and a conformance test suite that gates integration.
+through building a provider — capability questionnaire and adapter
+skeleton. The integration gate is the canonical conformance suite,
+[rootledev/forge-conformance](https://github.com/rootledev/forge-conformance):
+every gotcha in this document as a numbered, citable case
+(FC-001..080) against a deterministic fixture — adapters run it in
+their own CI, and the fs reference provider runs it in rootle's CI so
+protocol changes keep the reference green.
 
 ## Disk caches
 

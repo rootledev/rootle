@@ -126,5 +126,5 @@ in honestly — every checkbox pre-verified, not aspirational.
 - [ ] No stray debug output, no `.cast`/frame artifacts committed
 - [ ] Keybindings changed? keybinds popup + hints derive automatically
       — show a frame of the `?` popup if the keymap table changed
-- [ ] Provider protocol touched? conformance suite (skills/rootle-provider)
-      still green against the fs reference provider
+- [ ] Provider protocol touched? forge-conformance suite green against
+      the fs reference provider (the `forge-conformance` CI job runs it)

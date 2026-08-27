@@ -36,7 +36,7 @@ docker or `sudo`.
 | `e2e/` | uv+pytest PTY harness driving the real binary |
 | `tests/render.rs` | frame-level snapshots on ratatui's TestBackend |
 | `demos/` | demo tape + fixture (`demo_setup.sh`), vendored VHS fonts |
-| `skills/` | public skill: provider scaffolding + conformance gate |
+| `skills/` | public skill: provider scaffolding (gate: forge-conformance) |
 | `.agents/skills/` | maintainer skills: component scaffolding, TUI debugging, demo capture, PR authoring |
 | `plans/` | numbered release plans — milestone status flips in the same PR as the work |
 
