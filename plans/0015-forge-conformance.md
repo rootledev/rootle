@@ -1,7 +1,9 @@
 # 0015 — forge-conformance: the canonical provider conformance suite
 
-Status: **not started** (design accepted 2026-08-27; separate repo
-`rootledev/forge-conformance`)
+Status: **in progress** (2026-08-27): suite live at
+`rootledev/forge-conformance` (37 cases, CI green); rootle CI job +
+skill wiring in this PR; rootle-gitlab wired (#4, 37/37 after the
+adapter grew v1.3 streaming); rootle-bitbucket pending
 
 ## Problem
 

@@ -128,5 +128,7 @@ push.
 | rootle-demo-capture | demo GIFs (per-palette) |
 | rootle-pr | authoring PRs (evidence contract) |
 
-Public skill (`skills/rootle-provider`) scaffolds external providers with
-a conformance-test gate.
+Public skill (`skills/rootle-provider`) scaffolds external providers; the
+canonical [forge-conformance](https://github.com/rootledev/forge-conformance)
+suite is the integration gate (the `forge-conformance` CI job runs it
+against `fs_provider.py`).

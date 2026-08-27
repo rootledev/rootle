@@ -70,15 +70,17 @@ search (it says so in the status line when it matters).
 | [provider protocol](doc/provider-protocol.md) | wrap your own backend (NDJSON-RPC over stdio) |
 | [development](doc/development.md) | architecture, dev workflow, e2e harness |
 | [house style](doc/house-style.md) | the component behavior contract |
-| [provider scaffolding](skills/rootle-provider/SKILL.md) | public skill: scaffold a provider + conformance gate |
+| [provider scaffolding](skills/rootle-provider/SKILL.md) | public skill: scaffold a provider |
 
 ## Providers
 
 rootle talks to backends through a small protocol, not to GitHub directly.
 `[provider] kind = "github"` is the default in-tree implementation;
 `kind = "stdio"` spawns your adapter as a child process — four methods
-make a minimal useful provider, and the conformance suite in
-[skills/rootle-provider](skills/rootle-provider/SKILL.md) gates correctness.
+make a minimal useful provider, and the canonical
+[forge-conformance](https://github.com/rootledev/forge-conformance)
+suite gates correctness (rootle's own CI runs it against the fs
+reference provider).
 More providers are planned and the protocol will evolve with them.
 
 The built-in manager installs stdio providers as verified binaries:

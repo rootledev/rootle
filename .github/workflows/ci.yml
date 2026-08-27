@@ -19,3 +19,21 @@ jobs:
       # offline: the fs stdio provider backs all flows, no network.
       - name: E2E (PTY suite)
         run: docker compose run --build --rm e2e
+
+  # plans/0015: the canonical conformance suite gates the reference
+  # adapter — protocol changes must keep fs_provider.py green.
+  forge-conformance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: rootledev/forge-conformance
+          path: forge-conformance
+      - uses: actions/setup-python@v6
+      - name: Conformance suite vs the fs reference provider
+        run: |
+          python3 -m pip install pytest
+          # `run` chdirs into the suite root — the provider path must
+          # be absolute.
+          python3 forge-conformance/run -- python3 "$GITHUB_WORKSPACE/examples/providers/fs_provider.py"
