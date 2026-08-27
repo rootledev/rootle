@@ -1,6 +1,6 @@
 # 0012 — Search UX parity: grammar depth, full-file preview, facets
 
-Status: **not started** (design accepted)
+Status: **M2 done** (M1, M3 not started)
 
 ## Problem
 
