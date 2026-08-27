@@ -1388,10 +1388,19 @@ impl App {
     pub fn render(&mut self, frame: &mut Frame, area: Rect) {
         let theme = self.effective_theme();
         let mode = self.effective_mode();
-        // State vs keys: the modeline is state-only (helix/kakoune
-        // rule); the keys of a transient mode ride a one-line strip
-        // glued above it. Browse gets the row back for content.
-        let strip = mode != Mode::Browse;
+        // State vs keys, one hint surface per context: a view or
+        // overlay that draws its own border hint row (search view,
+        // popups, wizard) wins; the glued strip serves what has no
+        // border — the leader layer (always) and the browser's
+        // transient modes; the modeline is state-only either way.
+        let overlay_up = self.popup.is_some()
+            || self.wizard.is_some()
+            || self.settings.is_some()
+            || self.help.is_some()
+            || self.command_line.is_some()
+            || self.refs_popup.is_some()
+            || self.search_view.is_some();
+        let strip = mode == Mode::Leader || (!overlay_up && mode != Mode::Browse);
         let rows = Layout::default()
             .direction(Direction::Vertical)
             .constraints(if strip {
