@@ -307,6 +307,8 @@ impl App {
                 hits,
                 clipped,
                 index,
+                client_filtered,
+                unfiltered,
             } => {
                 if gen_id != self.view_gen {
                     return; // stale submission
@@ -326,6 +328,8 @@ impl App {
                         hits,
                         clipped,
                         index,
+                        client_filtered,
+                        unfiltered,
                     });
                 }
                 // Bare selected hit (beyond the eager preview cap): ask
@@ -843,6 +847,8 @@ impl App {
                             hits,
                             clipped: false,
                             index: None,
+                            client_filtered: 0,
+                            unfiltered: vec![],
                         });
                     }
                     self.status = None;

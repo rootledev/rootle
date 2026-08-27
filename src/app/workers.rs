@@ -105,6 +105,8 @@ impl App {
                         hits: Vec::new(),
                         clipped: outcome.clipped,
                         index: outcome.index_as_of,
+                        client_filtered: outcome.client_filtered,
+                        unfiltered: outcome.unfiltered,
                     }
                 }
                 Err(error) => {

@@ -162,6 +162,14 @@ Details:
   search from content search — absent inherits `code_search`. A forge
   with no global content index (Bitbucket Cloud, GitLab without
   Advanced Search) says `code_search: false, file_search: true`.
+- **Query grammar (v1.2-UX, plans/0012 M1):** `q` is the raw user
+  query — quoted literals (`"exact phrase"` = one term), prefix
+  negation (`-foo`, `NOT foo`, also on qualifiers), and the
+  `language:` qualifier may appear inline. Translate what your backend
+  expresses (GitLab `lang:`, an ext→lang map, a post-filter) and drop
+  what it can't — rootle additionally subtracts negation/`language:`
+  client-side as a no-op net and names whatever nobody could express
+  in the results title, so users always see an honest query.
 - **Progressive search (v1.3, plans/0011):** rootle sends
   `search/code` with `"partial": true` and renders `$/partial` batches
   as they arrive — see the section below.

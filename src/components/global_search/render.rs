@@ -176,6 +176,15 @@ impl GlobalSearch {
             if self.clipped {
                 suffix.push_str(" · clipped");
             }
+            // plans/0012 M1 honesty chips: hits rootle subtracted
+            // client-side (the backend couldn't express the grammar),
+            // and tokens nobody could express.
+            if self.client_filtered > 0 {
+                suffix.push_str(&format!(" · filtered {}", self.client_filtered));
+            }
+            if !self.unfiltered.is_empty() {
+                suffix.push_str(&format!(" · unfiltered: {}", self.unfiltered.join(" ")));
+            }
             format!(" results — {}{suffix} ", self.visible().len())
         } else {
             " results ".into()

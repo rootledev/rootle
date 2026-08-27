@@ -77,6 +77,10 @@ pub enum Action {
         /// v1.3: index freshness for indexed backends; `None` = live
         /// or unknown.
         index: Option<String>,
+        /// plans/0012 M1: hits the client-side grammar filter removed.
+        client_filtered: usize,
+        /// Grammar tokens rootle couldn't express anywhere.
+        unfiltered: Vec<String>,
     },
     /// Streamed batch (v1.3, plans/0011): merged into the result set
     /// by file identity; selection survives.

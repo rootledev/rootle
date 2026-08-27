@@ -905,6 +905,8 @@ fn streamed_batches_merge_and_metadata_final_keeps_the_set() {
         hits: vec![],
         clipped: true,
         index: Some("2026-08-20T14:00:00Z".into()),
+        client_filtered: 0,
+        unfiltered: vec![],
     });
 
     let rows = render(&mut app, 100, 30);
@@ -924,6 +926,45 @@ fn streamed_batches_merge_and_metadata_final_keeps_the_set() {
         "v1.3 index badge in title: {screen}"
     );
     assert!(!screen.contains("streaming"), "final clears pending");
+}
+
+/// plans/0012 M1 honesty chips: client-subtracted hits and
+/// inexpressible tokens are named in the results title.
+#[test]
+fn grammar_chips_say_what_was_filtered() {
+    let mut app = browsing_app();
+    app.handle_key(key(KeyCode::Char(' ')));
+    app.handle_key(key(KeyCode::Char('g')));
+    app.handle_action(rootle::action::Action::GlobalSearchSubmitted {
+        kind: rootle::components::global_search::SearchKind::Grep,
+        query: "render -legacy language:cobol".into(),
+        scope: "global".into(),
+        extension: String::new(),
+    });
+    app.handle_action(rootle::action::Action::GlobalSearchResults {
+        hits: vec![rootle::components::global_search::SearchHit::plain(
+            "ratatui/ratatui",
+            "src/render.rs",
+            3,
+            vec![(3, "fn render() {".to_string())],
+            1,
+            String::new(),
+        )],
+        clipped: false,
+        index: None,
+        client_filtered: 2,
+        unfiltered: vec!["language:cobol".into()],
+    });
+    let screen = render(&mut app, 100, 30).join("\n");
+    assert!(
+        screen.contains("filtered 2"),
+        "filtered chip missing: {screen}"
+    );
+    assert!(
+        screen.contains("unfiltered: language:cobol"),
+        "unfiltered chip missing: {screen}"
+    );
+    println!("{screen}");
 }
 
 #[test]
@@ -1061,6 +1102,8 @@ fn stale_hit_shows_chip_until_located() {
         hits: vec![stale],
         clipped: false,
         index: None,
+        client_filtered: 0,
+        unfiltered: vec![],
     });
     let screen = render(&mut app, 100, 30).join("\n");
     assert!(
@@ -1276,6 +1319,8 @@ fn unlocatable_hit_flips_from_stale_to_its_own_chip() {
         hits: vec![hit],
         clipped: false,
         index: None,
+        client_filtered: 0,
+        unfiltered: vec![],
     });
     let screen = render(&mut app, 100, 30).join("\n");
     assert!(screen.contains("stale"), "stale chip renders:\n{screen}");
@@ -1314,6 +1359,8 @@ fn clipped_result_set_says_so_in_the_title() {
         hits: vec![hit],
         clipped: true,
         index: None,
+        client_filtered: 0,
+        unfiltered: vec![],
     });
     let screen = render(&mut app, 100, 30).join("\n");
     assert!(
@@ -1335,6 +1382,8 @@ fn grep_view_on_hit(hit: rootle::components::global_search::SearchHit) -> App {
         hits: vec![hit],
         clipped: false,
         index: None,
+        client_filtered: 0,
+        unfiltered: vec![],
     });
     app
 }
