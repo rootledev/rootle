@@ -32,7 +32,10 @@ def open_main_rs(tui: Tui) -> str:
     tui.key("ENTER")
     tui.expect("local/alpha")
     tui.key("ENTER")
-    return tui.expect("fn main() {")
+    # The blob loads over stdio after the meta placeholder ("loading…",
+    # readout 1/3) — the footer is the load-complete signal, not the
+    # first line of content (a CI-slow runner can snapshot mid-load).
+    return tui.expect("rust · 8 lines")
 
 
 def fg_of(tui: Tui, needle: str) -> str:
