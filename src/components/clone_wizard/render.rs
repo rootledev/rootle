@@ -119,19 +119,42 @@ impl CloneWizard {
                 } else {
                     ("○", sem.subtext0)
                 };
+                // v1.4 (plans/0014 #1): archived repos grey out — still
+                // cloneable (read-only), visibly not live.
                 let style = if selected {
                     Style::default().fg(sem.selection_fg).bg(sem.selection_bg)
+                } else if repo.archived {
+                    Style::default().fg(sem.subtext0)
                 } else {
                     Style::default().fg(sem.text)
                 };
-                Line::from(vec![
+                let mut spans = vec![
                     Span::styled(
                         if selected { "▌ " } else { "  " },
                         Style::default().fg(sem.border_focused),
                     ),
                     Span::styled(format!("{mark} "), Style::default().fg(mark_color)),
-                    Span::styled(repo.clone(), style),
-                ])
+                    Span::styled(repo.name.clone(), style),
+                ];
+                let mut note = String::new();
+                if repo.archived {
+                    note.push_str("archived");
+                }
+                if let Some(pushed) = &repo.pushed_at {
+                    // ISO-8601 → the date is the informative part.
+                    let date = pushed.split('T').next().unwrap_or(pushed);
+                    if !note.is_empty() {
+                        note.push_str(" · ");
+                    }
+                    note.push_str(date);
+                }
+                if !note.is_empty() {
+                    spans.push(Span::styled(
+                        format!("  {note}"),
+                        Style::default().fg(sem.subtext0),
+                    ));
+                }
+                Line::from(spans)
             })
             .collect();
         lines
@@ -169,7 +192,7 @@ impl CloneWizard {
 
     fn summary_lines(&self, theme: &Theme) -> Vec<Line<'static>> {
         let sem = &theme.semantic;
-        let repos: Vec<&String> = self.checked().collect();
+        let repos: Vec<&str> = self.checked().map(|r| r.name.as_str()).collect();
         let cmd = Style::default().fg(sem.text);
         let dim = Style::default().fg(sem.subtext0);
         let accent = Style::default().fg(sem.border_focused);

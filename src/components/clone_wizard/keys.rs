@@ -61,7 +61,7 @@ impl CloneWizard {
                     Action::Noop
                 }
                 KeyCode::Enter if self.screen == Screen::Summary && self.button == 1 => {
-                    let repos: Vec<String> = self.checked().cloned().collect();
+                    let repos: Vec<String> = self.checked().map(|r| r.name.clone()).collect();
                     Action::RunClone {
                         repos,
                         dest: self.dest.clone(),
@@ -193,9 +193,38 @@ mod tests {
 
     fn wizard() -> CloneWizard {
         CloneWizard::new(
-            vec!["ratatui/ratatui".into(), "ratatui/comfy-table".into()],
+            vec![
+                crate::provider::RepoInfo::bare("ratatui/ratatui"),
+                crate::provider::RepoInfo::bare("ratatui/comfy-table"),
+            ],
             PathBuf::from("/tmp"),
         )
+    }
+
+    /// v1.4 (plans/0014 #1): recently pushed repos sort first;
+    /// undated entries keep name order; bare selections slot in by
+    /// name among the dated ones.
+    #[test]
+    fn repos_sort_by_pushed_at_then_name() {
+        let w = CloneWizard::new(
+            vec![
+                crate::provider::RepoInfo::bare("org/zeta"),
+                crate::provider::RepoInfo {
+                    name: "org/old".into(),
+                    pushed_at: Some("2026-01-05T09:00:00Z".into()),
+                    ..Default::default()
+                },
+                crate::provider::RepoInfo {
+                    name: "org/fresh".into(),
+                    pushed_at: Some("2026-08-20T10:11:12Z".into()),
+                    ..Default::default()
+                },
+                crate::provider::RepoInfo::bare("org/alpha"),
+            ],
+            PathBuf::from("/tmp"),
+        );
+        let order: Vec<&str> = w.repos.iter().map(|(r, _)| r.name.as_str()).collect();
+        assert_eq!(order, ["org/fresh", "org/old", "org/alpha", "org/zeta"]);
     }
 
     #[test]

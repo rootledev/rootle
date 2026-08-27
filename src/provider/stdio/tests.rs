@@ -156,9 +156,16 @@ fn fake_provider_child() {
                 writeln!(stdout, r#"{{"jsonrpc":"2.0","id":{id},"result":{{}}}}"#).unwrap();
                 stdout.flush().unwrap();
             }
-            // Bounded compute (v1.4 advisory): echo whether the
-            // request carried the client's render budget as `limit` —
-            // via `truncated`, the one bool the reply shape has.
+            // v1.4 richer org/repos: mixed string and object entries
+            // in one reply — reader tolerance both directions.
+            "rich-repos" if method == "org/repos" => {
+                writeln!(
+                    stdout,
+                    r#"{{"jsonrpc":"2.0","id":{id},"result":{{"repos":["plain",{{"name":"meta","description":"d","private":true,"archived":true,"pushed_at":"2026-08-20T10:11:12Z"}}]}}}}"#
+                )
+                .unwrap();
+                stdout.flush().unwrap();
+            }
             "check-limit" if method == "search/code" => {
                 let req: serde_json::Value = serde_json::from_str(&line).unwrap();
                 let got =
@@ -264,6 +271,21 @@ fn slow_replies_within_the_deadline_succeed() {
     provider
         .request("org/repos", json!({ "org": "o" }))
         .expect("200ms reply must land within a 2s deadline");
+}
+
+/// v1.4: `org/repos` entries are the bare name or a metadata object
+/// — both forms parse, the object form carries its fields through.
+#[test]
+fn org_repos_accepts_the_v14_union() {
+    let provider = fake("rich-repos", Duration::from_secs(2));
+    let repos = provider.org_repos("o").expect("org/repos succeeds");
+    assert_eq!(repos.len(), 2);
+    assert_eq!(repos[0], crate::provider::RepoInfo::bare("plain"));
+    let meta = &repos[1];
+    assert_eq!(meta.name, "meta");
+    assert_eq!(meta.description.as_deref(), Some("d"));
+    assert!(meta.private && meta.archived);
+    assert_eq!(meta.pushed_at.as_deref(), Some("2026-08-20T10:11:12Z"));
 }
 
 /// v1.4 bounded compute: every `search/code` carries the client's

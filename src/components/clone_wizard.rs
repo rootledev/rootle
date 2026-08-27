@@ -7,6 +7,7 @@
 //! input, `render.rs` draws.
 
 use super::vim_input::VimInput;
+use crate::provider::RepoInfo;
 use std::path::PathBuf;
 
 mod keys;
@@ -28,8 +29,10 @@ enum Focus {
 
 pub struct CloneWizard {
     screen: Screen,
-    /// Resolved repos (files already folded to their repo upstream).
-    repos: Vec<(String, bool)>,
+    /// Resolved repos (files already folded to their repo upstream),
+    /// with v1.4 listing metadata when the provider reported it
+    /// (plans/0014 #1): recently pushed first, undated by name.
+    repos: Vec<(RepoInfo, bool)>,
     cursor: usize,
     focus: Focus,
     /// Button row cursor: 0 = back, 1 = next/clone.
@@ -48,7 +51,16 @@ pub struct CloneWizard {
 }
 
 impl CloneWizard {
-    pub fn new(repos: Vec<String>, start: PathBuf) -> Self {
+    pub fn new(repos: Vec<RepoInfo>, start: PathBuf) -> Self {
+        // v1.4 (plans/0014 #1): sort by pushed_at desc — ISO-8601
+        // sorts lexicographically; undated entries fall back to name
+        // order (providers that send bare names keep the old order).
+        let mut repos = repos;
+        repos.sort_by(|a, b| {
+            b.pushed_at
+                .cmp(&a.pushed_at)
+                .then_with(|| a.name.cmp(&b.name))
+        });
         let repos = repos.into_iter().map(|r| (r, true)).collect();
         let mut wizard = CloneWizard {
             screen: Screen::Repos,
@@ -86,7 +98,7 @@ impl CloneWizard {
         self.dest_cursor = 0;
     }
 
-    fn checked(&self) -> impl Iterator<Item = &String> {
+    fn checked(&self) -> impl Iterator<Item = &RepoInfo> {
         self.repos.iter().filter(|(_, on)| *on).map(|(r, _)| r)
     }
 
@@ -96,7 +108,7 @@ impl CloneWizard {
         self.repos
             .iter()
             .enumerate()
-            .filter(|(_, (r, _))| needle.is_empty() || r.to_lowercase().contains(&needle))
+            .filter(|(_, (r, _))| needle.is_empty() || r.name.to_lowercase().contains(&needle))
             .map(|(i, _)| i)
             .collect()
     }
