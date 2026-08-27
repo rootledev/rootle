@@ -363,7 +363,7 @@ impl App {
         let tx = self.tx.clone();
         std::thread::spawn(move || {
             trace(&format!("tree start {owner}/{name}"));
-            let event = match provider.fetch_tree(&format!("{owner}/{name}")) {
+            let event = match provider.fetch_tree(&format!("{owner}/{name}"), None) {
                 Ok(tree) => {
                     trace(&format!(
                         "tree ok {owner}/{name} entries={} truncated={}",

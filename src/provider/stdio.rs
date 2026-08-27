@@ -169,6 +169,11 @@ impl StdioProvider {
                 orgs: true,
                 code_search: true,
                 file_search: true,
+                // v1.5 defaults false until the handshake says
+                // otherwise (default-branch-only providers).
+                refs: false,
+                log: false,
+                blame: false,
             },
             process: Mutex::new(process),
             shared,
