@@ -116,6 +116,19 @@ pub fn search_results() -> &'static [(&'static str, &'static str)] {
     ]
 }
 
+/// The facet chip row (plans/0012 M3), reached by `tab` once results
+/// stream in: h/l walk chips, Enter/Space toggles the chip under the
+/// cursor — the active chip is the committed filter over the
+/// accumulated set; toggling it again restores everything.
+pub fn search_facets() -> &'static [(&'static str, &'static str)] {
+    &[
+        ("h/l", "chips"),
+        ("enter", "toggle"),
+        ("tab", "fields"),
+        ("esc", "clear/close"),
+    ]
+}
+
 /// The expanded full-file pane (`Enter` on a hit): j/k walk lines,
 /// `Enter` opens the editor, `/` finds in the file, `Esc`/`h` folds
 /// back to the results list.

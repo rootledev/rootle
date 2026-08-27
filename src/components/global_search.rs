@@ -18,11 +18,14 @@ use crate::mode::Mode;
 use ratatui::crossterm::cursor::SetCursorStyle;
 
 mod backend;
+mod facets;
 mod grammar;
 mod keys;
 pub mod mock;
 mod model;
 mod render;
+
+use facets::FacetId;
 
 pub use backend::run_view_search;
 pub use model::{RawHit, Scope, SearchHit, SearchKind, highlight_matches};
@@ -34,10 +37,17 @@ enum Focus {
     Query,
     Scope,
     Extension,
+    Facets,
     Results,
 }
 
-const FOCUS_ORDER: [Focus; 4] = [Focus::Query, Focus::Scope, Focus::Extension, Focus::Results];
+const FOCUS_ORDER: [Focus; 5] = [
+    Focus::Query,
+    Focus::Scope,
+    Focus::Extension,
+    Focus::Facets,
+    Focus::Results,
+];
 
 pub struct GlobalSearch {
     kind: SearchKind,
@@ -64,7 +74,6 @@ pub struct GlobalSearch {
     filter_value: String,
     /// Selected hit within the visible set.
     selected: usize,
-    /// Line scroll offset of the results area (J/K free scroll).
     scroll: u16,
     pending: bool,
     error: Option<String>,
@@ -72,6 +81,13 @@ pub struct GlobalSearch {
     /// Result set is incomplete — provider-truncated (plans/0008 §4)
     /// or hits dropped past the render cap; shown in the results title.
     clipped: bool,
+    /// plans/0012 M3: the committed facet chip (if any) — a local
+    /// filter over the accumulated hits, composed with the `/`
+    /// filter (facet first, then filter text). Cleared on a new
+    /// search.
+    facet: Option<FacetId>,
+    /// Keyboard cursor in the chip row (index into `facets()`).
+    facet_cursor: usize,
     /// Streamed hits past RENDER_CAP (v1.3): counted, not kept — the
     /// title's clipped chip covers them.
     dropped: usize,
@@ -163,6 +179,8 @@ impl GlobalSearch {
             filtering: false,
             pre_filter: String::new(),
             filter_value: String::new(),
+            facet: None,
+            facet_cursor: 0,
             selected: 0,
             scroll: 0,
             pending: false,
@@ -224,12 +242,15 @@ impl GlobalSearch {
         ctx
     }
 
-    /// Hits surviving the committed `/` filter (path or preview text,
-    /// case-insensitive substring — same rule as Pane::visible).
+    /// Hits surviving the committed facet (plans/0012 M3) and the
+    /// committed `/` filter (path or preview text, case-insensitive
+    /// substring — same rule as Pane::visible). Facet first, then the
+    /// filter text; the two compose.
     fn visible(&self) -> Vec<&SearchHit> {
         let needle = self.filter_value.to_lowercase();
         self.hits
             .iter()
+            .filter(|h| self.facet.as_ref().is_none_or(|f| f.matches(h)))
             .filter(|h| {
                 needle.is_empty()
                     || h.path.to_lowercase().contains(&needle)
@@ -305,6 +326,8 @@ impl GlobalSearch {
                 self.index_as_of = None;
                 self.client_filtered = 0;
                 self.unfiltered = vec![];
+                self.facet = None; // a new search is a new facet set
+                self.facet_cursor = 0;
                 self.focus = Focus::Results;
                 self.selected = 0;
                 self.scroll = 0;
@@ -312,6 +335,7 @@ impl GlobalSearch {
             }
             Action::GlobalSearchDelta { hits } => {
                 self.append_hits(hits.clone());
+                self.clamp_facet_cursor(); // chips grew — keep the cursor on one
             }
             Action::GlobalSearchResults {
                 hits,
@@ -334,6 +358,7 @@ impl GlobalSearch {
                     self.scroll = 0;
                 }
                 self.clamp_selection();
+                self.clamp_facet_cursor();
             }
             Action::GlobalSearchFailed { error } => {
                 self.pending = false;
@@ -468,7 +493,7 @@ impl GlobalSearch {
                 SubMode::Insert => Mode::Insert,
                 SubMode::Normal => Mode::Normal,
             },
-            Focus::Scope | Focus::Results => Mode::Browse,
+            Focus::Scope | Focus::Facets | Focus::Results => Mode::Browse,
         }
     }
 
@@ -823,5 +848,157 @@ mod tests {
         v.handle_key(key(KeyCode::Tab));
         v.handle_key(key(KeyCode::Char('k')));
         assert_eq!(v.scope, Scope::Global);
+    }
+
+    /// Tab to the chip row (from wherever focus sits — after submit
+    /// that's Results, so the cycle wraps through the fields first).
+    fn focus_facets(v: &mut GlobalSearch) {
+        for _ in 0..super::FOCUS_ORDER.len() + 1 {
+            if v.focus == Focus::Facets {
+                return;
+            }
+            v.handle_key(key(KeyCode::Tab));
+        }
+        panic!("tab never reached the chip row");
+    }
+
+    #[test]
+    fn tab_skips_the_chip_row_until_hits_land() {
+        let mut v = view();
+        // No hits yet: query → scope → extension → results, never
+        // facets.
+        for expected in [Focus::Scope, Focus::Extension, Focus::Results] {
+            v.handle_key(key(KeyCode::Tab));
+            assert_eq!(v.focus, expected);
+        }
+        v.handle_key(key(KeyCode::Tab));
+        assert_eq!(v.focus, Focus::Query, "wraps without stopping on facets");
+
+        // Mock grep hits: one repo, rust + markdown.
+        submit(&mut v, "query");
+        focus_facets(&mut v);
+        assert_eq!(v.facets().len(), 3);
+    }
+
+    #[test]
+    fn facet_toggle_narrows_and_restores() {
+        let mut v = view();
+        submit(&mut v, "query"); // 4 hits: 3 rust + 1 markdown
+        focus_facets(&mut v);
+        // Chips: repo ratatui/ratatui·4, then rust·3, markdown·1.
+        assert_eq!(v.facet_cursor, 0);
+        v.handle_key(key(KeyCode::Char('l')));
+        assert_eq!(v.facet_cursor, 1);
+        v.handle_key(key(KeyCode::Enter)); // commit the rust facet
+        assert_eq!(
+            v.facet,
+            Some(facets::FacetId {
+                kind: facets::FacetKind::Lang,
+                name: "rust".into(),
+            })
+        );
+        assert_eq!(v.visible().len(), 3, "rust facet drops the markdown hit");
+        v.handle_key(key(KeyCode::Enter)); // toggle the active chip off
+        assert!(v.facet.is_none());
+        assert_eq!(v.visible().len(), 4, "full accumulated set restored");
+    }
+
+    #[test]
+    fn facet_survives_streamed_batches_and_counts_climb() {
+        let mut v = view();
+        submit(&mut v, "query");
+        focus_facets(&mut v);
+        v.handle_key(key(KeyCode::Char('l'))); // rust chip
+        v.handle_key(key(KeyCode::Enter)); // commit
+        // A late batch lands: two more rust files in a second repo.
+        v.update(&Action::GlobalSearchDelta {
+            hits: vec![
+                SearchHit::plain(
+                    "other/repo",
+                    "src/new.rs",
+                    7,
+                    vec![(7, "let query = 1;".to_string())],
+                    1,
+                    String::new(),
+                ),
+                SearchHit::plain(
+                    "other/repo",
+                    "src/aux.rs",
+                    9,
+                    vec![(9, "let query = 2;".to_string())],
+                    1,
+                    String::new(),
+                ),
+            ],
+        });
+        // The facet applies to the growing set…
+        assert_eq!(v.visible().len(), 5, "new rust hits pass the facet");
+        // …and the chips re-count over everything accumulated.
+        let chips = v.facets();
+        let rust = chips
+            .iter()
+            .find(|c| c.id.kind == facets::FacetKind::Lang && c.id.name == "rust")
+            .expect("rust chip");
+        assert_eq!(rust.count, 5);
+        // The cursor stayed on a real chip.
+        assert!(v.facet_cursor < chips.len());
+    }
+
+    #[test]
+    fn facet_composes_with_slash_filter() {
+        let mut v = view();
+        submit(&mut v, "query");
+        focus_facets(&mut v);
+        v.handle_key(key(KeyCode::Char('l'))); // rust chip
+        v.handle_key(key(KeyCode::Enter)); // commit the rust facet
+        // `/` then narrows inside the facet's set.
+        v.handle_key(key(KeyCode::Tab)); // → results
+        assert_eq!(v.focus, Focus::Results);
+        v.handle_key(key(KeyCode::Char('/')));
+        for c in "terminal".chars() {
+            v.handle_key(key(KeyCode::Char(c)));
+        }
+        assert_eq!(v.visible().len(), 1);
+        assert_eq!(v.visible()[0].path, "src/terminal.rs");
+        // Esc clears the text filter first — the facet survives.
+        v.handle_key(key(KeyCode::Esc));
+        assert_eq!(v.visible().len(), 3, "facet still committed");
+    }
+
+    #[test]
+    fn esc_peels_filter_then_facet_then_closes() {
+        let mut v = view();
+        submit(&mut v, "query");
+        focus_facets(&mut v);
+        v.handle_key(key(KeyCode::Char('l')));
+        v.handle_key(key(KeyCode::Enter)); // commit rust facet
+        assert_eq!(
+            v.handle_key(key(KeyCode::Esc)),
+            Action::Noop,
+            "first Esc clears the facet, not the view"
+        );
+        assert!(v.facet.is_none());
+        assert_eq!(v.visible().len(), 4);
+        assert_eq!(
+            v.handle_key(key(KeyCode::Esc)),
+            Action::CloseSearchView,
+            "second Esc closes"
+        );
+    }
+
+    #[test]
+    fn new_search_resets_the_facet() {
+        let mut v = view();
+        submit(&mut v, "query");
+        focus_facets(&mut v);
+        v.handle_key(key(KeyCode::Enter)); // commit the repo facet
+        assert!(v.facet.is_some());
+        // Back to the query field (facets → results → query), then a
+        // fresh search replaces the set.
+        v.handle_key(key(KeyCode::Tab));
+        v.handle_key(key(KeyCode::Tab));
+        submit(&mut v, "other");
+        assert!(v.facet.is_none(), "a new search is a new facet set");
+        assert_eq!(v.facet_cursor, 0);
     }
 }

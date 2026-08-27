@@ -104,36 +104,56 @@ pub fn parse(query: &str) -> Grammar {
     g
 }
 
+/// The one extension↔language mapping (plans/0012): the M1
+/// `language:` qualifier resolves names → extensions, the M3 facet
+/// chips resolve extensions → names. Two lookups over a single
+/// table, so a new language can never land in one and not the other.
+const LANG_TABLE: &[(&str, &[&str], &[&str])] = &[
+    // (canonical name, aliases, extensions)
+    ("rust", &[], &["rs"]),
+    ("python", &[], &["py", "pyi"]),
+    ("javascript", &[], &["js", "jsx", "mjs"]),
+    ("typescript", &[], &["ts", "tsx", "mts"]),
+    ("go", &[], &["go"]),
+    ("c", &[], &["c", "h"]),
+    ("c++", &["cpp"], &["cpp", "cc", "cxx", "hpp"]),
+    ("csharp", &["c#"], &["cs"]),
+    ("java", &[], &["java"]),
+    ("kotlin", &[], &["kt", "kts"]),
+    ("ruby", &[], &["rb"]),
+    ("php", &[], &["php"]),
+    ("swift", &[], &["swift"]),
+    ("shell", &["bash"], &["sh", "bash"]),
+    ("toml", &[], &["toml"]),
+    ("yaml", &[], &["yaml", "yml"]),
+    ("json", &[], &["json"]),
+    ("markdown", &[], &["md"]),
+    ("html", &[], &["html"]),
+    ("css", &[], &["css"]),
+];
+
 /// Linguist-ish extension map for `language:` — small and static on
 /// purpose. Unknown languages pass through unfiltered and land on the
 /// title's `unfiltered` chip instead of silently widening the search.
 pub fn lang_exts(lang: &str) -> Option<&'static [&'static str]> {
-    Some(match lang.to_ascii_lowercase().as_str() {
-        "rust" => &["rs"],
-        "python" => &["py", "pyi"],
-        "javascript" => &["js", "jsx", "mjs"],
-        "typescript" => &["ts", "tsx", "mts"],
-        "go" => &["go"],
-        "c" => &["c", "h"],
-        "c++" | "cpp" => &["cpp", "cc", "cxx", "hpp"],
-        "csharp" | "c#" => &["cs"],
-        "java" => &["java"],
-        "kotlin" => &["kt", "kts"],
-        "ruby" => &["rb"],
-        "php" => &["php"],
-        "swift" => &["swift"],
-        "shell" | "bash" => &["sh", "bash"],
-        "toml" => &["toml"],
-        "yaml" => &["yaml", "yml"],
-        "json" => &["json"],
-        "markdown" => &["md"],
-        "html" => &["html"],
-        "css" => &["css"],
-        _ => return None,
-    })
+    let lower = lang.to_ascii_lowercase();
+    LANG_TABLE
+        .iter()
+        .find(|(name, aliases, _)| *name == lower || aliases.contains(&lower.as_str()))
+        .map(|(_, _, exts)| *exts)
 }
 
-fn path_ext(path: &str) -> String {
+/// Reverse lookup for the M3 facet chips: extension → canonical
+/// language name, so a chip reads `rust` not `rs`. Same table as
+/// `lang_exts` — there is no second mapping.
+pub fn ext_lang(ext: &str) -> Option<&'static str> {
+    LANG_TABLE
+        .iter()
+        .find(|(_, _, exts)| exts.contains(&ext))
+        .map(|(name, _, _)| *name)
+}
+
+pub(super) fn path_ext(path: &str) -> String {
     path.rsplit('.').next().unwrap_or_default().to_lowercase()
 }
 
@@ -263,5 +283,27 @@ mod tests {
         let (kept, dropped) = filter_hits(&g, hits);
         assert_eq!((kept.len(), dropped), (1, 0));
         assert_eq!(unexpressible(&g), ["language:cobol"]);
+    }
+
+    #[test]
+    fn ext_lang_reverses_the_same_table() {
+        // Forward and reverse are one mapping: every extension of
+        // every language resolves back to a name that resolves
+        // forward to a list containing it.
+        for (_name, _, exts) in LANG_TABLE {
+            for ext in *exts {
+                let back = ext_lang(ext).expect("every table ext resolves");
+                assert!(
+                    lang_exts(back).is_some_and(|xs| xs.contains(ext)),
+                    "{ext} → {back} must round-trip"
+                );
+            }
+        }
+        // Aliases resolve to the canonical name; unknowns don't.
+        assert_eq!(ext_lang("cpp"), Some("c++"));
+        assert_eq!(ext_lang("cc"), Some("c++"));
+        assert_eq!(ext_lang("bash"), Some("shell"));
+        assert_eq!(ext_lang("txt"), None);
+        assert_eq!(lang_exts("CPP"), Some(&["cpp", "cc", "cxx", "hpp"][..]));
     }
 }
