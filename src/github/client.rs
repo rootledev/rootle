@@ -85,10 +85,19 @@ impl Client {
         Ok(out)
     }
 
-    pub fn org_repos(&self, org: &str) -> ProviderResult<Vec<String>> {
+    pub fn org_repos(&self, org: &str) -> ProviderResult<Vec<crate::provider::RepoInfo>> {
         let repos: Vec<OrgRepoItem> =
             self.get(&format!("{API}/orgs/{org}/repos?per_page=100&sort=updated"))?;
-        Ok(repos.into_iter().map(|r| r.name).collect())
+        Ok(repos
+            .into_iter()
+            .map(|r| crate::provider::RepoInfo {
+                name: r.name,
+                description: r.description,
+                private: r.private,
+                archived: r.archived,
+                pushed_at: r.pushed_at,
+            })
+            .collect())
     }
 
     /// Code search (plans/0002 §4). Requires auth — anonymous clients

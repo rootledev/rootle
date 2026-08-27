@@ -15,7 +15,7 @@ pub enum AppEvent {
     },
     OrgReposLoaded {
         org: String,
-        repos: Vec<String>,
+        repos: Vec<crate::provider::RepoInfo>,
     },
     OrgReposFailed {
         org: String,
@@ -102,9 +102,10 @@ pub enum AppEvent {
         failed: Vec<(String, String)>,
     },
     /// Org marks expanded to their repos; open the clone wizard with
-    /// the combined list (plans/0004).
+    /// the combined list (plans/0004). v1.4: expanded repos carry
+    /// their listing metadata (sort-by-pushed, grey archived).
     CloneExpanded {
-        repos: Vec<String>,
+        repos: Vec<crate::provider::RepoInfo>,
         errors: Vec<String>,
     },
 }

@@ -117,28 +117,38 @@ impl App {
     }
 
     /// Expand org marks to their repos off the UI thread, then the
-    /// wizard opens with the combined list.
+    /// wizard opens with the combined list. v1.4: expanded repos keep
+    /// their listing metadata; direct selections stay bare names.
     pub(super) fn spawn_expand_clone(&self, repos: Vec<String>, orgs: Vec<String>) {
         let provider = self.provider.clone();
         let tx = self.tx.clone();
         std::thread::spawn(move || {
-            let mut repos = repos;
+            let mut repos: Vec<crate::provider::RepoInfo> = repos
+                .into_iter()
+                .map(crate::provider::RepoInfo::bare)
+                .collect();
             let mut errors = Vec::new();
             for org in orgs {
                 match provider.org_repos(&org) {
-                    Ok(names) => {
-                        for name in names {
-                            let full = format!("{org}/{name}");
-                            if !repos.contains(&full) {
-                                repos.push(full);
+                    Ok(metas) => {
+                        for m in metas {
+                            let full = format!("{org}/{}", m.name);
+                            let meta = crate::provider::RepoInfo {
+                                name: full.clone(),
+                                ..m
+                            };
+                            // The listing copy carries metadata — it
+                            // wins over a bare selection of the same
+                            // repo.
+                            match repos.iter_mut().find(|r| r.name == full) {
+                                Some(slot) => *slot = meta,
+                                None => repos.push(meta),
                             }
                         }
                     }
                     Err(e) => errors.push(format!("{org}: {e}")),
                 }
             }
-            repos.sort();
-            repos.dedup();
             let _ = tx.send(AppEvent::CloneExpanded { repos, errors });
         });
     }

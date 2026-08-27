@@ -116,7 +116,7 @@ pub enum Action {
     LoadOrgRepos(String),
     OrgReposLoaded {
         org: String,
-        repos: Vec<String>,
+        repos: Vec<crate::provider::RepoInfo>,
     },
     OrgReposFailed {
         org: String,

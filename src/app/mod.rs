@@ -622,6 +622,12 @@ impl App {
                         let (repos, orgs) = self.clone_candidates();
                         if orgs.is_empty() {
                             let cwd = std::env::current_dir().unwrap_or_default();
+                            // Direct selections carry no listing
+                            // metadata (v1.4): bare names.
+                            let repos = repos
+                                .into_iter()
+                                .map(crate::provider::RepoInfo::bare)
+                                .collect();
                             self.wizard = Some(CloneWizard::new(repos, cwd));
                         } else {
                             self.status = Some(format!("expanding {} org(s)…", orgs.len()));

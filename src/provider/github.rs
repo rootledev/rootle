@@ -2,7 +2,9 @@
 //! REST `Client` — auth resolution, sha-keyed disk cache, ETag
 //! revalidation all live inside it (PLAN.md §7/§8).
 
-use super::{Capabilities, CodeMatch, Provider, ProviderResult, SearchItem, TreeNode, TreeResult};
+use super::{
+    Capabilities, CodeMatch, Provider, ProviderResult, RepoInfo, SearchItem, TreeNode, TreeResult,
+};
 use crate::github::Client;
 
 pub struct GitHubProvider {
@@ -73,7 +75,7 @@ impl Provider for GitHubProvider {
         self.client.search(query)
     }
 
-    fn org_repos(&self, org: &str) -> ProviderResult<Vec<String>> {
+    fn org_repos(&self, org: &str) -> ProviderResult<Vec<RepoInfo>> {
         self.client.org_repos(org)
     }
 

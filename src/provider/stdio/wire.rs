@@ -6,8 +6,8 @@
 use super::StdioProvider;
 use super::transport::{cancel_notification, de};
 use crate::provider::{
-    Capabilities, CodeMatch, Provider, ProviderError, ProviderResult, SearchCodeResult, SearchItem,
-    TreeNode, TreeResult,
+    Capabilities, CodeMatch, Provider, ProviderError, ProviderResult, RepoInfo, SearchCodeResult,
+    SearchItem, TreeNode, TreeResult,
 };
 use serde_json::json;
 use std::io::Write;
@@ -48,14 +48,49 @@ impl Provider for StdioProvider {
             .collect())
     }
 
-    fn org_repos(&self, org: &str) -> ProviderResult<Vec<String>> {
+    fn org_repos(&self, org: &str) -> ProviderResult<Vec<RepoInfo>> {
         #[derive(serde::Deserialize)]
         struct R {
             #[serde(default)]
-            repos: Vec<String>,
+            repos: Vec<RepoEntry>,
+        }
+        /// v1.4: entries are the bare name or an object riding reader
+        /// tolerance — `{name, description?, private?, archived?,
+        /// pushed_at?}` (doc/provider-protocol.md).
+        #[derive(serde::Deserialize)]
+        #[serde(untagged)]
+        enum RepoEntry {
+            Name(String),
+            Meta {
+                name: String,
+                description: Option<String>,
+                #[serde(default)]
+                private: bool,
+                #[serde(default)]
+                archived: bool,
+                pushed_at: Option<String>,
+            },
         }
         let r: R = de(self.request("org/repos", json!({ "org": org }))?)?;
-        Ok(r.repos)
+        Ok(r.repos
+            .into_iter()
+            .map(|e| match e {
+                RepoEntry::Name(name) => RepoInfo::bare(name),
+                RepoEntry::Meta {
+                    name,
+                    description,
+                    private,
+                    archived,
+                    pushed_at,
+                } => RepoInfo {
+                    name,
+                    description,
+                    private,
+                    archived,
+                    pushed_at,
+                },
+            })
+            .collect())
     }
 
     fn fetch_tree(&self, repo: &str) -> ProviderResult<TreeResult> {

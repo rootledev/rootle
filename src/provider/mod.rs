@@ -25,6 +25,43 @@ use std::sync::Arc;
 /// cap is this same number.
 pub const RENDER_BUDGET: usize = 500;
 
+/// One repo in an org listing (protocol v1.4): the name plus whatever
+/// metadata the backend reports. Everything past `name` is optional —
+/// a provider with only names sends the string form on the wire and
+/// every field here stays default.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RepoInfo {
+    pub name: String,
+    pub description: Option<String>,
+    pub private: bool,
+    pub archived: bool,
+    /// ISO-8601 last-push timestamp when the backend knows it.
+    pub pushed_at: Option<String>,
+}
+
+impl RepoInfo {
+    /// A bare name — selection-driven flows where no listing metadata
+    /// exists.
+    pub fn bare(name: impl Into<String>) -> Self {
+        RepoInfo {
+            name: name.into(),
+            ..Default::default()
+        }
+    }
+}
+
+impl From<String> for RepoInfo {
+    fn from(name: String) -> Self {
+        RepoInfo::bare(name)
+    }
+}
+
+impl From<&str> for RepoInfo {
+    fn from(name: &str) -> Self {
+        RepoInfo::bare(name)
+    }
+}
+
 /// Structured provider error (plans/0008 §2): the protocol v1.1
 /// `data.kind` taxonomy carried from the wire to the UI instead of a
 /// bare string. Unknown or absent kinds degrade to `Other`, which
@@ -174,8 +211,9 @@ pub trait Provider: Send + Sync {
 
     /// Repo + org search for the launch popup (orgs first).
     fn search(&self, query: &str) -> ProviderResult<Vec<SearchItem>>;
-    /// Repo names of an org/group.
-    fn org_repos(&self, org: &str) -> ProviderResult<Vec<String>>;
+    /// Repo names of an org/group, with listing metadata when the
+    /// backend reports it (v1.4).
+    fn org_repos(&self, org: &str) -> ProviderResult<Vec<RepoInfo>>;
     /// Full recursive tree of a repo's default branch.
     fn fetch_tree(&self, repo: &str) -> ProviderResult<TreeResult>;
     /// Blob bytes by content id.
@@ -333,7 +371,7 @@ pub fn offline() -> Arc<dyn Provider> {
         fn search(&self, _: &str) -> ProviderResult<Vec<SearchItem>> {
             Err("offline".into())
         }
-        fn org_repos(&self, _: &str) -> ProviderResult<Vec<String>> {
+        fn org_repos(&self, _: &str) -> ProviderResult<Vec<RepoInfo>> {
             Err("offline".into())
         }
         fn fetch_tree(&self, _: &str) -> ProviderResult<TreeResult> {

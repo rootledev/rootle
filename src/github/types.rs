@@ -27,6 +27,14 @@ pub struct UserItem {
 #[derive(Debug, Deserialize)]
 pub struct OrgRepoItem {
     pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub private: bool,
+    #[serde(default)]
+    pub archived: bool,
+    #[serde(default)]
+    pub pushed_at: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

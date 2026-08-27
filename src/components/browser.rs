@@ -210,13 +210,13 @@ impl Browser {
 
     /// Org repos arrived from the API: install/replace the repos level.
     /// Ignored if the user has since selected a different org.
-    pub fn org_repos_loaded(&mut self, org: &str, repos: Vec<String>) {
+    pub fn org_repos_loaded(&mut self, org: &str, repos: Vec<crate::provider::RepoInfo>) {
         if self.selected_org().as_deref() != Some(org) {
             return;
         }
         let entries = repos
             .iter()
-            .map(|r| Entry::new(r, EntryKind::Repo))
+            .map(|r| Entry::new(&r.name, EntryKind::Repo))
             .collect();
         self.levels.truncate(1);
         self.levels.push(Pane::new(org, entries));
