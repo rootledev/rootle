@@ -79,6 +79,13 @@ impl Manager {
             state: store::state_root().ok_or_else(|| ManagerError::User("no state dir".into()))?,
         })
     }
+
+    /// A manager rooted at throwaway dirs — tests never touch the
+    /// user's real XDG store.
+    #[cfg(test)]
+    pub(crate) fn rooted_at(store: PathBuf, state: PathBuf) -> Manager {
+        Manager { store, state }
+    }
 }
 
 /// An installed provider, as `list` reports.

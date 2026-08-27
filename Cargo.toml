@@ -54,6 +54,10 @@ flate2 = "1.1.9"
 tar = "0.4.46"
 thiserror = "2.0.20"
 
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread"] }
+wiremock = "0.6"
+
 [profile.release]
 lto = "fat"
 codegen-units = 1
