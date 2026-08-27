@@ -1,4 +1,4 @@
-# The rootle provider protocol, v1.4
+# The rootle provider protocol, v1.5
 
 rootle talks to source-control backends through one seam (`trait
 Provider`, `src/provider/mod.rs`). The built-in `github` provider is
@@ -88,7 +88,11 @@ rendered when the user enables `[ui] nerd_font`), or a single literal
 glyph the terminal can render in any mode. Rootle never guesses icons
 from names — a provider that declares none renders text-only.
 `capabilities` is optional and defaults to
-everything enabled; the UI degrades on `false` (`orgs`, `code_search`).
+everything enabled; the UI degrades on `false`. Known keys: `orgs`,
+`code_search`, `file_search` (v1.3 — absent inherits `code_search`),
+and the v1.5 revision trio `refs`, `log`, `blame` (all default false —
+absent means default-branch-only, since many backends can't answer
+them; a backend that can, says so).
 
 **Cache budget (advisory, v1.2):** `cache_bytes` is the user's
 `[cache] max_mb` budget in bytes and `cache_dir` is this provider's
@@ -110,8 +114,12 @@ Optional/missing fields noted per method; everything else is required.
 | `initialize` | `{"protocol":1}` | `{protocol, name?, capabilities?}` |
 | `search/repos` | `{"query"}` | `{"items":[{"full_name":"o/r"} \| {"org":"o"}]}` |
 | `org/repos` | `{"org"}` | `{"repos":[name \| {…}, …]}` |
-| `repo/tree` | `{"repo"}` | `{"entries":[…], "truncated":bool, "branch":"main"}` |
+| `repo/tree` | `{"repo", "ref"?}` | `{"entries":[…], "truncated":bool, "branch":"main"}` |
 | `repo/blob` | `{"repo","sha"}` | `{"bytes_b64":"…"}` |
+| `repo/blob_at` | `{"repo","path","ref"?}` | `{"bytes_b64":"…", "sha"}` |
+| `repo/refs` | `{"repo"}` | `{"branches":[…], "tags":[…]}` |
+| `repo/log` | `{"repo","path"?,"ref"?,"limit"?}` | `{"items":[…], "truncated"?}` |
+| `repo/blame` | `{"repo","path","ref"?}` | `{"ranges":[…]}` |
 | `repo/clone_url` | `{"repo"}` | `{"clone_url":"…"}` |
 | `repo/web_url` | `{"repo","path","branch","line"}` | `{"url":"…"}` |
 | `org/url` | `{"org"}` | `{"url":"…"}` |
@@ -129,10 +137,13 @@ Details:
   reader tolerance, and the string form stays legal — a provider with
   only names changes nothing. rootle's clone wizard sorts by
   `pushed_at` and greys `archived` repos when metadata is present.
-- `repo/tree` — one entry per path, recursive over the default branch.
-  Pagination is the adapter's job: backends that page (GitLab keyset,
-  GitHub none) are aggregated up to an adapter-chosen budget, with
-  `truncated: true` past it — the wire stays unpaginated:
+- `repo/tree` — one entry per path, recursive over the default branch
+  — or over `"ref"` (v1.5): a branch, tag, or commit sha the adapter
+  resolves (unknown ref → `not_found`). The reply's `branch` names
+  what was actually served. Pagination is the adapter's job: backends
+  that page (GitLab keyset, GitHub none) are aggregated up to an
+  adapter-chosen budget, with `truncated: true` past it — the wire
+  stays unpaginated:
   `{"path":"src/main.rs","type":"blob","sha":"…","size":123}` where
   `type` is `"blob"` or `"tree"` (`"tree"` renders as a directory);
   `size` is optional and blobs only. `entries` defaults to `[]`,
@@ -141,6 +152,24 @@ Details:
   refuses blobs over 1 MiB at its boundary regardless of provider
   (preview-pane policy); adapters MAY refuse earlier with a
   `provider`-kinded error.
+- **Revisions (v1.5, plans/0016 M1):** `repo/refs` →
+  `{"branches": [{"name","sha","default"?}], "tags": [{"name","sha"}]}`
+  (both default to `[]`; `default` marks at most one branch). Adapters
+  without refs say so at the handshake — capability `refs`.
+  `repo/log` →
+  `{"items": [{"sha","subject","author","date"}], "truncated"?}` —
+  newest first, `date` ISO-8601, `limit` rides the bounded-compute
+  contract (stop at ~N, `truncated: true`); `path` filters to commits
+  touching it. Capability `log`. `repo/blob_at` resolves `path` at
+  `ref` (default branch when absent) directly to bytes + the content
+  id — the "open the file at this commit" call; unknown path/ref →
+  `not_found`. `repo/blame` →
+  `{"ranges": [{"start_line","end_line","sha","author","date"}]}` —
+  1-based, inclusive, covering every line of the file, adjacent ranges
+  sharing a sha coalesced. Capability `blame` (Bitbucket Cloud has no
+  blame API — `false` there is the honest answer). All three date
+  fields feed the UI's history/blame lenses verbatim; rootle never
+  re-derives authorship.
 - `repo/web_url` — build the browser URL for a repo root (`path` empty),
   a path (tree/blob grammar is the provider's), appending a line
   fragment when `line` is a number (`line` is JSON `null` when absent;
