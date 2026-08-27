@@ -156,6 +156,20 @@ fn fake_provider_child() {
                 writeln!(stdout, r#"{{"jsonrpc":"2.0","id":{id},"result":{{}}}}"#).unwrap();
                 stdout.flush().unwrap();
             }
+            // Bounded compute (v1.4 advisory): echo whether the
+            // request carried the client's render budget as `limit` —
+            // via `truncated`, the one bool the reply shape has.
+            "check-limit" if method == "search/code" => {
+                let req: serde_json::Value = serde_json::from_str(&line).unwrap();
+                let got =
+                    req["params"]["limit"].as_u64() == Some(crate::provider::RENDER_BUDGET as u64);
+                writeln!(
+                    stdout,
+                    r#"{{"jsonrpc":"2.0","id":{id},"result":{{"items":[],"truncated":{got}}}}}"#
+                )
+                .unwrap();
+                stdout.flush().unwrap();
+            }
             _ => {
                 writeln!(stdout, r#"{{"jsonrpc":"2.0","id":{id},"result":{{}}}}"#).unwrap();
                 stdout.flush().unwrap();
@@ -250,6 +264,26 @@ fn slow_replies_within_the_deadline_succeed() {
     provider
         .request("org/repos", json!({ "org": "o" }))
         .expect("200ms reply must land within a 2s deadline");
+}
+
+/// v1.4 bounded compute: every `search/code` carries the client's
+/// render budget as `limit` (doc/provider-protocol.md) — both the
+/// one-shot and the progressive call.
+#[test]
+fn search_code_sends_the_render_budget_as_limit() {
+    let provider = fake("check-limit", Duration::from_secs(2));
+    let plain = provider.search_code("needle").expect("search succeeds");
+    assert!(
+        plain.truncated,
+        "search/code must carry limit=RENDER_BUDGET"
+    );
+    let streamed = provider
+        .search_code_progressive("needle", &|_| {})
+        .expect("progressive search succeeds");
+    assert!(
+        streamed.truncated,
+        "progressive search/code must carry limit=RENDER_BUDGET"
+    );
 }
 
 #[test]

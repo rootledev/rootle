@@ -18,6 +18,13 @@ pub mod ui;
 
 use std::sync::Arc;
 
+/// The client's search render budget (protocol v1.4 advisory,
+/// doc/provider-protocol.md): sent as `limit` on every `search/code`
+/// so the provider stops scanning at ~N and sets `truncated: true`
+/// instead of computing hits the view would clip. The view's render
+/// cap is this same number.
+pub const RENDER_BUDGET: usize = 500;
+
 /// Structured provider error (plans/0008 §2): the protocol v1.1
 /// `data.kind` taxonomy carried from the wire to the UI instead of a
 /// bare string. Unknown or absent kinds degrade to `Other`, which
