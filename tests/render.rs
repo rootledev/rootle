@@ -148,7 +148,7 @@ fn renders_three_panes_modeline_and_popup() {
     let screen = rows.join("\n");
 
     // Launch: search popup is open over the browser.
-    assert!(screen.contains("search github"), "popup title missing");
+    assert!(screen.contains("search offline"), "popup title missing");
     assert!(screen.contains("INSERT"), "should land in INSERT mode");
     assert!(screen.contains("tab focus"), "popup hint row missing");
 
@@ -885,8 +885,9 @@ fn launch_popup_only_when_state_has_no_repos() {
     // Fresh state → popup opens automatically.
     let mut fresh = test_app();
     let screen = render(&mut fresh, 100, 30).join("\n");
+    // Offline double names itself; the title is forge-driven now.
     assert!(
-        screen.contains("search github"),
+        screen.contains("search offline"),
         "fresh launch should open the search popup"
     );
 

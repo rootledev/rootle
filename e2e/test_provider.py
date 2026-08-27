@@ -86,7 +86,7 @@ def test_provider_process_is_spawned_and_child(provider_tui: Tui) -> None:
     """The stdio child must exist while the app runs and die with it
     (it may take a beat to notice stdin EOF after the app exits)."""
     tui = provider_tui
-    tui.expect("search github")
+    tui.expect("search fs")
     assert provider_pids(tui), "provider child should be running"
     tui.stop()
     # rootle exits gracefully on SIGTERM → App drop kills the child

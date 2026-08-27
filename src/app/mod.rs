@@ -146,16 +146,18 @@ impl App {
         // for a fresh install (no repos in state yet). With recents,
         // the browser opens directly; ␣ s still offers resume via the
         // prefilled last repo.
+        let forge = forge_name(&config, provider.as_ref());
+        let icon = config.provider.icon.clone().or_else(|| provider.icon());
         let popup = if state.recent_repos.is_empty()
             && state.recent_orgs.is_empty()
             && state.last_repo.is_none()
         {
-            Some(SearchPopup::with_prefill(state.last_repo.as_deref()))
+            let mut p = SearchPopup::with_prefill(state.last_repo.as_deref());
+            p.forge = forge.clone();
+            Some(p)
         } else {
             None
         };
-        let forge = forge_name(&config, provider.as_ref());
-        let icon = config.provider.icon.clone().or_else(|| provider.icon());
         App {
             mode: Mode::Browse,
             browser: Browser::new(&state.recent_orgs, &provider.default_orgs()),
@@ -725,7 +727,9 @@ impl App {
             Action::LeaderSearch => {
                 // Resume: prefill with the last repo — one Enter
                 // re-runs the query back to where the user was.
-                self.popup = Some(SearchPopup::with_prefill(self.state.last_repo.as_deref()));
+                let mut popup = SearchPopup::with_prefill(self.state.last_repo.as_deref());
+                popup.forge = self.modeline.forge.clone();
+                self.popup = Some(popup);
                 self.mode = Mode::Browse;
             }
             Action::LeaderFileFind | Action::LeaderGrep => {

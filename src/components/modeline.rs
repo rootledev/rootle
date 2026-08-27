@@ -101,10 +101,12 @@ impl Modeline {
         };
         let icon = resolve_icon(self.icon.as_deref(), theme.nerd_font);
         let forge_label = fit(&self.forge, 12);
+        // Segment padding: a space on both sides of the content —
+        // the powerline arrow must never touch the icon or the label.
         let forge_text = if icon.is_empty() {
-            format!("{forge_label} ")
+            format!(" {forge_label} ")
         } else {
-            format!("{icon} {forge_label} ")
+            format!(" {icon} {forge_label} ")
         };
         let mut spans = vec![
             Span::styled(
