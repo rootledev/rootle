@@ -1,9 +1,11 @@
 # 0015 — forge-conformance: the canonical provider conformance suite
 
-Status: **in progress** (2026-08-27): suite live at
-`rootledev/forge-conformance` (37 cases, CI green); rootle CI job +
-skill wiring in this PR; rootle-gitlab wired (#4, 37/37 after the
-adapter grew v1.3 streaming); rootle-bitbucket pending
+Status: **done** (2026-08-27): suite live at
+`rootledev/forge-conformance`, tagged v1.3.0; rootle CI job + skill +
+spec + site wired (#92, rootledev.github.io#11); rootle-gitlab
+(#4/#5/#6) and rootle-bitbucket (#3/#4) run it in CI — 37/37 each,
+with two real conformance gaps fixed on the way (gitlab grew v1.3
+streaming; bitbucket fixed a branch-keyed tree cache)
 
 ## Problem
 

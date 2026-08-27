@@ -1,7 +1,27 @@
 # 0013 — Symbol search gate: `search/symbols` + Tree-sitter evaluation
 
-Status: **not started** (design accepted; Tree-sitter-in-process
-option to be evaluated first — it decides the feature's breadth)
+Status: **gate passed (2026-08-27)** — the Tree-sitter spike says
+"every forge": in-process symbol extraction over the blob cache is
+cheap enough to be the default; provider-declared indexes stay
+preferred when present. UI/wire implementation not started.
+
+Spike numbers (2026-08-27, Ryzen 9950X3D, release build, corpus 908
+files / 7.7 MiB — 251 real helix .rs, 300 real .py, 117 real .ts,
+240 synthetic .go; symbols = {name, kind, path, line} via each
+grammar's tags query; note: query compiled per file, so these are
+conservative):
+
+- 16 840 symbols in 2.84 s → **320 files/s, 2.7 MB/s** single-threaded
+- per file: rust 5.2 ms, python 3.1 ms, ts 2.3 ms, go 1.3 ms
+- RSS delta for the whole corpus: **~13 MiB**
+- a 1k-file repo cold-parses in ~3 s (once — the sha-keyed symbol
+  cache makes repeats free, and files parallelize trivially if cold
+  starts ever matter)
+
+Decision: **every-forge local extraction** (spike-passes branch).
+Providers declaring `symbols: true` (GitHub `symbol:`, GitLab
+advanced search) are preferred; the local path parses cached blobs
+with tree-sitter and labels results `parsed <short-sha>`.
 
 ## Problem
 
