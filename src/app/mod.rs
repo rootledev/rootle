@@ -573,9 +573,13 @@ impl App {
                 }
                 let text = crate::sanitize::sanitize(&bytes);
                 let short: String = ref_.chars().take(7).collect();
+                // The title carries the commit marker; highlighting and
+                // language detection read the real path — "main.rs @
+                // 42ec959" has no known extension (the demo caught the
+                // unhighlighted frame).
                 let name = format!("{path} @ {short}");
-                let lines = self.highlighter.highlight(&name, &text);
-                let lang = self.highlighter.language(&name);
+                let lines = self.highlighter.highlight(&path, &text);
+                let lang = self.highlighter.language(&path);
                 self.browser.show_at_commit(&sha, &name, &lang, text, lines);
                 // The lens' work is done — the commit's content is up.
                 self.browser.close_history();

@@ -526,11 +526,20 @@ fn preview_submode_zoom_blame_history() {
         "commit marker:\n{screen}"
     );
     assert!(screen.contains("PREVIEW"), "back in the zoomed pane");
+    // The regression from the demo: at-commit content highlights by
+    // the real path — the "@ sha" marker has no known extension.
+    // (Language evidence lives in e2e/test_revisions.py, where the
+    // fixture file is real rust; syntect's fancy set has no TOML, so
+    // this frame's footer honestly reads "text".)
     app.handle_key(key(KeyCode::Esc));
     let screen = render(&mut app, 140, 30).join("\n");
     assert!(
         screen.contains("name = \"ratatui\""),
         "Esc restores the present"
+    );
+    assert!(
+        !screen.contains("Cargo.toml @"),
+        "the marker must not stick after restore:\n{screen}"
     );
     app.handle_key(key(KeyCode::Esc));
     let screen = render(&mut app, 140, 30).join("\n");

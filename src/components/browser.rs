@@ -492,8 +492,10 @@ impl Browser {
             return;
         };
         if let Some(c) = self.blobs.get(&sha) {
-            let (name, lang, lines) = (c.name.clone(), c.lang.clone(), c.lines.clone());
-            self.preview.set_highlighted(&name, &lang, lines);
+            let (lang, lines) = (c.lang.clone(), c.lines.clone());
+            // The cached name carries the at-commit marker — the
+            // present-day view's title is the plain path.
+            self.preview.set_highlighted(&path, &lang, lines);
         } else {
             // Cache evicted under us: fall back to the blob path.
             self.preview
