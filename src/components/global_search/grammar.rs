@@ -8,6 +8,7 @@
 //! honesty chips when a token can't be applied anywhere.
 
 use super::model::RawHit;
+use ratatui::text::Span;
 
 /// A parsed query.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -61,6 +62,96 @@ fn tokenize(q: &str) -> Vec<String> {
 /// Scope qualifiers: adapter/wire-level, never content needles —
 /// parsed out so the local paths don't substring-match the syntax.
 const SCOPE_QUALIFIERS: &[&str] = &["repo:", "org:", "path:"];
+
+/// Syntax eye-candy for the query field (GitHub's qualifier pills):
+/// qualifiers color the key in keyword and the value in string,
+/// quoted literals keep their quotes in string, the negation marker is
+/// warning-colored. The spans partition the input byte-exactly — a
+/// query we can't segment falls through as one plain span, so nothing
+/// ever bleeds or drops a character (tested invariant).
+pub fn style_query(query: &str, theme: &crate::theme::Theme) -> Vec<Span<'static>> {
+    let syntax = &theme.syntax;
+    use ratatui::style::Style;
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    let text = Style::default().fg(theme.semantic.text);
+    let bytes = query.as_bytes();
+    let mut i = 0;
+    let push = |spans: &mut Vec<Span<'static>>, s: &str, style: Style| {
+        spans.push(Span::styled(s.to_string(), style));
+    };
+    while i < query.len() {
+        let b = bytes[i];
+        if b == b' ' || b == b'\t' {
+            let start = i;
+            while i < query.len() && (bytes[i] == b' ' || bytes[i] == b'\t') {
+                i += 1;
+            }
+            push(&mut spans, &query[start..i], text);
+            continue;
+        }
+        // One token: quoted runs hold together, quotes stay visible.
+        let start = i;
+        while i < query.len() && bytes[i] != b' ' && bytes[i] != b'\t' {
+            if bytes[i] == b'"' {
+                i += 1;
+                while i < query.len() && bytes[i] != b'"' {
+                    i += 1;
+                }
+                if i < query.len() {
+                    i += 1; // the closing quote
+                }
+            } else {
+                i += 1;
+            }
+        }
+        let tok = &query[start..i];
+        let (neg, rest) = match tok.strip_prefix('-') {
+            Some(r) => (true, r),
+            None => (false, tok),
+        };
+        if neg {
+            push(&mut spans, "-", Style::default().fg(syntax.invalid));
+        }
+        if tok == "NOT" {
+            push(&mut spans, "NOT", Style::default().fg(syntax.invalid));
+            continue;
+        }
+        let tok = rest;
+        if tok.is_empty() {
+            continue;
+        }
+        // Qualifier with a value → keyword key + string value.
+        if let Some(colon) = tok.find(':')
+            && !tok.starts_with('"')
+        {
+            let key = &tok[..=colon];
+            let known = matches!(
+                key,
+                "repo:" | "org:" | "path:" | "extension:" | "language:" | "symbol:"
+            );
+            if known {
+                push(&mut spans, key, Style::default().fg(syntax.keyword));
+                let value = &tok[colon + 1..];
+                if !value.is_empty() {
+                    push(&mut spans, value, Style::default().fg(syntax.string));
+                }
+                continue;
+            }
+        }
+        let style = if tok.starts_with('"') || tok.contains('"') {
+            Style::default().fg(syntax.string)
+        } else {
+            text
+        };
+        push(&mut spans, tok, style);
+    }
+    debug_assert_eq!(
+        spans.iter().map(|s| s.content.as_ref()).collect::<String>(),
+        query,
+        "style_query must partition the input"
+    );
+    spans
+}
 
 pub fn parse(query: &str) -> Grammar {
     let mut g = Grammar::default();
@@ -218,6 +309,78 @@ pub fn filter_hits(g: &Grammar, hits: Vec<RawHit>) -> (Vec<RawHit>, usize) {
     (kept, dropped)
 }
 
+#[cfg(test)]
+mod style_tests {
+    use super::style_query;
+    use crate::theme::Theme;
+
+    fn colors(query: &str) -> Vec<(String, bool, bool, bool)> {
+        let t = Theme::catppuccin_mocha();
+        let (kw, str_, warn) = (t.syntax.keyword, t.syntax.string, t.syntax.invalid);
+        style_query(query, &t)
+            .into_iter()
+            .map(|sp| {
+                let st = sp.style;
+                (
+                    sp.content.to_string(),
+                    st.fg == Some(kw),
+                    st.fg == Some(str_),
+                    st.fg == Some(warn),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn qualifiers_literals_and_negation_take_syntax_colors() {
+        let spans = colors(r#"render -legacy language:rust "exact phrase" NOT dead"#);
+        // keyword-colored qualifier key, string-colored value.
+        assert!(spans.iter().any(|(t, kw, _, _)| t == "language:" && *kw));
+        assert!(spans.iter().any(|(t, _, st, _)| t == "rust" && *st));
+        assert!(
+            spans
+                .iter()
+                .any(|(t, _, st, _)| t == "\"exact phrase\"" && *st)
+        );
+        assert!(spans.iter().any(|(t, _, _, w)| t == "-" && *w));
+        assert!(spans.iter().any(|(t, _, _, w)| t == "NOT" && *w));
+        // Plain terms and spaces stay uncolored.
+        assert!(
+            spans
+                .iter()
+                .any(|(t, kw, st, w)| t == "render" && !kw && !st && !w)
+        );
+        assert!(
+            spans
+                .iter()
+                .any(|(t, kw, st, w)| t == "legacy" && !kw && !st && !w)
+        );
+    }
+
+    #[test]
+    fn spans_partition_the_input_byte_exactly() {
+        for q in [
+            "",
+            "plain",
+            "a  b",
+            "\"unterminated",
+            "-\"neg quoted\"",
+            "unknown:x",
+            "path:src/main.rs render",
+            "language:",
+            "üñí — em",
+        ] {
+            let joined: String = style_query(q, &Theme::catppuccin_mocha())
+                .iter()
+                .map(|s| s.content.as_ref())
+                .collect();
+            assert_eq!(joined, q, "partition broke for {q:?}");
+        }
+        // An unknown qualifier is NOT a pill — plain text, no bleed.
+        let spans = colors("unknown:x");
+        assert!(spans.iter().all(|(_, kw, st, w)| !kw && !st && !w));
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;

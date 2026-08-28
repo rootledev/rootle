@@ -251,10 +251,31 @@ impl Browser {
     /// pages, paragraphs, %, zt/zz/zb); everything else maps through
     /// the named table in keymap.rs (hint rows derive from it).
     pub fn preview_key(&mut self, key: ratatui::crossterm::event::KeyEvent) -> Action {
+        use ratatui::crossterm::event::KeyCode;
         if self.preview.motion_key(key) {
             return Action::Noop;
         }
-        crate::keymap::preview_named(key.code)
+        match key.code {
+            // vim V (pane-local): anchor at the cursor, motions extend.
+            KeyCode::Char('v') => {
+                self.preview.toggle_visual();
+                Action::Noop
+            }
+            // Y copies content — the selection, else the cursor line.
+            KeyCode::Char('Y') => Action::PreviewCopy,
+            // The ladder: Esc clears a selection before exiting.
+            KeyCode::Esc if self.preview.clear_visual() => Action::Noop,
+            _ => crate::keymap::preview_named(key.code),
+        }
+    }
+
+    /// The yank anchor: the visual range when one is live, else the
+    /// cursor line alone — web_url takes (line, end).
+    pub fn yank_anchor(&self) -> (Option<u32>, Option<u32>) {
+        match self.preview.visual_range() {
+            Some((lo, hi)) => (Some(lo), Some(hi)),
+            None => (self.preview.line(), None),
+        }
     }
 
     /// `␣ p b` off: drop the lens. (On is the app's: it fetches
@@ -467,6 +488,7 @@ impl Browser {
         lang: &str,
         text: String,
         lines: Vec<Line<'static>>,
+        band: Option<crate::components::preview::BandContext>,
     ) {
         self.note_commit_view();
         self.blobs.insert(
@@ -479,6 +501,9 @@ impl Browser {
             },
         );
         self.preview.set_highlighted(name, lang, lines);
+        // The band: the path stays, the commit context dresses it.
+        let path = name.split(" @ ").next().unwrap_or(name).to_string();
+        self.preview.set_band(Some(path), band);
     }
 
     pub fn at_commit_view(&self) -> bool {
@@ -496,11 +521,17 @@ impl Browser {
             // The cached name carries the at-commit marker — the
             // present-day view's title is the plain path.
             self.preview.set_highlighted(&path, &lang, lines);
+            self.preview.set_band(Some(path), None);
         } else {
             // Cache evicted under us: fall back to the blob path.
             self.preview
                 .set_bytes(&path, b"reload the file to restore it");
         }
+    }
+
+    /// The picked commit as a LogEntry (the band needs the subject).
+    pub fn history_pick_entry(&self) -> Option<crate::provider::LogEntry> {
+        self.history.as_ref()?.selected().cloned()
     }
 
     /// The picked commit (path + full sha) — open-at-commit and the
@@ -884,6 +915,14 @@ impl Browser {
         );
         self.pending_blobs.remove(sha);
         self.refresh_preview();
+        // The header band (GitHub's file header): the full path rides
+        // every file preview; at-commit context only from
+        // show_at_commit.
+        if let Some((path, s)) = self.selected_file()
+            && s == sha
+        {
+            self.preview.set_band(Some(path), None);
+        }
     }
 
     /// Re-highlight every cached blob under a new palette and refresh

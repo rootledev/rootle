@@ -229,7 +229,7 @@ pub fn hint_strip_line(mode: Mode, width: usize, theme: &Theme) -> Line<'static>
 
 /// Middle truncation: keep the first third and the tail, `…` between —
 /// the ends of a path or sentence carry the meaning.
-fn fit_middle(s: &str, width: usize) -> String {
+pub(crate) fn fit_middle(s: &str, width: usize) -> String {
     if s.width() <= width {
         return s.to_string();
     }

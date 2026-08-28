@@ -76,6 +76,7 @@ impl GlobalSearch {
             &self.query.value(),
             self.focus == super::Focus::Query,
             Some(self.query.cursor()),
+            true,
         );
         self.render_field(
             frame,
@@ -85,6 +86,7 @@ impl GlobalSearch {
             &format!("{} ▾", self.scope_label()),
             self.focus == super::Focus::Scope,
             None,
+            false,
         );
         self.render_field(
             frame,
@@ -94,6 +96,7 @@ impl GlobalSearch {
             &self.extension.value(),
             self.focus == super::Focus::Extension,
             Some(self.extension.cursor()),
+            false,
         );
 
         self.render_facets(frame, rows[1], theme);
@@ -114,6 +117,7 @@ impl GlobalSearch {
         value: &str,
         focused: bool,
         cursor: Option<usize>,
+        styled: bool,
     ) {
         let sem = &theme.semantic;
         let border = if focused {
@@ -135,13 +139,21 @@ impl GlobalSearch {
         } else {
             Span::styled("❯ ", Style::default().fg(sem.overlay0))
         };
-        frame.render_widget(
-            Paragraph::new(Line::from(vec![
-                prompt,
-                Span::styled(fit(value, width), Style::default().fg(sem.text)),
-            ])),
-            inner,
-        );
+        let mut spans = vec![prompt];
+        if styled {
+            // Grammar eye candy (plans/0012 M1): qualifiers/quoted
+            // literals/negation markers take syntax colors — the spans
+            // partition the value byte-exactly, so a query we can't
+            // segment renders verbatim and nothing bleeds elsewhere.
+            let styled_spans = fit_spans(super::grammar::style_query(value, theme), width);
+            spans.extend(styled_spans);
+        } else {
+            spans.push(Span::styled(
+                fit(value, width),
+                Style::default().fg(sem.text),
+            ));
+        }
+        frame.render_widget(Paragraph::new(Line::from(spans)), inner);
         if focused && let Some(cursor) = cursor {
             let x = inner.x + 2 + cursor as u16;
             if x < inner.x + inner.width {
@@ -502,6 +514,33 @@ impl GlobalSearch {
         }
         frame.render_widget(Paragraph::new(lines), inner);
     }
+}
+
+/// fit() for styled spans: cut whole spans at the width, then the
+/// last span per-char.
+fn fit_spans(spans: Vec<Span<'static>>, width: usize) -> Vec<Span<'static>> {
+    let mut out = Vec::new();
+    let mut used = 0;
+    for span in spans {
+        let w = span.content.width();
+        if used + w <= width {
+            used += w;
+            out.push(span);
+        } else {
+            let mut cut = String::new();
+            for c in span.content.chars() {
+                let cw = unicode_width::UnicodeWidthChar::width(c).unwrap_or(0);
+                if used + cw > width {
+                    break;
+                }
+                cut.push(c);
+                used += cw;
+            }
+            out.push(Span::styled(cut, span.style));
+            break;
+        }
+    }
+    out
 }
 
 /// Preview line: right-aligned line-number gutter with the same dim

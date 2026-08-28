@@ -133,6 +133,13 @@ struct ExpandedFile {
 const RENDER_CAP: usize = crate::provider::RENDER_BUDGET;
 
 impl GlobalSearch {
+    /// `Y` in the expanded file pane: its preview's copy target.
+    pub fn expanded_copy_target(&mut self) -> Option<(String, usize)> {
+        self.expanded
+            .as_mut()
+            .and_then(|exp| exp.preview.copy_target())
+    }
+
     /// `:42` — jump the expanded file pane to a line (plans/0016 M1).
     /// Returns false when nothing is expanded.
     pub fn expanded_goto_line(&mut self, line: u32) -> bool {

@@ -554,7 +554,9 @@ def handle(root: str, method: str, params: dict) -> dict:
         is_file = params.get("is_file", False)
         url = f"{base}/{path}" if path else base
         if is_file and line:
-            url += f"#L{line}"
+            end = params.get("end_line")
+            # v1.5: a selection yanks a range anchor.
+            url += f"#L{line}-L{end}" if end and end > line else f"#L{line}"
         return {"url": url}
     if method == "org/url":
         return {"url": pathlib.Path(root).resolve().as_uri()}

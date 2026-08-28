@@ -145,6 +145,7 @@ impl Provider for GitHubProvider {
         path: &str,
         branch: &str,
         line: Option<u32>,
+        end: Option<u32>,
         is_file: bool,
     ) -> ProviderResult<String> {
         split_repo(repo)?;
@@ -159,8 +160,11 @@ impl Provider for GitHubProvider {
             branch.to_string()
         };
         let kind = if is_file { "blob" } else { "tree" };
-        let fragment = match (is_file, line) {
-            (true, Some(line)) => format!("#L{line}"),
+        // Range anchors (v1.5): `#L3-L7` when a selection's end rides
+        // along (GitHub's fragment grammar).
+        let fragment = match (is_file, line, end) {
+            (true, Some(line), Some(end)) if end > line => format!("#L{line}-L{end}"),
+            (true, Some(line), _) => format!("#L{line}"),
             _ => String::new(),
         };
         Ok(format!(
@@ -247,24 +251,45 @@ mod tests {
         let p = GitHubProvider::anonymous();
         // Repo root.
         assert_eq!(
-            p.web_url("ratatui/ratatui", "", "", None, false).unwrap(),
+            p.web_url("ratatui/ratatui", "", "", None, None, false)
+                .unwrap(),
             "https://github.com/ratatui/ratatui"
         );
         // File with a line: blob + fragment (known branch, no I/O).
         assert_eq!(
-            p.web_url("ratatui/ratatui", "src/lib.rs", "main", Some(42), true)
-                .unwrap(),
+            p.web_url(
+                "ratatui/ratatui",
+                "src/lib.rs",
+                "main",
+                Some(42),
+                None,
+                true
+            )
+            .unwrap(),
             "https://github.com/ratatui/ratatui/blob/main/src/lib.rs#L42"
+        );
+        // A visual range anchors `#L3-L7` (v1.5).
+        assert_eq!(
+            p.web_url(
+                "ratatui/ratatui",
+                "src/lib.rs",
+                "main",
+                Some(3),
+                Some(7),
+                true
+            )
+            .unwrap(),
+            "https://github.com/ratatui/ratatui/blob/main/src/lib.rs#L3-L7"
         );
         // File without a line: blob, no fragment.
         assert_eq!(
-            p.web_url("ratatui/ratatui", "src/lib.rs", "main", None, true)
+            p.web_url("ratatui/ratatui", "src/lib.rs", "main", None, None, true)
                 .unwrap(),
             "https://github.com/ratatui/ratatui/blob/main/src/lib.rs"
         );
         // Directory: tree.
         assert_eq!(
-            p.web_url("ratatui/ratatui", "src", "master", None, false)
+            p.web_url("ratatui/ratatui", "src", "master", None, None, false)
                 .unwrap(),
             "https://github.com/ratatui/ratatui/tree/master/src"
         );

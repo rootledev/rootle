@@ -7,13 +7,15 @@ mod find;
 use find::{FindState, chip_line};
 
 use super::pane::{Entry, EntryKind};
+use crate::components::modeline::fit_middle;
 use crate::sanitize;
 use crate::theme::Theme;
 use ratatui::Frame;
-use ratatui::layout::Rect;
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
+use unicode_width::UnicodeWidthStr;
 
 #[derive(Debug, Clone, Default)]
 pub enum PreviewContent {
@@ -26,6 +28,15 @@ pub enum PreviewContent {
     Binary {
         size: usize,
     },
+}
+
+/// The at-commit header context (sha, subject, author, date).
+#[derive(Debug, Clone)]
+pub struct BandContext {
+    pub sha: String,
+    pub subject: String,
+    pub author: String,
+    pub date: String,
 }
 
 /// A blame run's first-line mark (plans/0016 M1c): the margin shows
@@ -59,6 +70,14 @@ pub struct Preview {
     lang: Option<String>,
     /// Find-in-file session (`␣ /`); chips + `n`/`N` target.
     find: Option<FindState>,
+    /// The header band (GitHub's file header): full path left; the
+    /// at-commit context right when viewing history (plans/0016 M1b).
+    band_path: Option<String>,
+    band_context: Option<BandContext>,
+    /// Visual-lines selection (vim's V, pane-local): the anchor line;
+    /// the range is anchor..=cursor. `Y` copies it, `y` range-anchors
+    /// the URL.
+    visual_anchor: Option<u16>,
     /// Blame lens (plans/0016 M1c): one mark per logical line,
     /// `Some` at run starts. Drawn as a margin before the gutter.
     blame: Option<Vec<Option<BlameMark>>>,
@@ -88,6 +107,9 @@ impl Preview {
             numbered: false,
             lang: None,
             find: None,
+            band_path: None,
+            band_context: None,
+            visual_anchor: None,
             blame: None,
             motion_count: String::new(),
             motion_pending: None,
@@ -104,10 +126,84 @@ impl Preview {
     pub fn set_blame(&mut self, marks: Option<Vec<Option<BlameMark>>>) {
         self.blame = marks;
     }
+    /// The header band (always-on for file content): the full path
+    /// left; at-commit context right when set (None restores).
+    pub fn set_band(&mut self, path: Option<String>, context: Option<BandContext>) {
+        self.band_path = path;
+        self.band_context = context;
+    }
 
     /// Blame lens active?
     pub fn blaming(&self) -> bool {
         self.blame.is_some()
+    }
+    /// vim's V (pane-local line visual): toggles the anchor at the
+    /// cursor; motions extend the range. No-op on cursorless content.
+    pub fn toggle_visual(&mut self) {
+        if self.line_count == 0 {
+            return;
+        }
+        self.visual_anchor = match self.visual_anchor {
+            Some(_) => None,
+            None => Some(self.cursor),
+        };
+    }
+
+    /// Esc inside the pane: a selection clears first, the caller's
+    /// exit follows. Returns true while visual stays/just cleared.
+    pub fn clear_visual(&mut self) -> bool {
+        self.visual_anchor.take().is_some()
+    }
+
+    /// The selected 1-based line range (start, end) while visual is
+    /// on; None otherwise.
+    pub fn visual_range(&self) -> Option<(u32, u32)> {
+        let a = self.visual_anchor?;
+        let (lo, hi) = (a.min(self.cursor), a.max(self.cursor));
+        Some((u32::from(lo) + 1, u32::from(hi) + 1))
+    }
+
+    /// The pane's text content as shown (spans rejoined — tabs are
+    /// display-expanded; the copy target is what's on screen).
+    pub fn content_text(&self) -> Option<String> {
+        match &self.content {
+            PreviewContent::Text(text) => Some(text.clone()),
+            PreviewContent::Highlighted(lines) => Some(
+                lines
+                    .iter()
+                    .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect())
+                    .collect::<Vec<String>>()
+                    .join("\n"),
+            ),
+            _ => None,
+        }
+    }
+
+    /// What `Y` copies: the visual range, else the cursor line
+    /// (GitHub's copy button semantics — there is always something
+    /// under the cursor). Returns (text, line_count_copied).
+    pub fn copy_target(&self) -> Option<(String, usize)> {
+        let lines: Vec<String> = self.content_text()?.lines().map(str::to_string).collect();
+        let (lo, hi) = match self.visual_range() {
+            Some((a, b)) => (a as usize, b as usize),
+            None => {
+                let l = self.line()? as usize;
+                (l, l)
+            }
+        };
+        let slice: Vec<String> = lines
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| (*i + 1) >= lo && (*i + 1) <= hi)
+            .map(|(_, l)| l.clone())
+            .collect();
+        // Linewise copies keep the trailing newline (vim register
+        // semantics — pasting lands as whole lines).
+        (!slice.is_empty()).then(|| {
+            let mut text = slice.join("\n");
+            text.push('\n');
+            (text, slice.len())
+        })
     }
 
     /// A focused preview — drawn as the keyboard owner (search view's
@@ -385,6 +481,11 @@ impl Preview {
             return None;
         }
         let pos = format!("{}/{}", self.cursor + 1, self.line_count);
+        let pos = match self.visual_range() {
+            // VISUAL marker + the range — vim's -- VISUAL -- line.
+            Some((lo, hi)) => format!("VISUAL {lo}-{hi} · {pos}"),
+            None => pos,
+        };
         match &self.find {
             Some(f) if !f.query.is_empty() => {
                 let cur = if f.matches.is_empty() {
@@ -399,6 +500,9 @@ impl Preview {
     }
 
     fn reset(&mut self) {
+        self.band_path = None;
+        self.band_context = None;
+        self.visual_anchor = None;
         self.scroll = 0;
         self.cursor = 0;
         self.find = None;
@@ -523,6 +627,14 @@ impl Preview {
         if cursored && let Some(line) = lines.get_mut(cursor) {
             line.style = Style::default().bg(sem.selection_bg);
         }
+        // Visual-lines (vim V): the range tints like the cursor line.
+        if let Some((lo, hi)) = self.visual_range() {
+            for i in (lo as usize - 1)..=(hi as usize - 1).min(lines.len().saturating_sub(1)) {
+                if let Some(line) = lines.get_mut(i) {
+                    line.style = Style::default().bg(sem.selection_bg);
+                }
+            }
+        }
         // Line-number gutter, bat/helix style: sign column (▶ marks
         // the cursor line, tuicr-style) + space + right-aligned dim
         // numbers + a dim `│` divider before the content. The cursor
@@ -585,21 +697,73 @@ impl Preview {
             }
         }
 
-        self.viewport = area.height.saturating_sub(2);
+        // The header band (GitHub's file header, plans/0016 M1b): on
+        // file content one row under the border carries the full path
+        // — plus the at-commit context on the right when viewing
+        // history — on a surface0 strip so it reads as chrome, not
+        // content.
+        let band = self.numbered && self.band_path.is_some();
+        let inner = block.inner(area);
+        self.viewport = inner.height.saturating_sub(band as u16);
         self.clamp_scroll(self.viewport);
+        frame.render_widget(block, area);
+        let content_area = if band {
+            let rows = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Length(1), Constraint::Min(1)])
+                .split(inner);
+            let path = self.band_path.clone().unwrap_or_default();
+            let mut spans = vec![Span::styled(
+                format!(" {path}"),
+                Style::default()
+                    .fg(sem.text)
+                    .bg(sem.surface0)
+                    .add_modifier(Modifier::BOLD),
+            )];
+            let left_w = 1 + UnicodeWidthStr::width(path.as_str());
+            if let Some(ctx) = &self.band_context {
+                // 42ec959 feat: … · author · date — sha in the accent
+                // the history lens uses.
+                let right = format!(
+                    "{} · {} · {} · {} ",
+                    ctx.sha, ctx.subject, ctx.author, ctx.date
+                );
+                let room = (inner.width as usize).saturating_sub(left_w);
+                let right = fit_middle(&right, room);
+                let pad = room.saturating_sub(UnicodeWidthStr::width(right.as_str()));
+                spans.push(Span::styled(
+                    " ".repeat(pad),
+                    Style::default().bg(sem.surface0),
+                ));
+                spans.push(Span::styled(
+                    right,
+                    Style::default().fg(sem.warning).bg(sem.surface0),
+                ));
+            }
+            let band_line = Line::from(spans);
+            let band_w: usize = band_line.spans.iter().map(|s| s.content.width()).sum();
+            let mut band_spans = band_line.spans;
+            band_spans.push(Span::styled(
+                " ".repeat((inner.width as usize).saturating_sub(band_w)),
+                Style::default().bg(sem.surface0),
+            ));
+            frame.render_widget(Paragraph::new(Line::from(band_spans)), rows[0]);
+            rows[1]
+        } else {
+            inner
+        };
         frame.render_widget(
             Paragraph::new(lines)
-                .block(block)
                 .scroll((self.scroll, 0))
                 .wrap(Wrap { trim: false }),
-            area,
+            content_area,
         );
         // House style: anything that scrolls shows a scrollbar.
         if self.numbered {
             super::scrollbar(
                 frame,
                 area,
-                area.height.saturating_sub(2) as usize,
+                self.viewport as usize,
                 self.line_count as usize,
                 self.scroll as usize,
                 theme,
@@ -799,6 +963,31 @@ mod tests {
         let mut p = Preview::new();
         assert!(!p.motion_key(key(KeyCode::Char('j'))));
         assert!(!p.motion_key(key(KeyCode::Char('G'))));
+    }
+    #[test]
+    fn visual_selects_and_copy_targets_it() {
+        let mut p = motion_preview();
+        // No visual: the copy target is the cursor line.
+        p.move_cursor(1);
+        let (text, n) = p.copy_target().unwrap();
+        assert_eq!((text.as_str(), n), ("line 2\n", 1));
+        assert_eq!(p.visual_range(), None);
+        // v anchors; motions extend the range; Y targets it.
+        p.toggle_visual();
+        assert_eq!(p.visual_range(), Some((2, 2)));
+        p.move_cursor(2);
+        assert_eq!(p.visual_range(), Some((2, 4)));
+        let (text, n) = p.copy_target().unwrap();
+        assert_eq!(n, 3);
+        assert!(text.starts_with("line 2") && text.ends_with("line 4\n"));
+        // Motions move the cursor END of the selection (vim-true):
+        // gg from line 4 leaves the anchor at line 2.
+        motions(&mut p, "gg");
+        assert_eq!(p.visual_range(), Some((1, 2)));
+        // Esc ladder: first clear clears the selection.
+        assert!(p.clear_visual());
+        assert_eq!(p.visual_range(), None);
+        assert!(!p.clear_visual());
     }
 
     #[test]

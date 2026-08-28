@@ -213,8 +213,18 @@ impl App {
         });
     }
 
-    /// Open-at-commit from the history lens.
-    pub(super) fn spawn_blob_at(&self, repo: String, path: String, ref_: String) {
+    /// Open-at-commit from the history lens; the band context rides
+    /// along so the header can dress the commit view.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn spawn_blob_at(
+        &self,
+        repo: String,
+        path: String,
+        ref_: String,
+        subject: String,
+        author: String,
+        date: String,
+    ) {
         let provider = self.provider.clone();
         let tx = self.tx.clone();
         std::thread::spawn(move || {
@@ -224,6 +234,9 @@ impl App {
                     ref_,
                     sha,
                     bytes,
+                    subject,
+                    author,
+                    date,
                 },
                 Err(error) => AppEvent::BlobAtFailed { path, error },
             };
