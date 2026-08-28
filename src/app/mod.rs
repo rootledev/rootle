@@ -57,6 +57,10 @@ pub struct App {
     /// unavailable — the honest-channel surface). Transient statuses
     /// overlay it; nothing clears it for the session.
     degraded: Option<String>,
+    /// 0019 polish: last-commit memo for the preview band, keyed
+    /// (repo, path, ref). The band is ambient — re-selects never
+    /// refetch; the first preview of a file spawns one `log(limit=1)`.
+    last_commits: std::collections::HashMap<(String, String, String), crate::provider::LogEntry>,
     /// closes (history from blame, find from preview).
     history_return: Option<Mode>,
     find_return: Option<Mode>,
@@ -218,6 +222,7 @@ impl App {
             // 0019 M2: declared-but-missing provider — the consent
             consent: None,
             degraded: None,
+            last_commits: std::collections::HashMap::new(),
             history_return: None,
             find_return: None,
             update_tag: None,
@@ -481,6 +486,23 @@ impl App {
                 if gen_id != self.view_gen {
                     return; // view moved on — drop the stale blob
                 }
+                // 0019 polish: the expanded pane's band rides the same
+                // last-commit memo as the miller preview.
+                let band_ctx = {
+                    let branch = self
+                        .search_view
+                        .as_ref()
+                        .and_then(|v| v.expanded_branch())
+                        .unwrap_or_default();
+                    self.last_commits
+                        .get(&(repo.clone(), path.clone(), branch))
+                        .map(|e| crate::components::preview::BandContext {
+                            sha: e.sha.clone(),
+                            subject: e.subject.clone(),
+                            author: e.author.clone(),
+                            date: e.date.clone(),
+                        })
+                };
                 // Sanitize + highlight at the boundary, on the UI
                 // thread (PLAN.md §9) — same rule as every blob.
                 let action = if crate::sanitize::is_binary(&bytes) {
@@ -509,14 +531,24 @@ impl App {
                         }
                     }
                     Action::HitFileLoaded {
-                        repo,
-                        path,
+                        repo: repo.clone(),
+                        path: path.clone(),
                         sha,
                         lang,
                         lines,
                     }
                 };
+                // Memo miss on the expanded hit: spawn the one-shot
+                // fetch (log-capable providers only; ambient).
+                if band_ctx.is_none()
+                    && !self.offline
+                    && let Some(view) = &self.search_view
+                    && let Some(branch) = view.expanded_branch()
+                {
+                    self.spawn_last_commit(repo.clone(), path.clone(), Some(branch.clone()));
+                }
                 if let Some(view) = &mut self.search_view {
+                    view.expanded_set_band(&path, band_ctx);
                     view.update(&action);
                 }
             }
@@ -593,6 +625,43 @@ impl App {
                     view.blame_store(path, ranges);
                 } else {
                     self.browser.blame_store(path, ranges);
+                }
+            }
+            AppEvent::LastCommitLoaded { repo, path, entry } => {
+                if let Some(entry) = entry {
+                    // Compact at the boundary: 7-char sha, date-only
+                    // — the band is a header, not a ledger.
+                    let ctx = crate::components::preview::BandContext {
+                        sha: entry.sha.chars().take(7).collect(),
+                        subject: entry.subject.clone(),
+                        author: entry.author.clone(),
+                        date: entry
+                            .date
+                            .split('T')
+                            .next()
+                            .unwrap_or(&entry.date)
+                            .to_string(),
+                    };
+                    let ref_ = self
+                        .browser
+                        .current_ref()
+                        .map(str::to_string)
+                        .unwrap_or_default();
+                    self.last_commits
+                        .insert((repo.clone(), path.clone(), ref_), entry);
+                    // Dress whichever surface is showing this file now:
+                    // the miller preview (not at-commit) and/or the
+                    // search pane's expanded hit.
+                    if !self.browser.at_commit_view()
+                        && self.browser.selected_file().is_some_and(|(p, _)| p == path)
+                    {
+                        self.browser
+                            .preview
+                            .set_band(Some(path.clone()), Some(ctx.clone()));
+                    }
+                    if let Some(view) = &mut self.search_view {
+                        view.expanded_set_band(&path, Some(ctx));
+                    }
                 }
             }
             AppEvent::BlameFailed { path, error } => {
@@ -859,6 +928,7 @@ impl App {
                 let lines = self.highlighter.highlight(&name, &text);
                 let lang = self.highlighter.language(&name);
                 self.browser.blob_loaded(&sha, &name, &lang, text, lines);
+                self.band_apply_or_fetch();
             }
             Action::BlobFailed { sha, error } => {
                 self.status = Some(provider_status(&error));
@@ -1675,6 +1745,43 @@ impl App {
     /// Queued yank text, drained by the main loop once per iteration.
     pub fn take_clipboard(&mut self) -> Option<String> {
         self.pending_clipboard.take()
+    }
+
+    /// 0019 polish: the band's last-commit context for the file under
+    /// preview — memo hit dresses immediately, a miss spawns the
+    /// one-shot fetch (ambient; errors stay silent).
+    fn band_apply_or_fetch(&mut self) {
+        if !self.provider.capabilities().log || self.browser.at_commit_view() {
+            return;
+        }
+        let Some((owner, name)) = self.browser.repo_coords() else {
+            return;
+        };
+        let Some((path, _)) = self.browser.selected_file() else {
+            return;
+        };
+        let ref_ = self
+            .browser
+            .current_ref()
+            .map(str::to_string)
+            .unwrap_or_default();
+        let key = (format!("{owner}/{name}"), path.clone(), ref_.clone());
+        match self.last_commits.get(&key) {
+            Some(entry) => {
+                self.browser.preview.set_band(
+                    Some(path),
+                    Some(crate::components::preview::BandContext {
+                        sha: entry.sha.clone(),
+                        subject: entry.subject.clone(),
+                        author: entry.author.clone(),
+                        date: entry.date.clone(),
+                    }),
+                );
+            }
+            None => {
+                self.spawn_last_commit(format!("{owner}/{name}"), path, Some(ref_));
+            }
+        }
     }
 
     /// 0018 M3: the quit-time restart trace — only when this session

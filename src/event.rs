@@ -191,6 +191,14 @@ pub enum AppEvent {
         name: String,
         error: String,
     },
+    /// Ambient band data (0019 polish): the file's latest commit for
+    /// the preview header — None means the history is empty or the
+    /// provider refused; failures are silent (the band is a nicety).
+    LastCommitLoaded {
+        repo: String,
+        path: String,
+        entry: Option<crate::provider::LogEntry>,
+    },
 }
 
 pub type AppTx = std::sync::mpsc::Sender<AppEvent>;

@@ -95,6 +95,16 @@ impl Default for Preview {
     }
 }
 
+/// The sha prefix's length inside the shaped band text — the
+/// extreme-squeeze fallback text is sha-only (the whole thing).
+fn sha_len(text: &str, ctx: &BandContext) -> usize {
+    if text.starts_with(&ctx.sha) {
+        ctx.sha.len()
+    } else {
+        text.len()
+    }
+}
+
 impl Preview {
     pub fn new() -> Self {
         Preview {
@@ -609,7 +619,7 @@ impl Preview {
             let current_style = Style::default()
                 .fg(sem.crust)
                 .bg(sem.warning)
-                .add_modifier(Modifier::BOLD);
+                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED);
             for (i, line) in lines.iter_mut().enumerate() {
                 let ranges: Vec<(usize, usize, bool)> = find
                     .matches
@@ -722,22 +732,44 @@ impl Preview {
             )];
             let left_w = 1 + UnicodeWidthStr::width(path.as_str());
             if let Some(ctx) = &self.band_context {
-                // 42ec959 feat: … · author · date — sha in the accent
-                // the history lens uses.
-                let right = format!(
-                    "{} · {} · {} · {} ",
+                // sha · subject · author · date — sha in the accent the
+                // history lens uses, the rest dim. Under width pressure
+                // the tail sheds date, then author; the sha and subject
+                // stay. One space of separation from the path, always.
+                let room = (inner.width as usize).saturating_sub(left_w + 1);
+                let full = format!(
+                    "{} · {} · {} · {}",
                     ctx.sha, ctx.subject, ctx.author, ctx.date
                 );
-                let room = (inner.width as usize).saturating_sub(left_w);
-                let right = fit_middle(&right, room);
-                let pad = room.saturating_sub(UnicodeWidthStr::width(right.as_str()));
+                let short = format!("{} · {} · {}", ctx.sha, ctx.subject, ctx.author);
+                let shorter = format!("{} · {}", ctx.sha, ctx.subject);
+                let fits = |s: &str| UnicodeWidthStr::width(s) <= room;
+                let text = if fits(&full) {
+                    full
+                } else if fits(&short) {
+                    short
+                } else if fits(&shorter) {
+                    shorter
+                } else {
+                    fit_middle(&ctx.sha, room)
+                };
+                let pad = room.saturating_sub(UnicodeWidthStr::width(text.as_str()));
                 spans.push(Span::styled(
-                    " ".repeat(pad),
+                    " ".repeat(pad + 1),
                     Style::default().bg(sem.surface0),
                 ));
+                // Segmented: sha hot, the rest dim — the row reads at a
+                // glance instead of shouting in one color.
                 spans.push(Span::styled(
-                    right,
+                    ctx.sha
+                        .chars()
+                        .take(sha_len(&text, ctx))
+                        .collect::<String>(),
                     Style::default().fg(sem.warning).bg(sem.surface0),
+                ));
+                spans.push(Span::styled(
+                    text[sha_len(&text, ctx)..].to_string(),
+                    Style::default().fg(sem.subtext0).bg(sem.surface0),
                 ));
             }
             let band_line = Line::from(spans);

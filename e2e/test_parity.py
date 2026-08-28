@@ -17,7 +17,7 @@ def test_expanded_pane_yank_goto_and_blame(tmp_path: Path) -> None:
         f'[provider]\nkind = "stdio"\n'
         f'command = ["python3", "{FS_PROVIDER}", "{root}"]\n'
     )
-    tui = Tui(build(), cols=110, rows=30, args=["--config", str(config)]).start()
+    tui = Tui(build(), cols=170, rows=30, args=["--config", str(config)]).start()
     try:
         # Repo search -> open the fixture repo.
         tui.type_query("proj")
@@ -48,12 +48,39 @@ def test_expanded_pane_yank_goto_and_blame(tmp_path: Path) -> None:
         tui.key("ENTER")
         tui.expect("fn main")
 
-        # b — blame lens: run margins carry the fixture's author.
+        # b — blame lens: run margins carry sha + author right of the
+        # gutter ("Tarek │" — the band's author reads "Tarek · <date>",
+        # so this shape only matches margins).
         tui.send("b")
-        tui.expect("Tarek")
+        tui.expect("fe6823b Tarek")
 
         # b again clears it.
         tui.send("b")
-        tui.expect_gone("Tarek")
+        tui.expect_gone("fe6823b Tarek")
+    finally:
+        tui.stop()
+
+
+def test_preview_band_shows_last_commit(tmp_path: Path) -> None:
+    """0019 polish: previewing a file dresses the header band with the
+    file's last commit (sha · subject · author · date), ambient and
+    cached — github.com's file header, in the terminal."""
+    root = make_git_root(tmp_path)
+    config = tmp_path / "p.toml"
+    config.write_text(
+        f'[provider]\nkind = "stdio"\n'
+        f'command = ["python3", "{FS_PROVIDER}", "{root}"]\n'
+    )
+    tui = Tui(build(), cols=170, rows=30, args=["--config", str(config)]).start()
+    try:
+        tui.type_query("proj")
+        tui.key("ENTER")
+        tui.expect("local/proj")
+        tui.key("ENTER")  # open the repo
+        tui.expect("main.rs")
+        # The band dresses with the file's last commit once the ambient
+        # fetch lands (fs provider: git log -1 main.rs).
+        screen = tui.expect("initial main.rs")
+        assert "Tarek" in screen and "2026-08-01" in screen, screen
     finally:
         tui.stop()

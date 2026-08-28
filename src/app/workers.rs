@@ -199,6 +199,24 @@ impl App {
         });
     }
 
+    /// 0019 polish: the preview band's last-commit fetch — one
+    /// `log(path, limit=1)` call, only for log-capable providers.
+    /// Ambient: no status noise, silent on failure.
+    pub(super) fn spawn_last_commit(&self, repo: String, path: String, ref_: Option<String>) {
+        if !self.provider.capabilities().log {
+            return;
+        }
+        let provider = self.provider.clone();
+        let tx = self.tx.clone();
+        std::thread::spawn(move || {
+            let entry = provider
+                .log(&repo, Some(&path), ref_.as_deref(), Some(1))
+                .ok()
+                .and_then(|(entries, _)| entries.into_iter().next());
+            let _ = tx.send(AppEvent::LastCommitLoaded { repo, path, entry });
+        });
+    }
+
     /// Revision fetches (v1.5, plans/0016 M1): one worker per lens;
     /// landings are identity-checked by the UI.
     pub(super) fn spawn_refs(&self, repo: String) {
