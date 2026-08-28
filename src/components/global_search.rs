@@ -166,6 +166,26 @@ impl GlobalSearch {
         }
     }
 
+    /// The expanded hit's branch — the band memo's ref key.
+    pub fn expanded_branch(&self) -> Option<String> {
+        self.expanded.as_ref().map(|e| e.hit.branch.clone())
+    }
+
+    /// The last-commit band for the expanded pane (0019 polish):
+    /// applied when the memo lands; the band dresses like the miller
+    /// preview's.
+    pub fn expanded_set_band(
+        &mut self,
+        path: &str,
+        ctx: Option<crate::components::preview::BandContext>,
+    ) {
+        if let Some(exp) = &mut self.expanded
+            && exp.hit.path == path
+        {
+            exp.preview.set_band(Some(path.to_string()), ctx);
+        }
+    }
+
     /// The yank target for the current context: the expanded pane
     /// anchors to its line cursor (or visual range); otherwise the
     /// selected hit's own line.

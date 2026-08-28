@@ -1,7 +1,9 @@
 # 0019 — Provider lifecycle: `rootle update` sweeps, config declares
 
-Status: **accepted (2026-08-28)** — owner ask; design agreed in review
-(declaration + consent, honest degradation, no lock file).
+Status: **done (2026-08-28)** — M1 sweep shipped (#115), M2
+declarative providers + consent flow shipped (#116); plus the
+expanded-pane parity follow-through (#118) and the last-commit band
+polish. Lock file rejected, revisit trigger noted in Decisions.
 
 ## Problem
 
