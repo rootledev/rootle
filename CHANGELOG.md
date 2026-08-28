@@ -3,6 +3,22 @@
 User-visible changes per release. Protocol archaeology lives in
 `plans/`; this file is for "what's new for me".
 
+## [0.8.2] — 2026-08-28
+
+### Added
+
+- Preview header band: the full path rides every file preview;
+  at-commit it dresses with `sha · subject · author · date`.
+- vim visual-lines in file panes (`v` in the `␣ p` submode and a search
+  hit's expanded pane): motions extend the selection, `Y` copies it
+  (the cursor line by default), `y` yanks a `#L3-L7` range URL.
+- The search query field restyles grammar tokens (qualifier
+  key/value, quoted literals, negation markers take syntax colors).
+
+### Fixed
+
+- The leader layer raises over the preview submode.
+
 ## [0.8.1] — 2026-08-28
 
 ### Fixed
@@ -80,6 +96,7 @@ User-visible changes per release. Protocol archaeology lives in
 - Chrome: powerline modeline (Nerd Font opt-in), bat-style gutters,
   fzf prompts, `[ui] border` / `[ui] nerd_font`.
 
+[0.8.2]: https://github.com/rootledev/rootle/releases/tag/v0.8.2
 [0.8.1]: https://github.com/rootledev/rootle/releases/tag/v0.8.1
 [0.8.0]: https://github.com/rootledev/rootle/releases/tag/v0.8.0
 [0.7.1]: https://github.com/rootledev/rootle/releases/tag/v0.7.1
