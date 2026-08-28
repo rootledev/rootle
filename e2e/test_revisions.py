@@ -68,8 +68,12 @@ def test_history_blame_and_open_at_commit(git_tui: Tui) -> None:
     screen = tui.expect("fn main() {}")  # the OLD content
     assert "PREVIEW" in screen
     assert " @ " in screen  # commit marker in the title
+    # The demo-caught regression: the at-commit view must still be
+    # syntax-highlighted — the footer reads the language, not "text".
+    assert "rust · " in screen, f"at-commit view lost highlighting: {screen}"
     tui.key("ESC")  # restore the present
     tui.expect('println!("hi")' if "feature" in tui.screen() else "fn main")
+    assert " @ " not in tui.screen(), "the marker must not stick after restore"
 
 
 def test_blame_lens_marks_runs(git_tui: Tui) -> None:
