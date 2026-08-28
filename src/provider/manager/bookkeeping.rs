@@ -36,16 +36,20 @@ impl Manager {
         Ok(())
     }
 
-    /// mise's `use`: write the active provider into config.toml.
+    /// mise's `use`: write the active provider into config.toml —
+    /// the 0019 M2 declarative form (`kind = <name>`, `tag`/`sha`
+    /// when pinned, `command` = extra argv). No materialized binary
+    /// path: a synced config resolves on any machine, and a missing
+    /// one gets the consent flow instead of a silent fallback.
     pub fn activate(&self, name: &str, extra_argv: &[String]) -> Result<()> {
-        let binary = self
-            .current_binary(name)
+        let receipt = self
+            .receipt(name)
             .ok_or_else(|| ManagerError::User(format!("{name} is not installed")))?;
         let mut config = Config::load();
-        let mut command = vec![binary.display().to_string()];
-        command.extend(extra_argv.iter().cloned());
-        config.provider.kind = "stdio".into();
-        config.provider.command = command;
+        config.provider.kind = name.to_string();
+        config.provider.command = extra_argv.to_vec();
+        config.provider.tag = receipt.pinned.then(|| receipt.tag.clone());
+        config.provider.sha = receipt.pinned.then(|| receipt.sha256.clone());
         config
             .save()
             .map_err(|e| ManagerError::User(format!("save config: {e}")))?;
@@ -74,9 +78,12 @@ impl Manager {
                             .map(str::to_string)
                             .or_else(|| p.to_str().map(str::to_string))
                     });
-                let active = active_command.as_ref().is_some_and(|cmd| {
-                    cmd.contains(&format!("providers/{}/current/", receipt.name))
-                });
+                // 0019 M2: active is the declared kind's name, or the
+                // legacy stdio argv pointing into the store.
+                let active = config.provider.kind == receipt.name
+                    || active_command.as_ref().is_some_and(|cmd| {
+                        cmd.contains(&format!("providers/{}/current/", receipt.name))
+                    });
                 Installed {
                     receipt,
                     active,

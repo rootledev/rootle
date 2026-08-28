@@ -1,5 +1,14 @@
 //! Central action enum — components emit these, the root dispatcher routes.
 
+/// Worker-progress state for the declared-provider consent popup
+/// (plans/0019 M2): `Installing` while the verified download runs,
+/// `Failed` once it refuses — the popup shows why.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DeclarationState {
+    Installing,
+    Failed(String),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
     Noop,
@@ -60,6 +69,13 @@ pub enum Action {
     HistoryDown,
     HistoryOpen,
     HistoryClose,
+
+    // Declared-provider lifecycle (plans/0019 M2): the consent popup
+    // asks, the app spawns the verified install, the events land.
+    DeclarationAccept,
+    DeclarationDecline,
+    /// Worker state landing back in the popup (installing / failed).
+    DeclarationState(DeclarationState),
     /// `/` in the history lens: commit-list filter session.
     HistoryFilterBegin,
     /// `y` in the history lens: yank the file URL anchored to the

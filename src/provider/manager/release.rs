@@ -59,8 +59,9 @@ pub(crate) fn latest_release_at(api: &str, repo: &str) -> Result<Release> {
         .map_err(|e| ManagerError::Network(format!("github api decode: {e}")))
 }
 
-pub(super) fn release_by_tag(repo: &str, tag: &str) -> Result<Release> {
-    let url = format!("https://api.github.com/repos/{repo}/releases/tags/{tag}");
+/// Tests point this at a loopback host.
+pub(crate) fn release_by_tag_at(api: &str, repo: &str, tag: &str) -> Result<Release> {
+    let url = format!("{api}/repos/{repo}/releases/tags/{tag}");
     http()
         .get(&url)
         .header("Accept", "application/vnd.github+json")

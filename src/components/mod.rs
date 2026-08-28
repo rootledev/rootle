@@ -4,6 +4,7 @@
 pub mod browser;
 pub mod clone_wizard;
 pub mod command_line;
+pub mod consent_popup;
 pub mod global_search;
 pub mod keybinds_popup;
 pub mod modeline;

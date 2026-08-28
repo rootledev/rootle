@@ -392,55 +392,167 @@ fn name_from_command(command: &[String]) -> String {
         .to_string()
 }
 
+/// A config-declared provider that isn't installed on this machine
+/// (plans/0019 M2) — surfaced to the app for the consent flow.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Declaration {
+    /// The receipt/install name (`gitlab`, `rootle-gitlab`, …).
+    pub name: String,
+    /// "owner/repo" — a releases-API source only; a config naming a
+    /// plain-HTTP tarball never reaches a Declaration.
+    pub repo: String,
+    /// Pin: install exactly this tag.
+    pub tag: Option<String>,
+    /// Integrity pin: verify the tarball against this sha256 too.
+    pub sha: Option<String>,
+}
+
+/// How `build()` landed (plans/0019 M2).
+#[derive(Debug)]
+pub enum BuildOutcome {
+    /// The configured provider is up.
+    Ready,
+    /// Up with a warning for the status line (github fallback when
+    /// the configured one failed — never silent, never blocking).
+    Warn(String),
+    /// A declared provider is missing; github is carrying the session
+    /// pending the consent popup.
+    Missing(Declaration),
+}
+
 /// Build the configured provider. Invalid/unsupported config falls
-/// back to GitHub (with a warning string for the status line) — a
-/// provider misconfiguration must never block startup.
-pub fn build(config: &crate::config::Config) -> (Arc<dyn Provider>, Option<String>) {
+/// back to GitHub (with a warning for the status line) — a provider
+/// misconfiguration must never block startup.
+pub fn build(config: &crate::config::Config) -> (Arc<dyn Provider>, BuildOutcome) {
     match config.provider.kind.as_str() {
         "github" => (
             Arc::new(github::GitHubProvider::new(config.cache.max_mb)),
-            None,
+            BuildOutcome::Ready,
         ),
         "stdio" => {
-            // Recognized values: unset/empty, "null" (discard), and
-            // "inherit" (pass through). Anything else discards with a
-            // warning — a typo shouldn't silently disable debugging.
-            let stderr = config.provider.stderr.trim();
-            let inherit = stderr == "inherit";
-            let warn = if inherit || stderr.is_empty() || stderr == "null" {
-                None
-            } else {
-                Some(format!(
-                    "provider stderr {stderr:?} not recognized (use \"inherit\" or \"null\"); discarding child stderr"
-                ))
-            };
-            // The user's cache budget and this provider's subtree
-            // travel in every initialize (protocol v1.2, advisory) —
-            // one [cache] max_mb knob governs every backend.
-            let cache_bytes = config.cache.max_mb * 1024 * 1024;
-            let cache_dir = dirs::cache_dir().map(|d| {
-                d.join("rootle")
-                    .join("providers")
-                    .join(name_from_command(&config.provider.command))
-            });
-            match stdio::StdioProvider::spawn_with_cache(
-                &config.provider.command,
-                std::time::Duration::from_millis(config.provider.timeout_ms),
-                inherit,
-                cache_bytes,
-                cache_dir,
-            ) {
-                Ok(p) => (Arc::new(p), warn),
+            let (provider, warn) = try_spawn_stdio(config, config.provider.command.clone(), None);
+            match provider {
+                Ok(p) => (p, warn.map_or(BuildOutcome::Ready, BuildOutcome::Warn)),
                 Err(e) => (
-                    Arc::new(github::GitHubProvider::new(config.cache.max_mb)),
-                    Some(format!("provider stdio failed ({e}); fell back to github")),
+                    github_fallback(config),
+                    BuildOutcome::Warn(format!("provider stdio failed ({e}); fell back to github")),
                 ),
             }
         }
-        other => (
-            Arc::new(github::GitHubProvider::new(config.cache.max_mb)),
-            Some(format!("unknown provider kind {other:?}; using github")),
+        other => build_declared(config, other),
+    }
+}
+
+/// The declared kind (plans/0019 M2): a receipt name, a bare
+/// first-party name (`gitlab` → `rootledev/rootle-gitlab` via the
+/// Ref grammar's rootle- convention), or an `owner/repo` slug.
+/// Installed → spawn the `current` binary; missing → the consent
+/// flow. Plain-HTTP tarball refs are never auto-fetched.
+fn build_declared(config: &crate::config::Config, kind: &str) -> (Arc<dyn Provider>, BuildOutcome) {
+    let r = match manager::Ref::parse(kind) {
+        Ok(r) => r,
+        Err(e) => {
+            return (
+                github_fallback(config),
+                BuildOutcome::Warn(format!("provider kind {kind:?}: {e}; using github")),
+            );
+        }
+    };
+    if r.tarball.is_some() {
+        return (
+            github_fallback(config),
+            BuildOutcome::Warn(format!(
+                "provider kind {kind:?} names a plain-HTTP tarball — install-and-pin only \
+                 (run `rootle provider install` with the URL); using github"
+            )),
+        );
+    }
+    let Ok(m) = manager::Manager::new() else {
+        return (
+            github_fallback(config),
+            BuildOutcome::Warn("no provider data dir; using github".into()),
+        );
+    };
+    match m.current_binary(&r.name) {
+        Some(bin) => {
+            // Extra argv (beyond the binary) from a hand-written
+            // config still rides along.
+            let mut argv = vec![bin.display().to_string()];
+            argv.extend(config.provider.command.iter().cloned());
+            match try_spawn_stdio(config, argv, Some(r.name.clone())).0 {
+                Ok(p) => (p, BuildOutcome::Ready),
+                Err(e) => (
+                    github_fallback(config),
+                    BuildOutcome::Warn(format!(
+                        "provider {kind} failed to start ({e}); fell back to github"
+                    )),
+                ),
+            }
+        }
+        None => (
+            github_fallback(config),
+            BuildOutcome::Missing(Declaration {
+                name: r.name,
+                repo: r.repo,
+                tag: config.provider.tag.clone().or(r.tag),
+                sha: config.provider.sha.clone(),
+            }),
         ),
+    }
+}
+
+/// Spawn an installed declared provider by name — the 0019 M2
+/// hot-swap after the consent install lands.
+pub fn spawn_installed(
+    config: &crate::config::Config,
+    name: &str,
+) -> Result<Arc<dyn Provider>, String> {
+    let bin = manager::Manager::new()
+        .ok()
+        .and_then(|m| m.current_binary(name))
+        .ok_or_else(|| format!("{name} installed but its current binary is missing"))?;
+    let mut argv = vec![bin.display().to_string()];
+    argv.extend(config.provider.command.iter().cloned());
+    try_spawn_stdio(config, argv, Some(name.to_string())).0
+}
+
+fn github_fallback(config: &crate::config::Config) -> Arc<dyn Provider> {
+    Arc::new(github::GitHubProvider::new(config.cache.max_mb))
+}
+
+/// The stdio spawn shared by the `stdio` kind and declared providers.
+/// Returns (result, warning): the warning covers an unrecognized
+/// `stderr` value (a typo shouldn't silently disable debugging).
+fn try_spawn_stdio(
+    config: &crate::config::Config,
+    argv: Vec<String>,
+    cache_name: Option<String>,
+) -> (Result<Arc<dyn Provider>, String>, Option<String>) {
+    let stderr = config.provider.stderr.trim();
+    let inherit = stderr == "inherit";
+    let warn = (!inherit && !stderr.is_empty() && stderr != "null").then(|| {
+        format!(
+            "provider stderr {stderr:?} not recognized (use \"inherit\" or \"null\"); discarding child stderr"
+        )
+    });
+    // The user's cache budget and this provider's subtree travel in
+    // every initialize (protocol v1.2, advisory) — one [cache] max_mb
+    // knob governs every backend.
+    let cache_bytes = config.cache.max_mb * 1024 * 1024;
+    let cache_dir = dirs::cache_dir().map(|d| {
+        d.join("rootle")
+            .join("providers")
+            .join(cache_name.unwrap_or_else(|| name_from_command(&argv)))
+    });
+    match stdio::StdioProvider::spawn_with_cache(
+        &argv,
+        std::time::Duration::from_millis(config.provider.timeout_ms),
+        inherit,
+        cache_bytes,
+        cache_dir,
+    ) {
+        Ok(p) => (Ok(Arc::new(p)), warn),
+        Err(e) => (Err(e.to_string()), warn),
     }
 }
 
