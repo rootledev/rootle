@@ -36,14 +36,26 @@ small stdio script.
 
 - **Browse** orgs → repos → trees → files in three miller columns with
   a live syntax-highlighted preview — no clone required.
-- **Find** (`␣ f`) and **grep** (`␣ g`) full-screen, Zed-style: result
-  blocks with match chips, folded regions, and per-file counts.
+- **Revise** — `␣ b` switches branches/tags (`rootle owner/repo@ref`
+  from the CLI); `␣ p h` file history with open-at-commit; `␣ p b`
+  blame run-margins; yanks from history anchor to the commit sha.
+- **Search** — find (`␣ f`) and grep (`␣ g`) with a real grammar
+  (`"quoted"`, `-negation`, `language:rust`), results streaming into
+  decorated per-file boxes with facet chips; `Enter` opens the whole
+  file at the match line.
+- **The pane** — `␣ p` focuses and zooms the preview with vim's
+  vertical motions (`3j`, `gg`/`G`, `^D`/`^U`, `{`/`}`, `%`, `zt`,
+  `:42`).
 - **Open** any file read-only in your editor (`Enter`); **yank** the
   browser URL of anything (`␣ y`).
 - **Clone** repos through a wizard (`v` marks, `:clone`) — orgs fan
-  out, destinations get `<dest>/<org>/<repo>`.
+  out, archived grey out, sorted by last push.
 - **Configure** in-app with `:settings` (writes config.toml, hot
-  reloads themes); every keybinding is in the `?` popup.
+  reloads themes and chrome); every keybinding is in the `?` popup.
+- **Update** — the modeline chips `↑ vX.Y.Z` when a release is newer
+  (24h-cached, silent offline); `rootle update` self-updates tarball
+  installs with checksum verification. `CHANGELOG.md` rides every
+  release.
 
 ## Quick start
 
@@ -55,6 +67,8 @@ cargo install rootle                # or from crates.io (Rust 1.88+)
 
 rootle                # repo search on first run; browser after that
 rootle owner/repo     # jump straight into a repo
+rootle owner/repo@release/2.7   # …at a branch, tag, or sha
+rootle update         # self-update (tarball installs), or your channel's hint
 ```
 
 Auth is zero-friction: if `gh auth login` or `ROOTLE_TOKEN` is already
@@ -80,8 +94,9 @@ rootle talks to backends through a small protocol, not to GitHub directly.
 make a minimal useful provider, and the canonical
 [forge-conformance](https://github.com/rootledev/forge-conformance)
 suite gates correctness (rootle's own CI runs it against the fs
-reference provider).
-More providers are planned and the protocol will evolve with them.
+reference provider). GitLab and Bitbucket ship as managed one-binary
+adapters; the roadmap for what's next lives on
+[rootle.dev/docs/roadmap.html](https://rootle.dev/docs/roadmap.html).
 
 The built-in manager installs stdio providers as verified binaries:
 
