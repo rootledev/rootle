@@ -3,6 +3,16 @@
 User-visible changes per release. Protocol archaeology lives in
 `plans/`; this file is for "what's new for me".
 
+## [0.8.1] — 2026-08-28
+
+### Fixed
+
+- Open-at-commit views keep syntax highlighting (highlighting reads
+  the real path; the `@ sha` marker stays title-only) and the restore
+  no longer keeps the marker title.
+- fs reference adapter: trees at a ref list directories (git ls-tree
+  needs `-t`) — the demo render caught undrillable columns.
+
 ## [0.8.0] — 2026-08-28
 
 ### Added
@@ -70,6 +80,7 @@ User-visible changes per release. Protocol archaeology lives in
 - Chrome: powerline modeline (Nerd Font opt-in), bat-style gutters,
   fzf prompts, `[ui] border` / `[ui] nerd_font`.
 
+[0.8.1]: https://github.com/rootledev/rootle/releases/tag/v0.8.1
 [0.8.0]: https://github.com/rootledev/rootle/releases/tag/v0.8.0
 [0.7.1]: https://github.com/rootledev/rootle/releases/tag/v0.7.1
 [0.7.0]: https://github.com/rootledev/rootle/releases/tag/v0.7.0
