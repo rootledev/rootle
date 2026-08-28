@@ -1,8 +1,9 @@
 # 0018 — Update UX: the researched plan
 
-Status: **draft for owner review (2026-08-28)** — 0017 shipped the
-mechanics (update + notice + changelog); this plan refines the UX
-against the tools that do it well.
+Status: **done (2026-08-28)** — M1 stage UI on `rootle update`
+(wiremock-asserted step sequence + changelog link), M2 once-a-day
+toast via a `shown_at` stamp + CI/`TERM=dumb`/non-TTY gates, M3
+quit-time relaunch line; shipped in 0.8.3.
 
 ## Research: what the good ones do
 
