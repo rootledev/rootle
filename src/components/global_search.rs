@@ -11,6 +11,7 @@
 //! threads, `mock.rs` is the offline producer.
 
 use self::model::line_text;
+use super::browser::BlameState;
 use super::preview::{Preview, PreviewContent};
 use super::vim_input::{SubMode, VimInput};
 use crate::action::Action;
@@ -28,7 +29,7 @@ mod render;
 use facets::FacetId;
 
 pub use backend::run_view_search;
-pub use model::{RawHit, Scope, SearchHit, SearchKind, highlight_matches};
+pub use model::{RawHit, Scope, SearchHit, SearchKind, chip_line, highlight_matches};
 
 pub(crate) use backend::locate_in_blob;
 
@@ -48,6 +49,16 @@ const FOCUS_ORDER: [Focus; 5] = [
     Focus::Facets,
     Focus::Results,
 ];
+
+/// A resolved URL-yank target (0019 parity): the search context's
+/// answer to the browser's cursor-anchored yank.
+pub struct YankTarget {
+    pub repo: String,
+    pub path: String,
+    pub branch: String,
+    pub line: Option<u32>,
+    pub end: Option<u32>,
+}
 
 pub struct GlobalSearch {
     kind: SearchKind,
@@ -99,6 +110,9 @@ pub struct GlobalSearch {
     /// `Esc`/`h` folds back. The results list and its scroll survive
     /// underneath, untouched.
     expanded: Option<ExpandedFile>,
+    /// Blame lens state for the expanded pane (0019 parity); the
+    /// marks render in its Preview.
+    blame: Option<crate::components::browser::BlameState>,
     /// Find-in-file over the expanded pane (`/`): the input lives
     /// here, matches + chips in the re-used `Preview`.
     find_input: VimInput,
@@ -151,6 +165,133 @@ impl GlobalSearch {
             None => false,
         }
     }
+
+    /// The yank target for the current context: the expanded pane
+    /// anchors to its line cursor (or visual range); otherwise the
+    /// selected hit's own line.
+    pub fn yank_target(&self) -> Option<YankTarget> {
+        if let Some(exp) = &self.expanded {
+            let (line, end) = match exp.preview.visual_range() {
+                Some((lo, hi)) => (Some(lo), Some(hi)),
+                None => (exp.preview.line(), None),
+            };
+            return Some(YankTarget {
+                repo: exp.hit.repo.clone(),
+                path: exp.hit.path.clone(),
+                branch: exp.hit.branch.clone(),
+                line,
+                end,
+            });
+        }
+        self.selected_hit().map(|h| YankTarget {
+            repo: h.repo.clone(),
+            path: h.path.clone(),
+            branch: h.branch.clone(),
+            line: Some(h.line),
+            end: None,
+        })
+    }
+
+    /// The query text (raw, as typed) — the app chips the expanded
+    /// pane's lines with it, the same chip the results list wears.
+    pub fn query_text(&self) -> String {
+        self.query.value()
+    }
+
+    pub fn is_grep(&self) -> bool {
+        self.kind == SearchKind::Grep
+    }
+
+    /// Blame currently shown in the expanded pane.
+    pub fn blame_active(&self) -> bool {
+        self.expanded.as_ref().is_some_and(|e| e.preview.blaming())
+    }
+
+    /// `b` off: drop the lens.
+    pub fn blame_clear(&mut self) {
+        self.blame = None;
+        if let Some(exp) = &mut self.expanded {
+            exp.preview.set_blame(None);
+        }
+    }
+
+    /// Toggle on: text present, no fetch in flight or loaded. Mirrors
+    /// the browser's state machine over the expanded pane's preview.
+    pub fn blame_toggle_on(&mut self) -> bool {
+        match &self.expanded {
+            Some(exp) if exp.preview.text_line_count() > 0 => {
+                if matches!(&self.blame, Some(b) if !b.loading) {
+                    self.blame_apply();
+                }
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// The (repo, path, branch) a blame fetch should cover, if needed.
+    pub fn blame_needed(&self) -> Option<(String, String, String)> {
+        let exp = self.expanded.as_ref()?;
+        if exp.preview.text_line_count() == 0 {
+            return None;
+        }
+        match &self.blame {
+            None => Some((
+                exp.hit.repo.clone(),
+                exp.hit.path.clone(),
+                exp.hit.branch.clone(),
+            )),
+            Some(_) => None, // loaded or in flight
+        }
+    }
+
+    pub fn blame_mark_loading(&mut self, path: String) {
+        self.blame = Some(BlameState {
+            path,
+            ranges: Vec::new(),
+            loading: true,
+        });
+    }
+
+    /// The path an in-flight fetch would fill (event identity check).
+    pub fn blame_loading_for(&self, path: &str) -> bool {
+        matches!(&self.blame, Some(b) if b.loading && b.path == path)
+    }
+
+    /// Ranges landed — apply to the expanded pane when they're for it.
+    pub fn blame_store(&mut self, path: String, ranges: Vec<crate::provider::BlameRange>) {
+        let active = self.blame_loading_for(&path);
+        self.blame = Some(BlameState {
+            path,
+            ranges,
+            loading: false,
+        });
+        if active {
+            self.blame_apply();
+        }
+    }
+
+    fn blame_apply(&mut self) {
+        let Some(b) = &self.blame else { return };
+        let Some(exp) = &mut self.expanded else {
+            return;
+        };
+        let lines = exp.preview.text_line_count();
+        if lines == 0 {
+            return;
+        }
+        let mut marks: Vec<Option<crate::components::preview::BlameMark>> = vec![None; lines];
+        for r in &b.ranges {
+            let start = (r.start_line as usize).saturating_sub(1);
+            if start < lines {
+                marks[start] = Some(crate::components::preview::BlameMark {
+                    sha: r.sha.chars().take(7).collect(),
+                    author: r.author.clone(),
+                });
+            }
+        }
+        exp.preview.set_blame(Some(marks));
+    }
     /// The scope waterfalls from the current browser context: an open
     /// repo defaults to Repo, otherwise a selected org to Org,
     /// otherwise Global. A persisted scope (state.json) wins when its
@@ -198,6 +339,7 @@ impl GlobalSearch {
             client_filtered: 0,
             unfiltered: vec![],
             search_ref_note: None,
+            blame: None,
             filtering: false,
             pre_filter: String::new(),
             filter_value: String::new(),

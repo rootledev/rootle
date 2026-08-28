@@ -194,8 +194,8 @@ pub fn search_facets() -> &'static [(&'static str, &'static str)] {
 }
 
 /// The expanded full-file pane (`Enter` on a hit): j/k walk lines,
-/// `Enter` opens the editor, `/` finds in the file, `Esc`/`h` folds
-/// back to the results list.
+/// `Enter` opens the editor, `/` finds in the file, `y` yanks the
+/// cursor line's URL, `b` blames, `Esc`/`h` folds back to the list.
 pub fn search_file() -> &'static [(&'static str, &'static str)] {
     &[
         ("j/k", "lines"),
@@ -204,6 +204,8 @@ pub fn search_file() -> &'static [(&'static str, &'static str)] {
         (":42", "goto line"),
         ("v", "select lines"),
         ("Y", "copy lines"),
+        ("y", "yank url"),
+        ("b", "blame"),
         ("enter", "open"),
         ("/", "find"),
         ("n/N", "match"),
