@@ -14,6 +14,11 @@ pub enum Mode {
     /// Later phases (multi-select).
     #[allow(dead_code)]
     Visual,
+    /// File-history lens over the preview pane (plans/0016 M1b).
+    History,
+    /// The preview pane owns the keyboard (plans/0016 M1): line
+    /// cursor, find-in-file, history, blame.
+    Preview,
 }
 
 impl Mode {
@@ -26,6 +31,8 @@ impl Mode {
             Mode::Normal => "NORMAL",
             Mode::Leader => "LEADER",
             Mode::Visual => "VISUAL",
+            Mode::History => "HISTORY",
+            Mode::Preview => "PREVIEW",
         }
     }
 }

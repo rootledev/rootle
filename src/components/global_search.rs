@@ -108,6 +108,9 @@ pub struct GlobalSearch {
     /// rootle couldn't express anywhere — both are title chips.
     client_filtered: usize,
     unfiltered: Vec<String>,
+    /// plans/0016 M1a: off-default revisions on index-backed backends
+    /// can't be searched — the title says what the scope really is.
+    pub search_ref_note: Option<String>,
 }
 
 /// The expanded full-file pane (plans/0012 M2). The re-used browser
@@ -130,6 +133,17 @@ struct ExpandedFile {
 const RENDER_CAP: usize = crate::provider::RENDER_BUDGET;
 
 impl GlobalSearch {
+    /// `:42` — jump the expanded file pane to a line (plans/0016 M1).
+    /// Returns false when nothing is expanded.
+    pub fn expanded_goto_line(&mut self, line: u32) -> bool {
+        match &mut self.expanded {
+            Some(exp) => {
+                exp.preview.set_cursor_line(line);
+                true
+            }
+            None => false,
+        }
+    }
     /// The scope waterfalls from the current browser context: an open
     /// repo defaults to Repo, otherwise a selected org to Org,
     /// otherwise Global. A persisted scope (state.json) wins when its
@@ -176,6 +190,7 @@ impl GlobalSearch {
             index_as_of: None,
             client_filtered: 0,
             unfiltered: vec![],
+            search_ref_note: None,
             filtering: false,
             pre_filter: String::new(),
             filter_value: String::new(),

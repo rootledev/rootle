@@ -8,7 +8,8 @@ use std::path::PathBuf;
 #[derive(Debug, Parser)]
 #[command(name = "rootle", version, about)]
 pub struct Cli {
-    /// Open this repo directly (owner/repo), skipping the search popup.
+    /// Open this repo directly (owner/repo, or owner/repo@branch),
+    /// skipping the search popup.
     pub repo: Option<String>,
 
     /// Use this config file instead of ~/.config/rootle/config.toml.
@@ -24,6 +25,16 @@ pub struct Cli {
     /// upgrade, pin, remove, use.
     #[command(subcommand)]
     pub provider: Option<ProviderCommand>,
+
+    /// Update rootle itself (tarball/install.sh installs self-update,
+    /// checksum-verified; brew/cargo/mise installs get their channel's
+    /// command).
+    #[arg(long)]
+    pub update: bool,
+
+    /// With --update: report only, don't write.
+    #[arg(long, requires = "update")]
+    pub check: bool,
 }
 
 /// Install a provider from a GitHub release, manage it locally, and
@@ -110,14 +121,21 @@ pub enum ProviderCommand {
 }
 
 impl Cli {
-    /// Split the positional repo argument into (owner, name), if valid.
-    pub fn repo_parts(&self) -> Option<(String, String)> {
+    /// Split the positional repo argument into (owner, name, ref):
+    /// `owner/repo`, or `owner/repo@ref` (plans/0016 M1a — ref is
+    /// everything after the first `@`; slashes legal: `release/2.7`).
+    pub fn repo_parts(&self) -> Option<(String, String, Option<String>)> {
         let repo = self.repo.as_ref()?;
-        let (owner, name) = repo.split_once('/')?;
+        let (path, ref_) = match repo.split_once('@') {
+            Some((p, r)) if !r.is_empty() => (p, Some(r.to_string())),
+            Some((p, _)) => (p, None), // trailing @ pins nothing
+            None => (repo.as_str(), None),
+        };
+        let (owner, name) = path.split_once('/')?;
         if owner.is_empty() || name.is_empty() {
             return None;
         }
-        Some((owner.to_string(), name.to_string()))
+        Some((owner.to_string(), name.to_string(), ref_))
     }
 }
 
@@ -131,6 +149,8 @@ mod tests {
             config: None,
             theme: None,
             provider: None,
+            update: false,
+            check: false,
         }
     }
 
@@ -138,7 +158,24 @@ mod tests {
     fn parses_owner_repo() {
         assert_eq!(
             cli(Some("ratatui/ratatui")).repo_parts(),
-            Some(("ratatui".into(), "ratatui".into()))
+            Some(("ratatui".into(), "ratatui".into(), None))
+        );
+    }
+
+    #[test]
+    fn parses_repo_at_ref() {
+        assert_eq!(
+            cli(Some("ratatui/ratatui@release/2.7")).repo_parts(),
+            Some((
+                "ratatui".into(),
+                "ratatui".into(),
+                Some("release/2.7".into())
+            ))
+        );
+        // A bare @ pins nothing.
+        assert_eq!(
+            cli(Some("ratatui/ratatui@")).repo_parts(),
+            Some(("ratatui".into(), "ratatui".into(), None))
         );
     }
 

@@ -6,7 +6,7 @@ use serde::Deserialize;
 use std::time::Duration;
 
 /// The GitHub release this rootle downloads for (the 4-target matrix).
-pub(super) fn platform_target() -> &'static str {
+pub(crate) fn platform_target() -> &'static str {
     if cfg!(target_os = "linux") && cfg!(target_arch = "aarch64") {
         "aarch64-unknown-linux-musl"
     } else if cfg!(target_os = "linux") {
@@ -22,15 +22,15 @@ pub(super) fn platform_target() -> &'static str {
 
 /// One release asset, as the GitHub API reports it.
 #[derive(Debug, Deserialize)]
-pub(super) struct Asset {
-    pub(super) name: String,
-    pub(super) browser_download_url: String,
+pub(crate) struct Asset {
+    pub(crate) name: String,
+    pub(crate) browser_download_url: String,
 }
 
 #[derive(Debug, Deserialize)]
-pub(super) struct Release {
-    pub(super) tag_name: String,
-    pub(super) assets: Vec<Asset>,
+pub(crate) struct Release {
+    pub(crate) tag_name: String,
+    pub(crate) assets: Vec<Asset>,
 }
 
 fn http() -> reqwest::blocking::Client {
@@ -41,8 +41,13 @@ fn http() -> reqwest::blocking::Client {
         .expect("http client")
 }
 
-pub(super) fn latest_release(repo: &str) -> Result<Release> {
-    let url = format!("https://api.github.com/repos/{repo}/releases/latest");
+pub(crate) fn latest_release(repo: &str) -> Result<Release> {
+    latest_release_at("https://api.github.com", repo)
+}
+
+/// Tests point this at a loopback host.
+pub(crate) fn latest_release_at(api: &str, repo: &str) -> Result<Release> {
+    let url = format!("{api}/repos/{repo}/releases/latest");
     http()
         .get(&url)
         .header("Accept", "application/vnd.github+json")
@@ -70,7 +75,7 @@ pub(super) fn release_by_tag(repo: &str, tag: &str) -> Result<Release> {
 /// Pick the asset for this platform: `<anything>-<target>.tar.gz`,
 /// suffix-matched (gh extension's model — tolerate version prefixes
 /// and name variants).
-pub(super) fn pick_asset<'a>(release: &'a Release, target: &str) -> Result<&'a Asset> {
+pub(crate) fn pick_asset<'a>(release: &'a Release, target: &str) -> Result<&'a Asset> {
     release
         .assets
         .iter()
@@ -90,7 +95,7 @@ pub(super) fn pick_asset<'a>(release: &'a Release, target: &str) -> Result<&'a A
 }
 
 /// The `.sha256` sidecar for `asset` — no sidecar, no install.
-pub(super) fn checksum_sidecar<'a>(release: &'a Release, asset: &Asset) -> Result<&'a Asset> {
+pub(crate) fn checksum_sidecar<'a>(release: &'a Release, asset: &Asset) -> Result<&'a Asset> {
     release
         .assets
         .iter()
@@ -104,7 +109,7 @@ pub(super) fn checksum_sidecar<'a>(release: &'a Release, asset: &Asset) -> Resul
         })
 }
 
-pub(super) fn download_bytes(url: &str) -> Result<Vec<u8>> {
+pub(crate) fn download_bytes(url: &str) -> Result<Vec<u8>> {
     http()
         .get(url)
         .send()
@@ -118,7 +123,7 @@ pub(super) fn download_bytes(url: &str) -> Result<Vec<u8>> {
 
 /// Extract the binary from the tarball: find the single executable
 /// file, return its bytes (our tarballs contain `<dir>/<binary>`).
-pub(super) fn extract_binary(tarball: &[u8], binary_name: &str) -> Result<Vec<u8>> {
+pub(crate) fn extract_binary(tarball: &[u8], binary_name: &str) -> Result<Vec<u8>> {
     use flate2::read::GzDecoder;
     use tar::Archive;
     let decoder = GzDecoder::new(tarball);
@@ -147,7 +152,7 @@ pub(super) fn extract_binary(tarball: &[u8], binary_name: &str) -> Result<Vec<u8
     )))
 }
 
-pub(super) fn sha256_hex(bytes: &[u8]) -> String {
+pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
     hasher.update(bytes);
@@ -157,7 +162,7 @@ pub(super) fn sha256_hex(bytes: &[u8]) -> String {
 
 /// Verify against the `.sha256` sidecar asset — mandatory (krew rule:
 /// a missing checksum is a failed install, not a warning).
-pub(super) fn verify_checksum(tarball: &[u8], sidecar_url: &str) -> Result<()> {
+pub(crate) fn verify_checksum(tarball: &[u8], sidecar_url: &str) -> Result<()> {
     let sidecar = download_bytes(sidecar_url)?;
     let text = String::from_utf8_lossy(&sidecar);
     let expected = text

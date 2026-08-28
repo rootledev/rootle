@@ -56,6 +56,12 @@ impl StdioProvider {
                             .and_then(Value::as_bool)
                             .unwrap_or(true)
                     }),
+                // v1.5: revision awareness — absent means false
+                // (default-branch-only), the inverse of the search
+                // defaults.
+                refs: caps.get("refs").and_then(Value::as_bool).unwrap_or(false),
+                log: caps.get("log").and_then(Value::as_bool).unwrap_or(false),
+                blame: caps.get("blame").and_then(Value::as_bool).unwrap_or(false),
             };
         }
         if let Some(bytes) = reply.pointer("/cache/bytes").and_then(Value::as_u64) {

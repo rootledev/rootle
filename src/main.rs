@@ -27,6 +27,18 @@ fn main() -> io::Result<()> {
         return Ok(());
     }
 
+    // Self-update (plans/0017 M2): same run-and-exit shape.
+    if cli.update {
+        match rootle::update::update(cli.check) {
+            Ok(line) => println!("{line}"),
+            Err(e) => {
+                eprintln!("update: {e}");
+                std::process::exit(1);
+            }
+        }
+        return Ok(());
+    }
+
     // A full-screen TUI's colors are semantic (mode chips, dirs vs
     // files), not decoration — ignore NO_COLOR like vim/helix do.
     ratatui::crossterm::style::Colored::set_ansi_color_disabled(false);
@@ -73,11 +85,17 @@ fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cli: Cli) -> io::R
     };
     let theme = Theme::load(cli.theme.as_deref().unwrap_or(&config.theme.name))
         .with_border(BorderShape::parse(&config.ui.border).unwrap_or_default())
-        .with_nerd_font(config.ui.nerd_font);
+        .with_nerd_font(config.ui.nerd_font)
+        .with_separator(&config.ui.separator);
     let (tx, rx) = rootle::event::channel();
     let mut app = App::new(tx, config, theme);
     // `rootle owner/repo`: skip search, go straight to browsing.
-    if let Some((owner, name)) = cli.repo_parts() {
+    // `owner/repo@ref` (plans/0016 M1a): open AT the revision — the ref
+    // lands first, so the tree spawn below reads it.
+    if let Some((owner, name, ref_)) = cli.repo_parts() {
+        if let Some(r) = ref_ {
+            app.handle_action(rootle::action::Action::RefsCommit(r));
+        }
         app.handle_action(rootle::action::Action::RepoSelected { owner, name });
     }
     let mut last_cursor_style: Option<SetCursorStyle> = None;

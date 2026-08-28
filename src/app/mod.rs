@@ -13,6 +13,7 @@ use crate::components::global_search::{GlobalSearch, SearchKind};
 use crate::components::keybinds_popup::KeybindsPopup;
 use crate::components::modeline::Modeline;
 use crate::components::pane::EntryKind;
+use crate::components::refs_popup::RefsPopup;
 use crate::components::search_popup::SearchPopup;
 use crate::components::settings_popup::SettingsPopup;
 use crate::components::vim_input::Outcome;
@@ -27,6 +28,7 @@ use crate::theme::{BorderShape, Theme};
 use ratatui::Frame;
 use ratatui::crossterm::event::KeyEvent;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::widgets::Paragraph;
 use std::sync::Arc;
 
 mod workers;
@@ -43,6 +45,17 @@ pub struct App {
     command_line: Option<CommandLine>,
     settings: Option<SettingsPopup>,
     wizard: Option<CloneWizard>,
+    /// Revision switcher overlay (plans/0016 M1a mock) and the
+    /// revision committed when it opened — Esc reverts the crumb.
+    refs_popup: Option<RefsPopup>,
+    refs_baseline: Option<String>,
+    /// Mode to restore when a lens opened from the preview submode
+    /// closes (history from blame, find from preview).
+    history_return: Option<Mode>,
+    find_return: Option<Mode>,
+    /// A newer release tag when the startup check found one (0017 M3)
+    /// — the modeline's `↑ vX.Y.Z` chip.
+    update_tag: Option<String>,
     modeline: Modeline,
     theme: Theme,
     config: Config,
@@ -109,11 +122,29 @@ fn forge_name(config: &Config, provider: &dyn Provider) -> String {
 }
 
 impl App {
+    /// Fetch the open history lens' commits (v1.5): the previewed
+    /// file's log at the browsed revision.
+    fn open_history_fetch(&mut self) {
+        let target = self
+            .browser
+            .repo_coords()
+            .zip(self.browser.history_path().map(str::to_string));
+        if let Some(((owner, name), path)) = target {
+            let ref_ = self.browser.current_ref().map(str::to_string);
+            self.spawn_log(format!("{owner}/{name}"), path, ref_);
+        }
+    }
+
     pub fn new(tx: AppTx, config: Config, theme: Theme) -> Self {
         let (provider, warning) = provider::build(&config);
         let mut app = Self::build(State::load(), tx, provider, false, config, theme);
         if let Some(warning) = warning {
             app.status = Some(warning);
+        }
+        // 0017 M3: the 24h-cached update notice — never offline, never
+        // blocking, silent on failure.
+        if !app.offline && app.config.update.check {
+            app.spawn_update_check();
         }
         // Warm the repos level for the initially selected org.
         if let Some(org) = app.browser.selected_org() {
@@ -167,11 +198,17 @@ impl App {
             command_line: None,
             settings: None,
             wizard: None,
+            refs_popup: None,
+            refs_baseline: None,
+            history_return: None,
+            find_return: None,
+            update_tag: None,
             modeline: Modeline {
                 forge,
                 icon,
                 context: String::new(),
                 status: None,
+                update_tag: None,
             },
             theme,
             config,
@@ -494,6 +531,65 @@ impl App {
                 }
                 self.status = Some(status);
             }
+            // v1.5 revision lenses (plans/0016 M1).
+            AppEvent::RefsLoaded { repo: _, refs } => {
+                if let Some(popup) = &mut self.refs_popup {
+                    popup.set_refs(refs);
+                }
+            }
+            AppEvent::RefsFailed { repo: _, error } => {
+                self.status = Some(provider_status(&error));
+            }
+            AppEvent::LogLoaded {
+                path,
+                entries,
+                truncated,
+            } => {
+                if self.browser.history_path() == Some(path.as_str()) {
+                    self.browser.history_loaded(entries, truncated);
+                }
+            }
+            AppEvent::LogFailed { path: _, error } => {
+                self.status = Some(provider_status(&error));
+            }
+            AppEvent::BlameLoaded { path, ranges } => {
+                self.browser.blame_store(path, ranges);
+            }
+            AppEvent::BlameFailed { path: _, error } => {
+                self.status = Some(provider_status(&error));
+            }
+            AppEvent::BlobAtLoaded {
+                path,
+                ref_,
+                sha,
+                bytes,
+            } => {
+                // Open-at-commit: style like every blob, but show it
+                // directly — the tree cursor still names the
+                // present-day blob, so refresh_preview would revert it.
+                if crate::sanitize::is_binary(&bytes) {
+                    self.status = Some("binary file at that commit".into());
+                    return;
+                }
+                let text = crate::sanitize::sanitize(&bytes);
+                let short: String = ref_.chars().take(7).collect();
+                let name = format!("{path} @ {short}");
+                let lines = self.highlighter.highlight(&name, &text);
+                let lang = self.highlighter.language(&name);
+                self.browser.show_at_commit(&sha, &name, &lang, text, lines);
+                // The lens' work is done — the commit's content is up.
+                self.browser.close_history();
+                self.history_return = Some(Mode::Preview);
+                self.mode = Mode::Preview;
+                self.status = None;
+            }
+            AppEvent::BlobAtFailed { path: _, error } => {
+                self.status = Some(provider_status(&error));
+            }
+            AppEvent::UpdateAvailable { tag } => {
+                self.update_tag = Some(tag.clone());
+                self.status = Some(format!("rootle {tag} is out — run `rootle update`"));
+            }
         }
     }
 
@@ -507,6 +603,9 @@ impl App {
         }
         if let Some(help) = &mut self.help {
             return help.handle_key(key);
+        }
+        if let Some(refs) = &mut self.refs_popup {
+            return refs.handle_key(key);
         }
         if let Some(command_line) = &mut self.command_line {
             return command_line.handle_key(key);
@@ -538,6 +637,16 @@ impl App {
                 Outcome::Noop => Action::Noop,
             },
             Mode::Leader => keymap::leader(key.code),
+            Mode::History => {
+                // An active `/` session owns the keys until commit.
+                if self.browser.history_filtering() {
+                    self.browser.history_filter_key(key);
+                    Action::Noop
+                } else {
+                    keymap::history(key.code)
+                }
+            }
+            Mode::Preview => self.browser.preview_key(key),
             _ => Action::Noop,
         }
     }
@@ -557,6 +666,13 @@ impl App {
                     || self.help.take().is_some()
                     || self.command_line.take().is_some()
                 {
+                    return;
+                }
+                if self.refs_popup.take().is_some() {
+                    // Revisions switcher cancelled: the live preview
+                    // reverts to the committed revision.
+                    let baseline = self.refs_baseline.clone();
+                    self.browser.set_current_ref(baseline);
                     return;
                 }
                 self.popup = None;
@@ -688,7 +804,27 @@ impl App {
                             }
                         }
                     }
-                    other => self.status = Some(format!("unknown command: {other}")),
+                    other => {
+                        // `:42` jumps to line 42 in a file view — the
+                        // zoomed preview submode or a search hit's
+                        // expanded file pane (plans/0016 M1).
+                        match other.parse::<u32>() {
+                            Ok(line) if line > 0 => {
+                                let jumped = if let Some(view) = &mut self.search_view {
+                                    view.expanded_goto_line(line)
+                                } else if self.browser.preview.text_line_count() > 0 {
+                                    self.browser.preview.set_cursor_line(line);
+                                    true
+                                } else {
+                                    false
+                                };
+                                if !jumped {
+                                    self.status = Some(format!(":{other}: not in a file view"));
+                                }
+                            }
+                            _ => self.status = Some(format!("unknown command: {other}")),
+                        }
+                    }
                 }
             }
             Action::Visual => {
@@ -739,10 +875,148 @@ impl App {
                 self.browser.clear_marks();
                 self.status = Some("marks cleared".into());
             }
+            Action::LeaderRefs => {
+                self.mode = Mode::Browse;
+                if !self.provider.capabilities().refs {
+                    self.status = Some("provider has no revision listing".into());
+                } else if let Some((owner, name)) = self.browser.repo_coords() {
+                    let current = self
+                        .browser
+                        .current_ref()
+                        .or_else(|| self.browser.branch())
+                        .unwrap_or("main")
+                        .to_string();
+                    self.refs_baseline = self.browser.current_ref().map(str::to_string);
+                    self.refs_popup = Some(RefsPopup::new(&current));
+                    self.spawn_refs(format!("{owner}/{name}"));
+                } else {
+                    self.status = Some("open a repo to switch revisions".into());
+                }
+            }
+            Action::RefsPreview(name) => {
+                // Live preview: the crumb follows the cursor (no fetch
+                // until commit).
+                self.browser.set_current_ref(Some(name));
+            }
+            Action::RefsCommit(name) => {
+                self.refs_popup = None;
+                self.refs_baseline = Some(name.clone());
+                self.browser.set_current_ref(Some(name.clone()));
+                self.status = Some(format!("switched to {name}"));
+                // The ref is read at spawn — refetch the tree now.
+                if let Some((owner, name)) = self.browser.repo_coords() {
+                    self.handle_action(Action::LoadRepoTree { owner, name });
+                }
+            }
+            Action::LeaderPreview => {
+                self.mode = Mode::Browse;
+                if self.browser.repo_coords().is_none() {
+                    self.status = Some("open a repo first".into());
+                } else {
+                    self.mode = Mode::Preview;
+                }
+            }
+            Action::ExitPreview => {
+                // The commit-view ladder: Esc restores the present-day
+                // blob first, exits the submode second.
+                if self.browser.at_commit_view() {
+                    self.browser.commit_view_close();
+                } else {
+                    self.mode = Mode::Browse;
+                }
+            }
+            Action::BlameToggle => {
+                if self.browser.preview.blaming() {
+                    self.browser.clear_blame();
+                } else if !self.provider.capabilities().blame {
+                    // Honest absence (Bitbucket has no blame API).
+                    self.status = Some("provider has no blame".into());
+                } else if !self.browser.blame_toggle_on() {
+                    self.status = Some("blame: preview is not a text file".into());
+                } else if let Some(path) = self.browser.blame_needed_for()
+                    && let Some((owner, name)) = self.browser.repo_coords()
+                {
+                    self.browser.blame_mark_loading(path.clone());
+                    let ref_ = self.browser.current_ref().map(str::to_string);
+                    self.spawn_blame(format!("{owner}/{name}"), path, ref_);
+                    self.status = Some("blame…".into());
+                }
+            }
+            Action::PreviewEnter => {
+                // Blaming: Enter opens the line's commit in the history
+                // lens; otherwise Enter is the editor handoff.
+                match self.browser.blame_line_sha() {
+                    Some(sha) if self.provider.capabilities().log => {
+                        if self.browser.open_history(Some(sha)) {
+                            self.open_history_fetch();
+                            self.history_return = Some(Mode::Preview);
+                            self.mode = Mode::History;
+                        }
+                    }
+                    _ => self.handle_action(Action::OpenSelected),
+                }
+            }
+            Action::LeaderHistory => {
+                let back = self.mode;
+                self.mode = Mode::Browse;
+                if !self.provider.capabilities().log {
+                    self.status = Some("provider has no commit log".into());
+                } else if self.browser.open_history(None) {
+                    self.history_return = Some(if back == Mode::Preview {
+                        Mode::Preview
+                    } else {
+                        Mode::Browse
+                    });
+                    self.open_history_fetch();
+                    self.mode = Mode::History;
+                } else {
+                    self.status = Some("preview a file for its history".into());
+                }
+            }
+            Action::HistoryFilterBegin => self.browser.history_begin_filter(),
+            Action::HistoryYank => {
+                // The permalink that never rots: the URL carries the
+                // commit sha as its ref.
+                let target = self.browser.repo_coords().zip(self.browser.history_pick());
+                if let Some(((owner, name), (path, sha))) = target {
+                    match self
+                        .provider
+                        .web_url(&format!("{owner}/{name}"), &path, &sha, None, true)
+                    {
+                        Ok(u) => {
+                            self.pending_clipboard = Some(u.clone());
+                            self.status = Some(format!("yanked {u}"));
+                        }
+                        Err(e) => self.status = Some(provider_status(&e)),
+                    }
+                }
+            }
+            Action::HistoryUp => self.browser.history_move(-1),
+            Action::HistoryDown => self.browser.history_move(1),
+            Action::HistoryOpen => {
+                // Open the file at the picked commit — bytes land via
+                // BlobAtLoaded; the restore point is noted there.
+                let target = self.browser.repo_coords().zip(self.browser.history_pick());
+                if let Some(((owner, name), (path, sha))) = target {
+                    self.spawn_blob_at(format!("{owner}/{name}"), path, sha);
+                    self.status = Some("opening at commit…".into());
+                }
+            }
+            Action::HistoryClose => {
+                // The wizard ladder: a committed filter clears first,
+                // the next Esc closes.
+                if self.browser.history_esc() {
+                    self.mode = self.history_return.take().unwrap_or(Mode::Browse);
+                }
+            }
             Action::LeaderYank => {
                 // Mock stage (plans/0003 §1): toast the URL that would
                 // be yanked; clipboard (OSC 52) wires up later.
-                self.mode = Mode::Browse;
+                // From the leader layer it drops back to Browse; from
+                // the preview submode (␣ p y) the pane stays focused.
+                if self.mode == Mode::Leader {
+                    self.mode = Mode::Browse;
+                }
                 // URLs come from the provider — no GitHub grammar
                 // outside the GitHub impl (plans/0005).
                 let url = if let Some(view) = &self.search_view {
@@ -806,13 +1080,21 @@ impl App {
                     .search_scope
                     .as_deref()
                     .and_then(crate::components::global_search::Scope::from_stored);
-                self.search_view = Some(GlobalSearch::new(
+                let mut view = GlobalSearch::new(
                     kind,
                     repo,
                     org,
                     persisted_scope,
                     self.state.search_extension.clone(),
-                ));
+                );
+                // plans/0016 M1a: off the default branch, index-backed
+                // search (GitHub) can't follow — the title says so.
+                if let (Some(r), Some(b)) = (self.browser.current_ref(), self.browser.branch())
+                    && r != b
+                {
+                    view.search_ref_note = Some(format!("search: {b} only"));
+                }
+                self.search_view = Some(view);
                 self.mode = Mode::Browse;
             }
             Action::CloseSearchView => {
@@ -1044,7 +1326,8 @@ impl App {
                     let border = BorderShape::parse(&self.config.ui.border).unwrap_or_default();
                     self.theme = Theme::load(&name)
                         .with_border(border)
-                        .with_nerd_font(self.config.ui.nerd_font);
+                        .with_nerd_font(self.config.ui.nerd_font)
+                        .with_separator(&self.config.ui.separator);
                 }
                 match self.config.save() {
                     Ok(()) => {
@@ -1074,6 +1357,15 @@ impl App {
                 self.mode = Mode::Browse;
             }
             Action::LeaderFindInFile => {
+                // Reachable from the leader layer (Browse underneath)
+                // and from the preview submode — FIND returns to
+                // whichever raised it.
+                let back = self.mode;
+                self.find_return = Some(if back == Mode::Preview {
+                    Mode::Preview
+                } else {
+                    Mode::Browse
+                });
                 self.mode = Mode::Browse; // leader layer down either way
                 if self.browser.preview.findable() {
                     self.browser.find_input.clear();
@@ -1081,6 +1373,7 @@ impl App {
                     self.browser.preview.begin_find();
                     self.mode = Mode::Find;
                 } else {
+                    self.mode = self.find_return.take().unwrap_or(Mode::Browse);
                     self.status = Some("find: preview is not a text file".into());
                 }
             }
@@ -1088,11 +1381,13 @@ impl App {
                 let query = self.browser.find_input.value();
                 self.browser.preview.update_find(query);
             }
-            Action::CommitFind => self.mode = Mode::Browse,
+            Action::CommitFind => {
+                self.mode = self.find_return.take().unwrap_or(Mode::Browse);
+            }
             Action::CancelFind => {
                 self.browser.preview.cancel_find();
                 self.browser.find_input.clear();
-                self.mode = Mode::Browse;
+                self.mode = self.find_return.take().unwrap_or(Mode::Browse);
             }
             Action::FindNext => {
                 self.browser.preview.find_step(1);
@@ -1218,21 +1513,59 @@ impl App {
 
     pub fn render(&mut self, frame: &mut Frame, area: Rect) {
         let theme = self.effective_theme();
+        let mode = self.effective_mode();
+        // State vs keys, one hint surface per context: a view or
+        // overlay that draws its own border hint row (search view,
+        // popups, wizard) wins; the glued strip serves what has no
+        // border — the leader layer (always) and the browser's
+        // transient modes; the modeline is state-only either way.
+        let overlay_up = self.popup.is_some()
+            || self.wizard.is_some()
+            || self.settings.is_some()
+            || self.help.is_some()
+            || self.command_line.is_some()
+            || self.refs_popup.is_some()
+            || self.search_view.is_some();
+        let strip = mode == Mode::Leader || (!overlay_up && mode != Mode::Browse);
         let rows = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Min(1), Constraint::Length(1)])
+            .constraints(if strip {
+                vec![
+                    Constraint::Min(1),
+                    Constraint::Length(1),
+                    Constraint::Length(1),
+                ]
+            } else {
+                vec![Constraint::Min(1), Constraint::Length(1)]
+            })
             .split(area);
 
         if let Some(view) = &mut self.search_view {
             view.render(frame, rows[0], &theme);
             self.modeline.context = view.context();
         } else {
-            self.browser.render(frame, rows[0], &theme);
+            // The preview submode (␣ p) and its lenses zoom the pane to
+            // the full row; FIND raised from it keeps the zoom.
+            let zoomed = matches!(self.mode, Mode::Preview | Mode::History)
+                || (self.mode == Mode::Find && self.find_return == Some(Mode::Preview));
+            self.browser.preview.focused = zoomed;
+            self.browser.render(frame, rows[0], &theme, zoomed);
             self.modeline.context = self.browser.context();
         }
+        if strip {
+            frame.render_widget(
+                Paragraph::new(crate::components::modeline::hint_strip_line(
+                    mode,
+                    rows[1].width as usize,
+                    &theme,
+                )),
+                rows[1],
+            );
+        }
+        let modeline_row = rows[rows.len() - 1];
         self.modeline.status = self.status.clone();
-        self.modeline
-            .render(frame, rows[1], self.effective_mode(), &theme);
+        self.modeline.update_tag = self.update_tag.clone();
+        self.modeline.render(frame, modeline_row, mode, &theme);
 
         if let Some(popup) = &mut self.popup {
             popup.render(frame, rows[0], &theme);
@@ -1246,6 +1579,9 @@ impl App {
         }
         if let Some(wizard) = &mut self.wizard {
             wizard.render(frame, rows[0], &theme);
+        }
+        if let Some(refs) = &mut self.refs_popup {
+            refs.render(frame, rows[0], &theme);
         }
         // Command strip sits on the modeline's doorstep, last.
         if let Some(command_line) = &mut self.command_line {

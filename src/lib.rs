@@ -15,3 +15,4 @@ pub mod provider;
 pub mod sanitize;
 pub mod state;
 pub mod theme;
+pub mod update;

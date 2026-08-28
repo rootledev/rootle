@@ -18,6 +18,37 @@ pub struct Theme {
     /// Nerd Font glyphs in chrome (powerline arrows, forge icons);
     /// false = unicode fallbacks. Same ride-along as `border`.
     pub nerd_font: bool,
+    /// Modeline chip separator when Nerd Font is off: "pipe" (`|`,
+    /// rectangular chips) or "caret" (❯). Same ride-along.
+    pub separator: SeparatorShape,
+}
+
+/// The modeline's chip separator shape ([ui] separator).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SeparatorShape {
+    /// `|` — rectangular chips, reads clean on every font.
+    #[default]
+    Pipe,
+    /// ❯ — the starship-style caret.
+    Caret,
+}
+
+impl SeparatorShape {
+    /// Config-string parse; unknown values keep the default.
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "pipe" => Some(Self::Pipe),
+            "caret" => Some(Self::Caret),
+            _ => None,
+        }
+    }
+
+    pub fn glyph(self) -> &'static str {
+        match self {
+            Self::Pipe => "|",
+            Self::Caret => "\u{276f}",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -158,6 +189,7 @@ impl Theme {
             },
             border: BorderShape::default(),
             nerd_font: false,
+            separator: SeparatorShape::Pipe,
             syntax: Syntax {
                 keyword: Color::from_u32(0xcba6f7),   // mauve
                 string: Color::from_u32(0xa6e3a1),    // green
@@ -203,6 +235,15 @@ impl Theme {
     /// Enable Nerd Font glyphs (chained after `load`).
     pub fn with_nerd_font(mut self, on: bool) -> Self {
         self.nerd_font = on;
+        self
+    }
+
+    /// Modeline separator from `[ui] separator` (chained after
+    /// `load`); unknown values keep the pipe.
+    pub fn with_separator(mut self, sep: &str) -> Self {
+        if let Some(shape) = SeparatorShape::parse(sep) {
+            self.separator = shape;
+        }
         self
     }
 

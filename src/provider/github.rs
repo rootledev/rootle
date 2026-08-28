@@ -3,7 +3,8 @@
 //! revalidation all live inside it (PLAN.md §7/§8).
 
 use super::{
-    Capabilities, CodeMatch, Provider, ProviderResult, RepoInfo, SearchItem, TreeNode, TreeResult,
+    BlameRange, Capabilities, CodeMatch, LogEntry, Provider, ProviderResult, RepoInfo, RepoRefs,
+    SearchItem, TreeNode, TreeResult,
 };
 use crate::github::Client;
 
@@ -61,6 +62,10 @@ impl Provider for GitHubProvider {
             orgs: true,
             code_search: true,
             file_search: true,
+            // v1.5: branches/tags, commits, and GraphQL blame.
+            refs: true,
+            log: true,
+            blame: true,
         }
     }
 
@@ -79,9 +84,9 @@ impl Provider for GitHubProvider {
         self.client.org_repos(org)
     }
 
-    fn fetch_tree(&self, repo: &str) -> ProviderResult<TreeResult> {
+    fn fetch_tree(&self, repo: &str, ref_: Option<&str>) -> ProviderResult<TreeResult> {
         let (owner, name) = split_repo(repo)?;
-        let (tree, truncated, branch) = self.client.fetch_tree(owner, name)?;
+        let (tree, truncated, branch) = self.client.fetch_tree(owner, name, ref_)?;
         Ok(TreeResult {
             entries: tree.tree.iter().map(Into::into).collect(),
             truncated,
@@ -92,6 +97,41 @@ impl Provider for GitHubProvider {
     fn fetch_blob(&self, repo: &str, sha: &str) -> ProviderResult<Vec<u8>> {
         let (owner, name) = split_repo(repo)?;
         self.client.fetch_blob(owner, name, sha)
+    }
+
+    /// v1.5 (plans/0016 M1): branches + tags.
+    fn refs(&self, repo: &str) -> ProviderResult<RepoRefs> {
+        let (owner, name) = split_repo(repo)?;
+        self.client.refs(owner, name)
+    }
+
+    /// v1.5: commit log, newest first.
+    fn log(
+        &self,
+        repo: &str,
+        path: Option<&str>,
+        ref_: Option<&str>,
+        limit: Option<usize>,
+    ) -> ProviderResult<(Vec<LogEntry>, bool)> {
+        let (owner, name) = split_repo(repo)?;
+        self.client.log(owner, name, path, ref_, limit)
+    }
+
+    /// v1.5: open-at-commit.
+    fn blob_at(
+        &self,
+        repo: &str,
+        path: &str,
+        ref_: Option<&str>,
+    ) -> ProviderResult<(Vec<u8>, String)> {
+        let (owner, name) = split_repo(repo)?;
+        self.client.blob_at(owner, name, path, ref_)
+    }
+
+    /// v1.5: blame via GraphQL.
+    fn blame(&self, repo: &str, path: &str, ref_: Option<&str>) -> ProviderResult<Vec<BlameRange>> {
+        let (owner, name) = split_repo(repo)?;
+        self.client.blame(owner, name, path, ref_)
     }
 
     fn clone_url(&self, repo: &str) -> ProviderResult<String> {
@@ -114,7 +154,7 @@ impl Provider for GitHubProvider {
         // Blob vs tree grammar; the branch is cheap to resolve — the
         // tree is disk-cached whenever the repo has been browsed.
         let branch = if branch.is_empty() {
-            self.fetch_tree(repo).map(|t| t.branch)?
+            self.fetch_tree(repo, None).map(|t| t.branch)?
         } else {
             branch.to_string()
         };

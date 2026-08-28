@@ -137,6 +137,47 @@ pub struct Capabilities {
     pub orgs: bool,
     pub code_search: bool,
     pub file_search: bool,
+    /// v1.5 (plans/0016 M1): revision awareness — all default false;
+    /// absent means default-branch-only, the honest answer for
+    /// backends that can't answer (Bitbucket has no blame API).
+    pub refs: bool,
+    pub log: bool,
+    pub blame: bool,
+}
+
+/// One ref (branch or tag) — `repo/refs` item.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RefInfo {
+    pub name: String,
+    pub sha: String,
+    pub is_default: bool,
+}
+
+/// `repo/refs` reply.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RepoRefs {
+    pub branches: Vec<RefInfo>,
+    pub tags: Vec<RefInfo>,
+}
+
+/// `repo/log` item — newest first on the wire.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+pub struct LogEntry {
+    pub sha: String,
+    pub subject: String,
+    pub author: String,
+    /// ISO-8601.
+    pub date: String,
+}
+
+/// `repo/blame` range — 1-based inclusive lines, coalesced by sha.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+pub struct BlameRange {
+    pub start_line: u32,
+    pub end_line: u32,
+    pub sha: String,
+    pub author: String,
+    pub date: String,
 }
 
 /// Repo/org search result for the launch popup.
@@ -214,10 +255,58 @@ pub trait Provider: Send + Sync {
     /// Repo names of an org/group, with listing metadata when the
     /// backend reports it (v1.4).
     fn org_repos(&self, org: &str) -> ProviderResult<Vec<RepoInfo>>;
-    /// Full recursive tree of a repo's default branch.
-    fn fetch_tree(&self, repo: &str) -> ProviderResult<TreeResult>;
+    /// Full recursive tree of a repo — at `ref` (branch/tag/sha) when
+    /// given (v1.5), else the default branch.
+    fn fetch_tree(&self, repo: &str, ref_: Option<&str>) -> ProviderResult<TreeResult>;
     /// Blob bytes by content id.
     fn fetch_blob(&self, repo: &str, sha: &str) -> ProviderResult<Vec<u8>>;
+    /// v1.5: branches and tags (capability `refs`).
+    fn refs(&self, repo: &str) -> ProviderResult<RepoRefs> {
+        let _ = repo;
+        Err(ProviderError::new(
+            ErrorKind::Provider,
+            "provider has no revision listing",
+        ))
+    }
+    /// v1.5: commit log, newest first; `limit` rides the bounded-
+    /// compute contract — stop at ~N, the bool is `truncated`
+    /// (capability `log`).
+    fn log(
+        &self,
+        repo: &str,
+        path: Option<&str>,
+        ref_: Option<&str>,
+        limit: Option<usize>,
+    ) -> ProviderResult<(Vec<LogEntry>, bool)> {
+        let _ = (repo, path, ref_, limit);
+        Err(ProviderError::new(
+            ErrorKind::Provider,
+            "provider has no commit log",
+        ))
+    }
+    /// v1.5: file bytes + content id at a path and ref — the
+    /// open-at-commit call (capability `log`'s companion).
+    fn blob_at(
+        &self,
+        repo: &str,
+        path: &str,
+        ref_: Option<&str>,
+    ) -> ProviderResult<(Vec<u8>, String)> {
+        let _ = (repo, path, ref_);
+        Err(ProviderError::new(
+            ErrorKind::Provider,
+            "provider cannot serve blobs at a ref",
+        ))
+    }
+    /// v1.5: blame ranges, 1-based inclusive, coalesced (capability
+    /// `blame`).
+    fn blame(&self, repo: &str, path: &str, ref_: Option<&str>) -> ProviderResult<Vec<BlameRange>> {
+        let _ = (repo, path, ref_);
+        Err(ProviderError::new(
+            ErrorKind::Provider,
+            "provider has no blame",
+        ))
+    }
     /// Code search; `q` is the full query string with qualifiers.
     fn search_code(&self, q: &str) -> ProviderResult<SearchCodeResult>;
 
@@ -366,6 +455,12 @@ pub fn offline() -> Arc<dyn Provider> {
                 orgs: false,
                 code_search: false,
                 file_search: false,
+                // Tests inject the v1.5 events directly (the calls
+                // themselves error offline) — declare the caps so the
+                // lenses open.
+                refs: true,
+                log: true,
+                blame: true,
             }
         }
         fn search(&self, _: &str) -> ProviderResult<Vec<SearchItem>> {
@@ -374,7 +469,7 @@ pub fn offline() -> Arc<dyn Provider> {
         fn org_repos(&self, _: &str) -> ProviderResult<Vec<RepoInfo>> {
             Err("offline".into())
         }
-        fn fetch_tree(&self, _: &str) -> ProviderResult<TreeResult> {
+        fn fetch_tree(&self, _: &str, _: Option<&str>) -> ProviderResult<TreeResult> {
             Err("offline".into())
         }
         fn fetch_blob(&self, _: &str, _: &str) -> ProviderResult<Vec<u8>> {

@@ -7,13 +7,16 @@
 
 use super::pane::{Entry, EntryKind, Pane};
 use super::preview::Preview;
+use super::scrollbar;
 use super::vim_input::VimInput;
 use crate::action::Action;
 use crate::provider::TreeNode;
 use crate::theme::Theme;
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::text::Line;
+use ratatui::style::Style;
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, Borders, Paragraph};
 use std::collections::{HashMap, HashSet};
 
 mod tree;
@@ -59,6 +62,103 @@ pub struct Browser {
     /// `"<pane title>/<entry name>"` so marks survive cascades.
     visual: bool,
     marks: std::collections::HashSet<String>,
+    /// plans/0016 M1a: the browsed revision (None = default branch).
+    current_ref: Option<String>,
+    /// plans/0016 M1b: the file-history lens over the preview pane.
+    /// Some(_) while active; the preview survives underneath.
+    history: Option<History>,
+    /// plans/0016 M1c: blame ranges for the previewed file.
+    blame: Option<BlameState>,
+    /// Viewing a file at a commit (history Enter): the restore point
+    /// is the present-day blob — (path, sha) — re-rendered from the
+    /// in-memory cache on the way back.
+    at_commit: Option<(String, String)>,
+}
+
+/// The file-history lens over the preview pane (plans/0016 M1b).
+/// Data arrives from the provider via `history_loaded`; until then the
+/// lens shows a loading row.
+pub struct History {
+    /// The file the lens is open on.
+    path: String,
+    /// Cursor over the visible (filtered) rows.
+    cursor: usize,
+    scroll: u16,
+    entries: Vec<crate::provider::LogEntry>,
+    truncated: bool,
+    loading: bool,
+    /// Enter-from-blame: position the cursor at this sha on landing.
+    pending_sha: Option<String>,
+    /// Transient `/` session over the commits (house rule: every list
+    /// filters) — subject, sha, and author match.
+    filter: VimInput,
+    filtering: bool,
+    filter_value: String,
+    pre_filter: String,
+}
+
+impl History {
+    /// The lens positioned at a commit (blame → history composition).
+    fn at(path: &str, pending_sha: Option<String>) -> Self {
+        History {
+            path: path.to_string(),
+            cursor: 0,
+            scroll: 0,
+            entries: Vec::new(),
+            truncated: false,
+            loading: true,
+            pending_sha,
+            filter: VimInput::transient(),
+            filtering: false,
+            filter_value: String::new(),
+            pre_filter: String::new(),
+        }
+    }
+
+    fn loaded(&mut self, entries: Vec<crate::provider::LogEntry>, truncated: bool) {
+        self.loading = false;
+        self.truncated = truncated;
+        self.entries = entries;
+        // The blamed-commit composition lands the cursor on its row.
+        if let Some(sha) = self.pending_sha.take()
+            && let Some(i) = self
+                .entries
+                .iter()
+                .position(|e| e.sha == sha || e.sha.starts_with(&sha))
+        {
+            self.cursor = self.visible().iter().position(|&vi| vi == i).unwrap_or(0);
+        }
+    }
+
+    /// Entry indices surviving the committed filter.
+    fn visible(&self) -> Vec<usize> {
+        let needle = self.filter_value.to_lowercase();
+        self.entries
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| {
+                needle.is_empty()
+                    || c.subject.to_lowercase().contains(&needle)
+                    || c.sha.contains(&needle)
+                    || c.author.to_lowercase().contains(&needle)
+            })
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    fn selected(&self) -> Option<&crate::provider::LogEntry> {
+        let vis = self.visible();
+        vis.get(self.cursor.min(vis.len().saturating_sub(1)))
+            .map(|&i| &self.entries[i])
+    }
+}
+
+/// Blame lens state (plans/0016 M1c): ranges for one path, fetched on
+/// demand; the marks live in the Preview.
+struct BlameState {
+    path: String,
+    ranges: Vec<crate::provider::BlameRange>,
+    loading: bool,
 }
 
 impl Default for Browser {
@@ -93,6 +193,10 @@ impl Browser {
             find_input: VimInput::transient(),
             visual: false,
             marks: std::collections::HashSet::new(),
+            current_ref: None,
+            history: None,
+            blame: None,
+            at_commit: None,
         };
         browser.sync();
         browser
@@ -122,6 +226,287 @@ impl Browser {
             .filter(|e| e.kind == EntryKind::Repo)
             .map(|e| format!("{org}/{}", e.name))
             .collect()
+    }
+
+    /// The browsed revision (plans/0016 M1a), if switched off the
+    /// default branch.
+    pub fn current_ref(&self) -> Option<&str> {
+        self.current_ref.as_deref()
+    }
+
+    /// Live-preview or commit a revision switch — the crumb follows;
+    /// the tree refetch is the app's (LoadRepoTree reads this).
+    /// Switching invalidates the revision lenses: history and blame
+    /// were fetched for the previous ref.
+    pub fn set_current_ref(&mut self, name: Option<String>) {
+        self.current_ref = name;
+        self.history = None;
+        self.blame = None;
+        self.preview.set_blame(None);
+        self.at_commit = None;
+    }
+
+    /// Preview submode keys (plans/0016 M1, `␣ p`): the vim vertical
+    /// motions are owned by `Preview::motion_key` (counts, gg/G,
+    /// pages, paragraphs, %, zt/zz/zb); everything else maps through
+    /// the named table in keymap.rs (hint rows derive from it).
+    pub fn preview_key(&mut self, key: ratatui::crossterm::event::KeyEvent) -> Action {
+        if self.preview.motion_key(key) {
+            return Action::Noop;
+        }
+        crate::keymap::preview_named(key.code)
+    }
+
+    /// `␣ p b` off: drop the lens. (On is the app's: it fetches
+    /// ranges via `blame_request` and they land in `blame_store`.)
+    pub fn clear_blame(&mut self) {
+        self.blame = None;
+        self.preview.set_blame(None);
+    }
+
+    /// Toggle on: ranges already fetched for the file under preview
+    /// apply immediately; otherwise the app spawns the fetch. Returns
+    /// the (repo-path) the marks belong to when a fetch is needed.
+    pub fn blame_toggle_on(&mut self) -> bool {
+        if self.preview.text_line_count() == 0 {
+            return false;
+        }
+        let apply = matches!(&self.blame, Some(b) if !b.loading);
+        if apply {
+            self.blame_apply();
+        }
+        true
+    }
+
+    /// The path a blame fetch should cover, if one is needed.
+    pub fn blame_needed_for(&self) -> Option<String> {
+        if self.preview.text_line_count() == 0 {
+            return None;
+        }
+        match &self.blame {
+            Some(b) if b.loading => None, // in flight
+            Some(_) => None,              // loaded — blame_apply covers it
+            None => self.selected_file().map(|(p, _)| p),
+        }
+    }
+
+    pub fn blame_mark_loading(&mut self, path: String) {
+        self.blame = Some(BlameState {
+            path,
+            ranges: Vec::new(),
+            loading: true,
+        });
+    }
+
+    /// Ranges landed (identity-checked by the caller); apply when the
+    /// lens is open on this path.
+    pub fn blame_store(&mut self, path: String, ranges: Vec<crate::provider::BlameRange>) {
+        let active = self
+            .blame
+            .as_ref()
+            .map(|b| b.loading && b.path == path)
+            .unwrap_or(false);
+        self.blame = Some(BlameState {
+            path,
+            ranges,
+            loading: false,
+        });
+        if active {
+            self.blame_apply();
+        }
+    }
+
+    /// Ranges → per-line run marks on the preview (v1.5 shape:
+    /// coalesced 1-based inclusive ranges; run starts carry the mark).
+    fn blame_apply(&mut self) {
+        let Some(b) = &self.blame else { return };
+        let lines = self.preview.text_line_count();
+        if lines == 0 {
+            return;
+        }
+        let mut marks: Vec<Option<crate::components::preview::BlameMark>> = vec![None; lines];
+        for r in &b.ranges {
+            let start = (r.start_line as usize).saturating_sub(1);
+            if start < lines {
+                marks[start] = Some(crate::components::preview::BlameMark {
+                    sha: r.sha.chars().take(7).collect(),
+                    author: r.author.clone(),
+                });
+            }
+        }
+        self.preview.set_blame(Some(marks));
+    }
+
+    /// Enter on a blame line: the sha the margin names for that line —
+    /// the history lens opens positioned at it. None outside blame.
+    pub fn blame_line_sha(&self) -> Option<String> {
+        if !self.preview.blaming() {
+            return None;
+        }
+        let b = self.blame.as_ref()?;
+        if b.loading {
+            return None;
+        }
+        let line = self.preview_line().unwrap_or(1) as usize;
+        b.ranges
+            .iter()
+            .find(|r| r.start_line as usize <= line && line <= r.end_line as usize)
+            .map(|r| r.sha.clone())
+    }
+    /// `␣ p h` opens the history lens on the previewed file, if any —
+    /// a loading row first; entries land via `history_loaded`.
+    /// `at_sha` positions the cursor (blame → history composition).
+    pub fn open_history(&mut self, at_sha: Option<String>) -> bool {
+        match self.selected_file() {
+            Some((path, _)) => {
+                self.history = Some(History::at(&path, at_sha));
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Log entries landed from the provider.
+    pub fn history_loaded(&mut self, entries: Vec<crate::provider::LogEntry>, truncated: bool) {
+        if let Some(h) = &mut self.history {
+            h.loaded(entries, truncated);
+        }
+    }
+
+    /// The path the open lens serves (event identity check).
+    pub fn history_path(&self) -> Option<&str> {
+        self.history.as_ref().map(|h| h.path.as_str())
+    }
+
+    pub fn history_active(&self) -> bool {
+        self.history.is_some()
+    }
+
+    /// History lens `/` session active (keys route to the filter).
+    pub fn history_filtering(&self) -> bool {
+        self.history.as_ref().map(|h| h.filtering).unwrap_or(false)
+    }
+
+    /// Begin the `/` session (remembers the committed filter so the
+    /// session's Esc restores it).
+    pub fn history_begin_filter(&mut self) {
+        if let Some(h) = &mut self.history {
+            h.pre_filter = h.filter_value.clone();
+            h.filtering = true;
+        }
+    }
+
+    /// A key for the filter session; commits/cancels end it. The list
+    /// narrows as you type (pane-style live filter, not commit-only).
+    pub fn history_filter_key(&mut self, key: ratatui::crossterm::event::KeyEvent) {
+        if let Some(h) = &mut self.history {
+            match h.filter.handle_key(key) {
+                crate::components::vim_input::Outcome::Changed => {
+                    h.filter_value = h.filter.value();
+                    h.cursor = 0;
+                    h.scroll = 0;
+                }
+                crate::components::vim_input::Outcome::Submitted => {
+                    h.filtering = false;
+                    h.filter_value = h.filter.value();
+                    h.cursor = 0;
+                    h.scroll = 0;
+                }
+                crate::components::vim_input::Outcome::Cancelled => {
+                    h.filtering = false;
+                    h.filter_value = h.pre_filter.clone();
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Esc in the lens: a committed filter clears first (the wizard
+    /// ladder), the second Esc closes. Returns true when it closed.
+    pub fn history_esc(&mut self) -> bool {
+        if let Some(h) = &mut self.history
+            && !h.filter_value.is_empty()
+        {
+            h.filter_value.clear();
+            h.cursor = 0;
+            return false;
+        }
+        self.close_history();
+        true
+    }
+
+    pub fn close_history(&mut self) {
+        self.history = None;
+    }
+
+    pub fn history_move(&mut self, delta: i64) {
+        if let Some(h) = &mut self.history {
+            let len = h.visible().len() as i64;
+            if len > 0 {
+                h.cursor = ((h.cursor as i64 + delta).rem_euclid(len)) as usize;
+            }
+        }
+    }
+
+    /// Entering open-at-commit: save the present-day blob's identity
+    /// (the tree cursor is on the file the lens serves).
+    pub fn note_commit_view(&mut self) {
+        self.at_commit = self.selected_file();
+        // Present-day blame marks are stale over a commit's content.
+        self.preview.set_blame(None);
+    }
+
+    /// Show a file at a commit (v1.5): bypass refresh_preview — the
+    /// tree cursor's sha is the present-day one — but cache the bytes
+    /// so switching back and forth stays free.
+    #[allow(clippy::too_many_arguments)]
+    pub fn show_at_commit(
+        &mut self,
+        sha: &str,
+        name: &str,
+        lang: &str,
+        text: String,
+        lines: Vec<Line<'static>>,
+    ) {
+        self.note_commit_view();
+        self.blobs.insert(
+            sha.to_string(),
+            CachedBlob {
+                name: name.to_string(),
+                lang: lang.to_string(),
+                text,
+                lines: lines.clone(),
+            },
+        );
+        self.preview.set_highlighted(name, lang, lines);
+    }
+
+    pub fn at_commit_view(&self) -> bool {
+        self.at_commit.is_some()
+    }
+
+    /// Esc from a commit view: the present-day blob re-renders from
+    /// the in-memory cache (it was fetched moments ago — zero network).
+    pub fn commit_view_close(&mut self) {
+        let Some((path, sha)) = self.at_commit.take() else {
+            return;
+        };
+        if let Some(c) = self.blobs.get(&sha) {
+            let (name, lang, lines) = (c.name.clone(), c.lang.clone(), c.lines.clone());
+            self.preview.set_highlighted(&name, &lang, lines);
+        } else {
+            // Cache evicted under us: fall back to the blob path.
+            self.preview
+                .set_bytes(&path, b"reload the file to restore it");
+        }
+    }
+
+    /// The picked commit (path + full sha) — open-at-commit and the
+    /// permalink yank.
+    pub fn history_pick(&self) -> Option<(String, String)> {
+        let h = self.history.as_ref()?;
+        let c = h.selected()?;
+        Some((h.path.clone(), c.sha.clone()))
     }
 
     /// VISUAL mode on: checkboxes appear on every pane.
@@ -289,13 +674,19 @@ impl Browser {
 
     pub fn context(&self) -> String {
         // Path up to the focused level (level 0 = orgs, not shown).
-        self.levels
+        let crumbs = self
+            .levels
             .iter()
             .skip(1)
             .take(self.focus)
             .map(|p| p.title.clone())
             .collect::<Vec<_>>()
-            .join(" · ")
+            .join(" · ");
+        // plans/0016 M1a: off-default revisions say so in the crumb.
+        match &self.current_ref {
+            Some(r) if !crumbs.is_empty() => format!("{crumbs} @ {r}"),
+            _ => crumbs,
+        }
     }
 
     pub fn selected_kind(&self) -> Option<EntryKind> {
@@ -583,7 +974,18 @@ impl Browser {
         }
     }
 
-    pub fn render(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
+    pub fn render(&mut self, frame: &mut Frame, area: Rect, theme: &Theme, zoomed: bool) {
+        // ␣ p zoom (tmux `prefix z` model, plans/0016 M1): the preview
+        // — or the history lens over it — takes the whole content row;
+        // the miller columns are untouched underneath, Esc restores.
+        if zoomed {
+            if self.history.is_some() {
+                self.render_history(frame, area, theme);
+            } else {
+                self.preview.render(frame, area, theme);
+            }
+            return;
+        }
         // Top level (orgs): fold to a single full-width pane. There is
         // no parent above orgs, so a three-pane split would leave the
         // left column empty (PLAN.md §5).
@@ -606,7 +1008,108 @@ impl Browser {
         self.levels[parent].render(frame, cols[0], theme);
         let focus = self.focus;
         self.levels[focus].render(frame, cols[1], theme);
-        self.preview.render(frame, cols[2], theme);
+        // plans/0016 M1b: the history lens swaps the preview's content
+        // (same rect, same border idiom) — the preview is untouched
+        // underneath and Esc restores it.
+        if self.history.is_some() {
+            self.render_history(frame, cols[2], theme);
+        } else {
+            self.preview.render(frame, cols[2], theme);
+        }
+    }
+
+    /// tig-shaped commit list for the previewed file (mock data).
+    fn render_history(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
+        let Some(h) = &mut self.history else {
+            return;
+        };
+        let sem = &theme.semantic;
+        let mut title = format!(" history — {} ", h.path);
+        if h.filtering || !h.filter_value.is_empty() {
+            title = format!(" history — {} /{} ", h.path, h.filter.value());
+        }
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(theme.border_type())
+            .border_style(Style::default().fg(sem.border_focused))
+            .style(Style::default().bg(sem.base))
+            .title(Span::styled(title, Style::default().fg(sem.subtext0)))
+            .title_bottom(Span::styled(
+                " j/k commit · enter file at commit · / filter · esc back ",
+                Style::default().fg(sem.hint),
+            ));
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+
+        if h.loading {
+            frame.render_widget(
+                Paragraph::new(Line::from(Span::styled(
+                    "  loading history…",
+                    Style::default().fg(sem.subtext0),
+                ))),
+                inner,
+            );
+            return;
+        }
+        let vis = h.visible();
+        let mut lines: Vec<Line> = Vec::new();
+        for (row, &i) in vis.iter().enumerate() {
+            let c = &h.entries[i];
+            let selected = row == h.cursor;
+            let style = if selected {
+                Style::default().fg(sem.selection_fg).bg(sem.selection_bg)
+            } else {
+                Style::default().fg(sem.text)
+            };
+            let dim = if selected {
+                style
+            } else {
+                Style::default().fg(sem.subtext0)
+            };
+            lines.push(Line::from(vec![
+                Span::styled(
+                    if selected { "▌ " } else { "  " },
+                    Style::default().fg(sem.border_focused),
+                ),
+                Span::styled(
+                    format!("{} ", c.sha.chars().take(7).collect::<String>()),
+                    Style::default().fg(sem.warning),
+                ),
+                Span::styled(c.subject.clone(), style),
+            ]));
+            lines.push(Line::from(vec![
+                Span::raw("    "),
+                Span::styled(format!("{} · {}", c.author, c.date), dim),
+            ]));
+        }
+        if vis.is_empty() {
+            lines.push(Line::from(Span::styled(
+                "  no matching commits",
+                Style::default().fg(sem.subtext0),
+            )));
+        }
+        // Bounded compute: past the render budget the provider said
+        // truncated — narrow with /.
+        if h.truncated {
+            lines.push(Line::from(Span::styled(
+                "  ⋮ truncated — / filters",
+                Style::default().fg(sem.subtext0),
+            )));
+        }
+        let height = inner.height as usize;
+        let total = lines.len();
+        let max_scroll = total.saturating_sub(height) as u16;
+        // Keep the selected commit's two-line row visible.
+        let want = (h.cursor * 2) as u16;
+        if want < h.scroll {
+            h.scroll = want;
+        } else if want + 1 >= h.scroll + height as u16 {
+            h.scroll = (want + 2).saturating_sub(height as u16);
+        }
+        h.scroll = h.scroll.min(max_scroll);
+        let scroll = h.scroll;
+        frame.render_widget(Paragraph::new(lines).scroll((scroll, 0)), inner);
+        scrollbar(frame, area, height, total, scroll as usize, theme);
     }
 }
 

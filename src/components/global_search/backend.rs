@@ -86,7 +86,7 @@ fn tree_file_find(
     extension: &str,
     on_hits: &(dyn Fn(Vec<RawHit>) + Send + Sync),
 ) -> crate::provider::ProviderResult<SearchOutcome> {
-    let tree = provider.fetch_tree(repo_full)?;
+    let tree = provider.fetch_tree(repo_full, None)?;
     let branch = tree.branch;
     // v1.2 grammar (plans/0012 M1): quoted literals are one needle,
     // negation subtracts, language:/extension: filter by extension.

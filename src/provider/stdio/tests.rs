@@ -431,6 +431,17 @@ fn concurrent_requests_route_out_of_order_replies() {
             tx.send(("A", std::time::Instant::now())).unwrap();
         })
     };
+    // Gate B on A's request actually being in flight — ids are
+    // assigned in arrival order, and the fake stashes id 2. Without
+    // this the two thread-starts race and the assertion inverts
+    // under load.
+    while provider
+        .current_id
+        .load(std::sync::atomic::Ordering::Acquire)
+        == 0
+    {
+        std::thread::yield_now();
+    }
     let b = {
         let provider = Arc::clone(&provider);
         std::thread::spawn(move || {

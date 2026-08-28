@@ -105,6 +105,15 @@ impl SettingsPopup {
             ("cache", "max_mb") => {
                 self.config.cache.max_mb = value.trim().parse().unwrap_or(512);
             }
+            ("ui", "border") => {
+                self.config.ui.border = value.trim().to_string();
+            }
+            ("ui", "nerd_font") => {
+                self.config.ui.nerd_font = value.trim().eq_ignore_ascii_case("true");
+            }
+            ("ui", "separator") => {
+                self.config.ui.separator = value.trim().to_string();
+            }
             ("provider", "kind") => {
                 self.config.provider.kind = value.to_string();
             }
@@ -271,7 +280,7 @@ mod tests {
     fn tab_switches_sections_and_jk_move_rows() {
         let mut p = popup();
         assert_eq!(p.sections[p.section].name, "editor");
-        for want in ["theme", "cache", "provider", "editor"] {
+        for want in ["theme", "cache", "ui", "provider", "editor"] {
             p.handle_key(key(KeyCode::Tab));
             assert_eq!(p.sections[p.section].name, want);
         }
@@ -324,7 +333,7 @@ mod tests {
     #[test]
     fn provider_tab_selects_kind_and_edits_command() {
         let mut p = popup();
-        for _ in 0..3 {
+        for _ in 0..4 {
             p.handle_key(key(KeyCode::Tab));
         }
         assert_eq!(p.sections[p.section].name, "provider");

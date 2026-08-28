@@ -81,3 +81,41 @@ def open_fs_repo(tui: Tui) -> None:
     tui.expect("local/alpha")
     tui.key("ENTER")
     tui.expect("README.md")
+
+
+# --- git worktree fixture (v1.5 revisions) ---------------------------
+
+
+def make_git_root(tmp: Path) -> Path:
+    """One git repo: two branches diverging on main.rs, a tag, and
+    multi-commit history — deterministic dates/authors."""
+    import subprocess
+
+    root = tmp / "code"
+    proj = root / "proj"
+    proj.mkdir(parents=True)
+
+    def git(*args: str, date: str = "2026-08-01T10:00:00Z", author: str = "Tarek") -> None:
+        env = {
+            "PATH": "/usr/bin:/bin:/usr/local/bin",
+            "HOME": str(tmp),
+            "GIT_AUTHOR_DATE": date,
+            "GIT_COMMITTER_DATE": date,
+            "GIT_AUTHOR_NAME": author,
+            "GIT_AUTHOR_EMAIL": "t@t.t",
+            "GIT_COMMITTER_NAME": author,
+            "GIT_COMMITTER_EMAIL": "t@t.t",
+        }
+        subprocess.run(["git", "-C", str(proj), *args], check=True, env=env,
+                       capture_output=True)
+
+    git("init", "-b", "main")
+    (proj / "main.rs").write_text("fn main() {}\n")
+    git("add", ".")
+    git("commit", "-qm", "initial main.rs")
+    git("checkout", "-qb", "feature")
+    (proj / "main.rs").write_text('fn main() {\n    println!("hi");\n}\n')
+    git("commit", "-qam", "feature: print hi", date="2026-08-10T10:00:00Z")
+    git("checkout", "-q", "main")
+    git("tag", "v1.0")  # on main — the older state
+    return root

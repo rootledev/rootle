@@ -63,6 +63,235 @@ impl Client {
             .map_err(|e| ProviderError::other(e.to_string()))
     }
 
+    // ---- v1.5 revisions (plans/0016 M1) ----
+
+    /// Branches (first 100) + tags (first 100); the repo's default
+    /// branch is marked. Refs past the cap are out of scope for a
+    /// switcher.
+    pub fn refs(&self, owner: &str, repo: &str) -> ProviderResult<crate::provider::RepoRefs> {
+        #[derive(serde::Deserialize)]
+        struct BranchItem {
+            name: String,
+            commit: CommitRef,
+        }
+        #[derive(serde::Deserialize)]
+        struct CommitRef {
+            sha: String,
+        }
+        #[derive(serde::Deserialize)]
+        struct TagRef {
+            #[serde(rename = "ref")]
+            name: String, // "refs/tags/v1.0"
+            object: CommitRef,
+        }
+        let meta: RepoMeta = self.get(&format!("{API}/repos/{owner}/{repo}"))?;
+        let branches: Vec<BranchItem> =
+            self.get(&format!("{API}/repos/{owner}/{repo}/branches?per_page=100"))?;
+        let tags: Vec<TagRef> = self.get(&format!(
+            "{API}/repos/{owner}/{repo}/git/refs/tags?per_page=100"
+        ))?;
+        Ok(crate::provider::RepoRefs {
+            branches: branches
+                .into_iter()
+                .map(|b| crate::provider::RefInfo {
+                    is_default: b.name == meta.default_branch,
+                    name: b.name,
+                    sha: b.commit.sha,
+                })
+                .collect(),
+            tags: tags
+                .into_iter()
+                .map(|t| crate::provider::RefInfo {
+                    name: t.name.trim_start_matches("refs/tags/").to_string(),
+                    sha: t.object.sha,
+                    is_default: false,
+                })
+                .collect(),
+        })
+    }
+
+    /// Commit log newest-first. `limit+1` probing decides `truncated`
+    /// without parsing Link headers; a hard cap of 100 keeps it to one
+    /// call (the spec's ~N reading).
+    pub fn log(
+        &self,
+        owner: &str,
+        repo: &str,
+        path: Option<&str>,
+        ref_: Option<&str>,
+        limit: Option<usize>,
+    ) -> ProviderResult<(Vec<crate::provider::LogEntry>, bool)> {
+        #[derive(serde::Deserialize)]
+        struct CommitItem {
+            sha: String,
+            commit: CommitDetail,
+        }
+        #[derive(serde::Deserialize)]
+        struct CommitDetail {
+            message: String,
+            author: CommitAuthor,
+        }
+        #[derive(serde::Deserialize)]
+        struct CommitAuthor {
+            name: String,
+            date: String,
+        }
+        let want = limit.unwrap_or(50).min(99);
+        let mut url = format!("{API}/repos/{owner}/{repo}/commits?per_page={}", want + 1);
+        if let Some(p) = path {
+            url.push_str(&format!("&path={}", urlencoding(p)));
+        }
+        if let Some(r) = ref_ {
+            url.push_str(&format!("&sha={}", urlencoding(r)));
+        }
+        let mut items: Vec<CommitItem> = self.get(&url)?;
+        let truncated = items.len() > want;
+        items.truncate(want);
+        Ok((
+            items
+                .into_iter()
+                .map(|c| crate::provider::LogEntry {
+                    sha: c.sha,
+                    subject: c.commit.message.lines().next().unwrap_or("").to_string(),
+                    author: c.commit.author.name,
+                    date: c.commit.author.date,
+                })
+                .collect(),
+            truncated,
+        ))
+    }
+
+    /// File at a ref via the contents API: raw bytes + the git blob
+    /// sha (the provider's content id).
+    pub fn blob_at(
+        &self,
+        owner: &str,
+        repo: &str,
+        path: &str,
+        ref_: Option<&str>,
+    ) -> ProviderResult<(Vec<u8>, String)> {
+        #[derive(serde::Deserialize)]
+        struct Contents {
+            content: String, // base64 with embedded newlines
+            sha: String,
+        }
+        let mut url = format!("{API}/repos/{owner}/{repo}/contents/{path}");
+        if let Some(r) = ref_ {
+            url.push_str(&format!("?ref={}", urlencoding(r)));
+        }
+        let item: Contents = self.get(&url)?;
+        use base64::Engine;
+        let clean: String = item
+            .content
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .collect();
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(clean)
+            .map_err(|e| ProviderError::other(format!("contents base64: {e}")))?;
+        Ok((bytes, item.sha))
+    }
+
+    /// Blame — GraphQL only (REST has none). No token → `auth` error.
+    pub fn blame(
+        &self,
+        owner: &str,
+        repo: &str,
+        path: &str,
+        ref_: Option<&str>,
+    ) -> ProviderResult<Vec<crate::provider::BlameRange>> {
+        #[derive(serde::Deserialize)]
+        struct Gql {
+            data: Option<Data>,
+            errors: Option<Vec<serde_json::Value>>,
+        }
+        #[derive(serde::Deserialize)]
+        struct Data {
+            repository: Option<Repo_>,
+        }
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Repo_ {
+            object: Option<Blob_>,
+        }
+        #[derive(serde::Deserialize)]
+        struct Blob_ {
+            blame: Blame_,
+        }
+        #[derive(serde::Deserialize)]
+        struct Blame_ {
+            ranges: Vec<Range_>,
+        }
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Range_ {
+            starting_line: u32,
+            ending_line: u32,
+            commit: RangeCommit,
+        }
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct RangeCommit {
+            oid: String,
+            committed_date: String,
+            author: Actor,
+        }
+        #[derive(serde::Deserialize)]
+        struct Actor {
+            name: String,
+        }
+        let body = serde_json::json!({
+            "query": "query($o:String!,$r:String!,$e:String!,$p:String!){repository(owner:$o,name:$r){object(expression:$e){... on Blob {blame(path:$p){ranges{startingLine endingLine commit{oid committedDate author{name}}}}}}}}",
+            "variables": {"o": owner, "r": repo, "e": ref_.unwrap_or("HEAD"), "p": path},
+        });
+        let gql: Gql = self.post(&format!("{API}/graphql"), body)?;
+        if let Some(errors) = gql.errors {
+            let msg = errors
+                .first()
+                .and_then(|e| e.get("message"))
+                .and_then(|m| m.as_str())
+                .unwrap_or("graphql error");
+            return Err(ProviderError::new(ErrorKind::Provider, msg.to_string()));
+        }
+        let ranges = gql
+            .data
+            .and_then(|d| d.repository)
+            .and_then(|r| r.object)
+            .map(|o| o.blame.ranges)
+            .ok_or_else(|| {
+                ProviderError::new(ErrorKind::NotFound, format!("no blame for {path}"))
+            })?;
+        Ok(ranges
+            .into_iter()
+            .map(|r| crate::provider::BlameRange {
+                start_line: r.starting_line,
+                end_line: r.ending_line,
+                sha: r.commit.oid,
+                author: r.commit.author.name,
+                date: r.commit.committed_date,
+            })
+            .collect())
+    }
+
+    /// POST with the bearer token when set — GraphQL is the only POST
+    /// endpoint rootle talks to.
+    fn post<T: serde::de::DeserializeOwned>(
+        &self,
+        url: &str,
+        body: serde_json::Value,
+    ) -> ProviderResult<T> {
+        let mut req = self.http.post(url).json(&body);
+        if let Some(token) = &self.token {
+            req = req.bearer_auth(token);
+        }
+        let resp = req.send().map_err(classify_send)?;
+        if !resp.status().is_success() {
+            return Err(classify_status(resp));
+        }
+        resp.json::<T>()
+            .map_err(|e| ProviderError::other(e.to_string()))
+    }
+
     /// Repo search + org search, merged: orgs first, then repos.
     /// Returns provider-level items (the trait boundary type).
     pub fn search(&self, query: &str) -> ProviderResult<Vec<SearchItem>> {
@@ -155,16 +384,23 @@ impl Client {
     /// Fetch a repo's full recursive tree with the sha-keyed cache
     /// (PLAN.md §8): revalidate the branch ref with If-None-Match
     /// (304 = free, tree unchanged), cache tree bodies by their sha.
-    /// Also returns the default branch (URL building, yank).
+    /// Also returns the default branch (URL building, yank). v1.5:
+    /// `ref_` pins another branch/tag/sha — the tree endpoint takes
+    /// any ref, and a sha's tree is immutable, so the same etag
+    /// revalidation is correct there.
     pub fn fetch_tree(
         &self,
         owner: &str,
         repo: &str,
+        ref_: Option<&str>,
     ) -> ProviderResult<(
         TreeResponse,
         /*truncated*/ bool,
         /*branch*/ String,
     )> {
+        if let Some(r) = ref_ {
+            return self.fetch_tree_on(owner, repo, r);
+        }
         // Cache-first branch resolution: a repo we've opened before
         // costs zero extra calls here (no GET /repos/{o}/{r}).
         let cached_branch = super::cache::cached_branch(owner, repo);

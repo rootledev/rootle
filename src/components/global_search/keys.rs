@@ -201,6 +201,11 @@ impl GlobalSearch {
         let Some(exp) = &mut self.expanded else {
             return Action::Noop;
         };
+        // vim vertical motions (plans/0016 M1) — the same engine the
+        // preview submode uses.
+        if exp.preview.motion_key(key) {
+            return Action::Noop;
+        }
         match key.code {
             // Leader layer still works over the pane (yank, re-search).
             KeyCode::Char(' ') => Action::Leader,

@@ -1,6 +1,8 @@
 # 0016 — Product direction: the browser for repos you don't have
 
-Status: **M1 in progress (2026-08-27)** — mock reviewed + approved, protocol v1.5 specced (refs/log/blame/blob_at), implementation landing; from the external
+Status: **M1 done (2026-08-27)** — mock reviewed + approved, protocol v1.5 landed (refs/log/blame/blob_at), all four providers implement (bitbucket blame:false honestly), conformance FC-090..099 gate it; from the external
+||||||| 9c5143e
+Status: **accepted as direction (2026-08-27)** — from the external
 product review of the 0.7.0 state. The positioning work (site,
 provider comms) shipped the same day (rootledev.github.io#12/#13);
 this plan sequences the product investments it names.
@@ -81,10 +83,39 @@ commit → tree → blob sha), Esc returns to the present. Yanking from a
 historical view anchors the URL to the commit sha — a permalink that
 never rots. v1 has no diffs (see non-goals: not a git frontend).
 
-**M1c — blame.** Deferred on evidence: GitHub REST has no blame
-(GraphQL only), so a v1 would be GitLab/Bitbucket-only — a
-one-backend capability teaches the protocol nothing (same argument as
-symbol/references in 0013). Revisit with M1a/b landed.
+**M1c — blame (revived 2026-08-27, owner call: "too good not to
+have").** UX decision, after comparing VSCode/Zed's always-on margin
+annotations: rootle does **fugitive-style run margins as a lens**,
+not a persistent per-line gutter — a margin that is always on fights
+the pane's width and adds noise to every line. `␣ p b` toggles the
+blame lens: the preview gains a left margin where each commit's run
+carries `sha + author` on its first line and a dim dot leader on
+continuations; the line cursor walks it; Enter on a line opens the
+history lens AT that commit (the two lenses compose — no second way
+to inspect a commit). Wire: `repo/blame {"repo","path","ref"?}` →
+`{"ranges":[{"start_line","end_line","sha","author","date"}]}` (line
+ranges, not per-line — 4× smaller replies, runs are the render unit
+anyway). Backends: GitLab `repository/files/:path/blame` (REST ✓),
+GitHub GraphQL `blame` (the provider's one GraphQL call — contained),
+fs via `git blame` when the served dir is a worktree, Bitbucket has
+NO blame API → capability `blame: false`, honest chip. Three of four
+backends clears 0013's one-provider bar.
+
+**The preview submode (M1's shell, mocked 2026-08-27).** The pane was
+accumulating keys (J/K line cursor, ␣ / find, history, blame) — they
+now live in one place: `␣ p` focuses the preview AND zooms it to the
+full content row (the tmux `prefix z` model — focusing a pane without
+giving it width is a half-gesture, and the blame margin needs the
+columns). Inside: j/k walk lines (lowercase twins of Browse-mode
+J/K — same cursor, two speeds), `/` is the existing find-in-file
+session, `h` history, `b` blame, Enter is the editor handoff (or the
+line's commit while blaming), Esc unwinds. Every lens is
+`/` filterable per the house rule; Esc ladders (filter → lens →
+submode → browse). Browse-mode J/K stays — quick peeks and yank
+anchors don't pay the mode switch. Rejected: a separate `␣ z`
+pane-generic zoom — nothing but the preview benefits today; the zoom
+machinery is written pane-shaped so `z` can come when a second pane
+earns it.
 
 Conformance: forge-conformance gains FC-09x cases (refs listing
 shape, tree-at-ref sha discipline, log shape + limit) with the wire

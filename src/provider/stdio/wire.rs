@@ -6,8 +6,9 @@
 use super::StdioProvider;
 use super::transport::{cancel_notification, de};
 use crate::provider::{
-    Capabilities, CodeMatch, Provider, ProviderError, ProviderResult, RepoInfo, SearchCodeResult,
-    SearchItem, TreeNode, TreeResult,
+    BlameRange, Capabilities, CodeMatch, ErrorKind, LogEntry, Provider, ProviderError,
+    ProviderResult, RefInfo, RepoInfo, RepoRefs, SearchCodeResult, SearchItem, TreeNode,
+    TreeResult,
 };
 use serde_json::json;
 use std::io::Write;
@@ -93,7 +94,7 @@ impl Provider for StdioProvider {
             .collect())
     }
 
-    fn fetch_tree(&self, repo: &str) -> ProviderResult<TreeResult> {
+    fn fetch_tree(&self, repo: &str, ref_: Option<&str>) -> ProviderResult<TreeResult> {
         #[derive(serde::Deserialize)]
         struct R {
             #[serde(default)]
@@ -114,7 +115,7 @@ impl Provider for StdioProvider {
         fn main() -> String {
             "main".into()
         }
-        let r: R = de(self.request("repo/tree", json!({ "repo": repo }))?)?;
+        let r: R = de(self.request("repo/tree", json!({ "repo": repo, "ref": ref_ }))?)?;
         Ok(TreeResult {
             entries: r
                 .entries
@@ -219,6 +220,93 @@ impl Provider for StdioProvider {
             truncated: reply.truncated,
             index_as_of: reply.index.as_of,
         })
+    }
+
+    /// v1.5 (plans/0016 M1): branches + tags.
+    fn refs(&self, repo: &str) -> ProviderResult<RepoRefs> {
+        #[derive(serde::Deserialize)]
+        struct R {
+            #[serde(default)]
+            branches: Vec<RefEntry>,
+            #[serde(default)]
+            tags: Vec<RefEntry>,
+        }
+        #[derive(serde::Deserialize)]
+        struct RefEntry {
+            name: String,
+            sha: String,
+            #[serde(default)]
+            default: bool,
+        }
+        let r: R = de(self.request("repo/refs", json!({ "repo": repo }))?)?;
+        let map = |e: RefEntry| RefInfo {
+            name: e.name,
+            sha: e.sha,
+            is_default: e.default,
+        };
+        Ok(RepoRefs {
+            branches: r.branches.into_iter().map(map).collect(),
+            tags: r.tags.into_iter().map(map).collect(),
+        })
+    }
+
+    /// v1.5: commit log, newest first.
+    fn log(
+        &self,
+        repo: &str,
+        path: Option<&str>,
+        ref_: Option<&str>,
+        limit: Option<usize>,
+    ) -> ProviderResult<(Vec<LogEntry>, bool)> {
+        #[derive(serde::Deserialize)]
+        struct R {
+            #[serde(default)]
+            items: Vec<LogEntry>,
+            #[serde(default)]
+            truncated: bool,
+        }
+        let r: R = de(self.request(
+            "repo/log",
+            json!({ "repo": repo, "path": path, "ref": ref_, "limit": limit }),
+        )?)?;
+        Ok((r.items, r.truncated))
+    }
+
+    /// v1.5: file bytes + content id at path@ref (open-at-commit).
+    fn blob_at(
+        &self,
+        repo: &str,
+        path: &str,
+        ref_: Option<&str>,
+    ) -> ProviderResult<(Vec<u8>, String)> {
+        #[derive(serde::Deserialize)]
+        struct R {
+            bytes_b64: String,
+            sha: String,
+        }
+        let r: R = de(self.request(
+            "repo/blob_at",
+            json!({ "repo": repo, "path": path, "ref": ref_ }),
+        )?)?;
+        use base64::Engine;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(r.bytes_b64)
+            .map_err(|e| ProviderError::new(ErrorKind::Provider, format!("bad base64: {e}")))?;
+        Ok((bytes, r.sha))
+    }
+
+    /// v1.5: blame ranges.
+    fn blame(&self, repo: &str, path: &str, ref_: Option<&str>) -> ProviderResult<Vec<BlameRange>> {
+        #[derive(serde::Deserialize)]
+        struct R {
+            #[serde(default)]
+            ranges: Vec<BlameRange>,
+        }
+        let r: R = de(self.request(
+            "repo/blame",
+            json!({ "repo": repo, "path": path, "ref": ref_ }),
+        )?)?;
+        Ok(r.ranges)
     }
 
     /// v1.1 advisory cancel: name a request currently in flight, if

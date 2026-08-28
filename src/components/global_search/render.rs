@@ -272,6 +272,9 @@ impl GlobalSearch {
             if self.clipped {
                 suffix.push_str(" · clipped");
             }
+            if let Some(note) = &self.search_ref_note {
+                suffix.push_str(&format!(" · {note}"));
+            }
             // plans/0012 M1 honesty chips: hits rootle subtracted
             // client-side (the backend couldn't express the grammar),
             // and tokens nobody could express.

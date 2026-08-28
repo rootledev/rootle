@@ -26,7 +26,7 @@ const SIDEBAR: u16 = 15;
 /// Keycap column inside the content block.
 const KEYCAP: usize = 10;
 
-const MODES: [Mode; 7] = [
+const MODES: [Mode; 9] = [
     Mode::Browse,
     Mode::Search,
     Mode::Find,
@@ -34,6 +34,8 @@ const MODES: [Mode; 7] = [
     Mode::Normal,
     Mode::Leader,
     Mode::Visual,
+    Mode::History,
+    Mode::Preview,
 ];
 
 pub struct KeybindsPopup {

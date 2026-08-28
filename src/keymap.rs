@@ -28,6 +28,8 @@ pub fn hints(mode: Mode) -> &'static [(&'static str, &'static str)] {
             ("s", "search"),
             ("f", "find file"),
             ("g", "grep"),
+            ("b", "branches"),
+            ("p", "preview"),
             ("/", "find in file"),
             ("y", "yank url"),
             ("c", "clear marks"),
@@ -43,6 +45,60 @@ pub fn hints(mode: Mode) -> &'static [(&'static str, &'static str)] {
             (":", "command"),
             ("v", "exit"),
         ],
+        Mode::History => &[
+            ("j/k", "commit"),
+            ("enter", "file at commit"),
+            ("y", "yank at commit"),
+            ("/", "filter"),
+            ("esc", "back"),
+        ],
+        Mode::Preview => &[
+            ("j/k", "line"),
+            ("gg/G", "top/bottom"),
+            ("^D/^U", "½ page"),
+            ("{/}", "paragraph"),
+            ("%", "match bracket"),
+            (":42", "goto line"),
+            ("/", "find"),
+            ("h", "history"),
+            ("b", "blame"),
+            ("enter", "editor or commit"),
+            ("esc", "back"),
+        ],
+    }
+}
+
+/// The preview submode's NAMED keys (plans/0016 M1, `␣ p`). Motions
+/// (j/k with counts, gg, G, pages, paragraphs, %, zt/zz/zb) are owned
+/// by `Preview::motion_key` — the same situation as the search view:
+/// these rows are hint-source, dispatch lives with the component.
+pub fn preview_named(code: KeyCode) -> Action {
+    match code {
+        KeyCode::Char('/') => Action::LeaderFindInFile,
+        KeyCode::Char(':') => Action::CommandLine,
+        KeyCode::Char('h') => Action::LeaderHistory,
+        KeyCode::Char('b') => Action::BlameToggle,
+        // Yank the cursor line's URL — a main reason to be here.
+        KeyCode::Char('y') => Action::LeaderYank,
+        // Find-match cycling — same as Browse mode.
+        KeyCode::Char('n') => Action::FindNext,
+        KeyCode::Char('N') => Action::FindPrev,
+        KeyCode::Enter => Action::PreviewEnter,
+        KeyCode::Esc | KeyCode::Char('q') => Action::ExitPreview,
+        _ => Action::Noop,
+    }
+}
+
+/// File-history lens (plans/0016 M1b): the preview pane lists commits.
+pub fn history(code: KeyCode) -> Action {
+    match code {
+        KeyCode::Char('j') | KeyCode::Down => Action::HistoryDown,
+        KeyCode::Char('k') | KeyCode::Up => Action::HistoryUp,
+        KeyCode::Enter => Action::HistoryOpen,
+        KeyCode::Char('y') => Action::HistoryYank,
+        KeyCode::Char('/') => Action::HistoryFilterBegin,
+        KeyCode::Esc => Action::HistoryClose,
+        _ => Action::Noop,
     }
 }
 
@@ -92,6 +148,8 @@ pub fn leader(code: KeyCode) -> Action {
         KeyCode::Char('g') => Action::LeaderGrep,
         KeyCode::Char('/') => Action::LeaderFindInFile,
         KeyCode::Char('y') => Action::LeaderYank,
+        KeyCode::Char('b') => Action::LeaderRefs,
+        KeyCode::Char('p') => Action::LeaderPreview,
         KeyCode::Char('c') => Action::ClearMarks,
         KeyCode::Char('d') => Action::DeleteMarked,
         KeyCode::Char('r') => Action::LeaderReload,
@@ -135,6 +193,9 @@ pub fn search_facets() -> &'static [(&'static str, &'static str)] {
 pub fn search_file() -> &'static [(&'static str, &'static str)] {
     &[
         ("j/k", "lines"),
+        ("gg/G", "top/bottom"),
+        ("^D/^U", "½ page"),
+        (":42", "goto line"),
         ("enter", "open"),
         ("/", "find"),
         ("n/N", "match"),

@@ -35,6 +35,14 @@ mod store;
 
 pub use refs::Ref;
 
+/// The verified-download machinery, shared with `rootle update`
+/// (0017 M2) — same integrity model as provider installs.
+pub(crate) use release::latest_release_at;
+pub(crate) use release::{
+    checksum_sidecar, download_bytes, extract_binary, latest_release, pick_asset, platform_target,
+    sha256_hex, verify_checksum,
+};
+
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
