@@ -3,7 +3,11 @@
 # docker: run it via the VHS image with the repo mounted at /vhs.
 # The app under test is ./dist/rootle-linux-x86_64-musl (CI builds it;
 # locally, demo_setup.sh falls back to a debug build).
-# the fs stdio provider serves a temp fixture built by demo_setup.sh.
+# The fs stdio provider serves a temp fixture built by demo_setup.sh —
+# alpha is a real git worktree (two branches, a tag, history), so the
+# v1.5 revision lenses work on camera. The render step installs git
+# into the VHS container (demo_setup.sh degrades to plain files
+# without it).
 
 Output demos/out/demo.gif
 
@@ -30,7 +34,7 @@ Type "./dist/rootle-linux-x86_64-musl --config /tmp/rootle-demo/provider.toml" E
 Sleep 1600ms
 Set TypingSpeed 60ms
 
-# --- launch: repo search over the stdio provider -------------------
+# --- find the repo ---------------------------------------------------
 Type "alpha"
 Sleep 600ms
 Enter
@@ -38,71 +42,90 @@ Sleep 600ms
 Enter
 Sleep 1200ms
 
-# --- browse: miller columns + highlighted preview ------------------
-# (selection starts on src/ — l drills in, preview shows main.rs with
-# the line-number gutter + lang footer)
+# --- browse: miller columns + highlighted preview --------------------
 Type "l"
 Sleep 900ms
 Type "J"
 Sleep 500ms
 
-# --- ␣ / find-in-file: live chips, n/N, match readout --------------
+# --- ␣ b: switch the branch (k: default main sits under feature) ----
 Space
 Sleep 200ms
-Type "/"
-Sleep 500ms
-Type "render"
-Sleep 1100ms
+Type "b"
+Sleep 1500ms
+Type "k"
+Sleep 700ms
 Enter
-Sleep 700ms
-Type "n"
-Sleep 700ms
-Escape
-Sleep 500ms
-Type "h"
-Sleep 500ms
+Sleep 1600ms
 
-# --- ␣ g grep: folded regions, match chips -------------------------
+# --- ␣ p: the preview owns the keyboard, zoomed ----------------------
+# (the tree reload reset the selection — drill back onto main.rs)
+Type "l"
+Sleep 900ms
+Space
+Sleep 200ms
+Type "p"
+Sleep 900ms
+Type "jjj"
+Sleep 700ms
+Type "G"
+Sleep 600ms
+Type "gg"
+Sleep 700ms
+Type "%"
+Sleep 800ms
+
+# --- ␣ p b: blame margin ---------------------------------------------
+Type "b"
+Sleep 1500ms
+
+# --- Enter: history at the blamed commit ------------------------------
+Enter
+Sleep 1500ms
+Type "j"
+Sleep 600ms
+
+# --- Enter: the file AT that commit; Esc restores --------------------
+Enter
+Sleep 1500ms
+Escape
+Sleep 900ms
+Escape
+Sleep 700ms
+
+# --- ␣ g: grep with the grammar, boxed results -----------------------
 Space
 Sleep 200ms
 Type "g"
 Sleep 600ms
-Type "render"
-Sleep 700ms
+Type "render language:rust"
+Sleep 900ms
 Enter
 Sleep 1800ms
 Type "j"
 Sleep 600ms
-Type "j"
-Sleep 600ms
 
-# --- / filter over results -----------------------------------------
-Type "/"
-Sleep 300ms
-Type "main"
-Sleep 800ms
-Escape
-Sleep 500ms
-
-# --- scope radio popup ---------------------------------------------
-Tab
-Sleep 300ms
+# --- Enter: the whole file at the match line --------------------------
 Enter
-Sleep 600ms
-Type "j"
+Sleep 1800ms
+Type "/"
+Sleep 400ms
+Type "draw"
+Sleep 900ms
+Escape
 Sleep 600ms
 Escape
-Sleep 400ms
-Escape
-Sleep 400ms
+Sleep 700ms
 
-# --- yank ----------------------------------------------------------
+# --- yank the hit's permalink ----------------------------------------
 Space
 Sleep 200ms
 Type "y"
-Sleep 900ms
+Sleep 1000ms
+Escape
+Sleep 600ms
 
-# --- ? keybinds ----------------------------------------------------
+# --- ? keybinds -------------------------------------------------------
 Type "?"
 Sleep 900ms
 Type "jjjj"
@@ -110,39 +133,26 @@ Sleep 700ms
 Escape
 Sleep 400ms
 
-# --- :settings -----------------------------------------------------
-Type ":"
-Sleep 300ms
-Type "settings"
-Sleep 500ms
-Enter
-Sleep 900ms
-Tab
-Sleep 400ms
-Tab
-Sleep 600ms
+# --- and when you need it locally: the clone wizard -------------------
+# (back at the repos level so the mark lands on the repo, not a file)
 Escape
-Sleep 400ms
-
-# --- v visual marks ------------------------------------------------
-Type "v"
-Sleep 500ms
-Space
-Sleep 500ms
-Type "j"
-Sleep 300ms
-Space
 Sleep 600ms
+Type "h"
+Sleep 400ms
+Type "h"
+Sleep 400ms
+Type "v"
+Sleep 500ms
+Space
+Sleep 500ms
 Type "v"
 Sleep 400ms
-
-# --- :clone wizard -------------------------------------------------
 Type ":"
 Sleep 300ms
 Type "clone"
 Sleep 500ms
 Enter
-Sleep 900ms
+Sleep 1000ms
 Tab
 Sleep 300ms
 Enter
@@ -154,6 +164,6 @@ Sleep 1200ms
 Escape
 Sleep 500ms
 
-# --- quit ----------------------------------------------------------
+# --- quit -------------------------------------------------------------
 Type "q"
 Sleep 800ms

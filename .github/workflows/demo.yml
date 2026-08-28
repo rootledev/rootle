@@ -100,7 +100,9 @@ jobs:
           docker run --rm -v "$PWD:/vhs" -w /vhs --entrypoint sh ghcr.io/charmbracelet/vhs -c \
             "mkdir -p /usr/share/fonts/truetype/jbmono && \
              cp /vhs/demos/fonts/JetBrainsMono-*.ttf /usr/share/fonts/truetype/jbmono/ && \
-             fc-cache -f >/dev/null 2>&1; exec vhs /vhs/demos/.tape-$THEME"
+                          fc-cache -f >/dev/null 2>&1; \
+             (apt-get update -qq && apt-get install -y -qq git >/dev/null) 2>&1 | tail -1; \
+             git --version; exec vhs /vhs/demos/.tape-$THEME"
           rm "demos/.tape-$THEME"
 
       - uses: actions/upload-artifact@v7

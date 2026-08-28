@@ -51,6 +51,13 @@ Gotchas (all were hit, all cost time):
   from `dist/*.tar.gz`, falling back to a debug build.
 - The GIF loop: end the tape with the app quit (`q`) and a small
   `Sleep`, so the last frame isn't mid-redraw.
+- The VHS image is DEBIAN (no apk!) and ships python3 but NO git: the
+  revision-lens beats need `apt-get install -y git` in the render step
+  (the workflow does it; add it to any local render command), and
+  `demo_setup.sh` must stay
+  git-optional — a `set -eu` failure before the config write silently
+  falls the app back to github on camera (it did; the tell is
+  "searching GitHub…" in the modeline of the first frame).
 - VHS resolves fonts via fontconfig: the vendored Nerd Font Mono must
   be copied into the container and `fc-cache`'d before `vhs` runs, and
   the tape's `Set FontFamily` must name its real family —

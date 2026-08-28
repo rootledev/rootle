@@ -178,7 +178,10 @@ def walk_tree_at(root: str, repo: str, ref: str) -> list[dict]:
     if not is_git_repo(base):
         raise ValueError(f"{repo} is not a git worktree")
     try:
-        out = git(base, "ls-tree", "-r", ref)
+        # -t: directories too — without it the switched tree lists
+        # only blobs and the miller columns can't drill (the demo
+        # caught this on camera).
+        out = git(base, "ls-tree", "-r", "-t", ref)
     except subprocess.CalledProcessError:
         raise ValueError(f"unknown ref {ref!r}") from None
     entries = []
