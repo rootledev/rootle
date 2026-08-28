@@ -3,7 +3,7 @@
 User-visible changes per release. Protocol archaeology lives in
 `plans/`; this file is for "what's new for me".
 
-## [Unreleased]
+## [0.8.0] — 2026-08-28
 
 ### Added
 
@@ -70,7 +70,7 @@ User-visible changes per release. Protocol archaeology lives in
 - Chrome: powerline modeline (Nerd Font opt-in), bat-style gutters,
   fzf prompts, `[ui] border` / `[ui] nerd_font`.
 
-[Unreleased]: https://github.com/rootledev/rootle/compare/v0.7.1...HEAD
+[0.8.0]: https://github.com/rootledev/rootle/releases/tag/v0.8.0
 [0.7.1]: https://github.com/rootledev/rootle/releases/tag/v0.7.1
 [0.7.0]: https://github.com/rootledev/rootle/releases/tag/v0.7.0
 [0.6.0]: https://github.com/rootledev/rootle/releases/tag/v0.6.0
