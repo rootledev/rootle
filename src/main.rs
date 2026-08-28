@@ -27,16 +27,13 @@ fn main() -> io::Result<()> {
         return Ok(());
     }
 
-    // Self-update (plans/0017 M2, 0018 M1): same run-and-exit shape —
-    // the stage UI renders on stderr, `Some(line)` is stdout's share.
+    // Self-update (plans/0017 M2, 0018 M1, 0019 M1): run-and-exit —
+    // app half then the provider sweep, all output owned by the flow
+    // (stages on stderr, outcome lines on stdout).
     if cli.update {
-        match rootle::update::update(cli.check) {
-            Ok(Some(line)) => println!("{line}"),
-            Ok(None) => {}
-            Err(e) => {
-                eprintln!("update: {e}");
-                std::process::exit(1);
-            }
+        if let Err(e) = rootle::update::update(cli.check) {
+            eprintln!("update: {e}");
+            std::process::exit(1);
         }
         return Ok(());
     }
