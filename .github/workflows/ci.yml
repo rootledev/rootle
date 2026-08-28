@@ -30,7 +30,7 @@ jobs:
         with:
           repository: rootledev/forge-conformance
           path: forge-conformance
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
       - name: Conformance suite vs the fs reference provider
         run: |
           python3 -m pip install pytest
