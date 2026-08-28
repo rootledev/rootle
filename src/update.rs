@@ -159,7 +159,7 @@ fn update_inner(
         .filter(|c| c.is_ascii_digit())
         .collect();
     ui.note(&format!(
-        "takes effect on next launch · what's new: rootle.dev/CHANGELOG.md#{anchor}"
+        "takes effect on next launch · what's new: rootle.dev/changelog#{anchor}"
     ));
     Ok(None)
 }
@@ -488,7 +488,7 @@ mod tests {
         );
         assert_eq!(
             lines[expect.len() + 1],
-            " ▸ takes effect on next launch · what's new: rootle.dev/CHANGELOG.md#999",
+            " ▸ takes effect on next launch · what's new: rootle.dev/changelog#999",
             "changelog note"
         );
         assert_eq!(lines.len(), expect.len() + 2, "no stray lines: {lines:?}");
