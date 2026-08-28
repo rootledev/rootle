@@ -3,9 +3,13 @@
 //! bold-green on completion, a braille spinner during downloads, dim
 //! step summaries with bold counts and timings. Std only: raw ANSI,
 //! `IsTerminal` gating, `NO_COLOR` respected.
+//!
+//! `Ui::recorder()` swaps the writes for a capture buffer — tests
+//! assert the rendered step sequence without touching real stderr.
 
 use std::io::{IsTerminal, Write};
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
@@ -21,6 +25,8 @@ const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "�
 pub struct Ui {
     color: bool,
     stderr_tty: bool,
+    /// Recorder mode (tests): lines land here instead of stderr.
+    log: Option<Arc<Mutex<Vec<String>>>>,
 }
 
 impl Ui {
@@ -30,7 +36,22 @@ impl Ui {
         Ui {
             color,
             stderr_tty: std::io::stderr().is_terminal(),
+            log: None,
         }
+    }
+
+    /// A capturing Ui for tests: renders nothing, records the plain
+    /// line each method would have written.
+    pub fn recorder() -> (Ui, Arc<Mutex<Vec<String>>>) {
+        let log = Arc::new(Mutex::new(Vec::new()));
+        (
+            Ui {
+                color: false,
+                stderr_tty: false,
+                log: Some(Arc::clone(&log)),
+            },
+            log,
+        )
     }
 
     fn paint(&self, code: &str, text: &str) -> String {
@@ -41,38 +62,53 @@ impl Ui {
         }
     }
 
+    /// One output line: recorded in recorder mode, written to stderr
+    /// otherwise (clearing the previous line first on a tty).
+    fn out(&self, plain: &str, colored: &str) {
+        if let Some(log) = &self.log {
+            log.lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push(plain.to_string());
+            return;
+        }
+        let mut err = std::io::stderr().lock();
+        if self.stderr_tty {
+            let _ = write!(err, "\r\x1b[2K");
+        }
+        let _ = writeln!(err, "{}", if self.color { colored } else { plain });
+        let _ = err.flush();
+    }
+
+    /// A bare heading line: `Updating rootle`.
+    pub fn heading(&self, text: &str) {
+        self.out(text, &self.paint(BOLD, text));
+    }
+
     /// `⠋ Resolving rootledev/rootle-gitlab…` — the in-progress line,
     /// replaced by the done line on the next step call.
     pub fn step(&self, verb: &str, detail: &str) {
-        let mut err = std::io::stderr().lock();
-        if self.stderr_tty {
-            // Clear the previous line.
-            let _ = write!(err, "\r\x1b[2K");
-        }
-        let _ = writeln!(
-            err,
-            " {} {} {detail}…",
-            self.paint(CYAN, "●"),
-            self.paint(&format!("{BOLD}{CYAN}"), verb),
+        self.out(
+            &format!(" ● {verb} {detail}…"),
+            &format!(
+                " {} {} {detail}…",
+                self.paint(CYAN, "●"),
+                self.paint(&format!("{BOLD}{CYAN}"), verb),
+            ),
         );
-        let _ = err.flush();
     }
 
     /// `✓ Resolved rootledev/rootle-gitlab` — the completed step.
     /// Replaces the in-progress line (same position, same verb, now
     /// green, past tense implied by the check).
     pub fn done(&self, verb: &str, detail: &str) {
-        let mut err = std::io::stderr().lock();
-        if self.stderr_tty {
-            let _ = write!(err, "\r\x1b[2K");
-        }
-        let _ = writeln!(
-            err,
-            " {} {} {detail}",
-            self.paint(GREEN, "✓"),
-            self.paint(&format!("{BOLD}{GREEN}"), verb),
+        self.out(
+            &format!(" ✓ {verb} {detail}"),
+            &format!(
+                " {} {} {detail}",
+                self.paint(GREEN, "✓"),
+                self.paint(&format!("{BOLD}{GREEN}"), verb),
+            ),
         );
-        let _ = err.flush();
     }
 
     /// The dim summary line: `Installed gitlab v0.1.0 in 2.3s`.
@@ -85,33 +121,45 @@ impl Ui {
         } else {
             String::new() // instant — no timing
         };
-        let mut err = std::io::stderr().lock();
         let mut parts: Vec<String> = vec![
             self.paint(GREEN, "✓"),
             self.paint(BOLD, verb),
             self.paint(BOLD, subject),
         ];
+        let mut plain = format!(" ✓ {verb} {subject}");
         if !detail.is_empty() {
             parts.push(self.paint(DIM, detail));
+            plain.push_str(&format!(" {detail}"));
         }
         if !timing.is_empty() {
             parts.push(self.paint(DIM, timing.trim_start()));
+            plain.push_str(&format!(" {}", timing.trim_start()));
         }
-        let _ = writeln!(err, "{}", parts.join(" "));
-        let _ = err.flush();
+        self.out(&plain, &parts.join(" "));
     }
 
     /// An info line (trust notice, next-step hint).
     pub fn note(&self, text: &str) {
-        let mut err = std::io::stderr().lock();
-        let _ = writeln!(err, " {} {}", self.paint(DIM, "▸"), self.paint(DIM, text));
-        let _ = err.flush();
+        self.out(
+            &format!(" ▸ {text}"),
+            &format!(" {} {}", self.paint(DIM, "▸"), self.paint(DIM, text)),
+        );
     }
 
     /// Start a braille spinner on a background thread; returns a guard
     /// whose Drop stops it and clears the line. The label is the
     /// in-progress message.
     pub fn spinner(&self, label: &str) -> SpinnerGuard {
+        if let Some(log) = &self.log {
+            // Recorder mode: the label is the step line, no thread.
+            log.lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push(format!(" ● {label}…"));
+            return SpinnerGuard {
+                stop: Arc::new(AtomicBool::new(true)),
+                handle: None,
+            };
+        }
         let stop = Arc::new(AtomicBool::new(false));
         let frame = Arc::new(AtomicUsize::new(0));
         let color = self.color;

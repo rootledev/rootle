@@ -101,6 +101,9 @@ class Tui:
             # instantly, exercising only the suspend/resume path.
             VISUAL="true",
             EDITOR="true",
+            # 0018 M2: the update check's CI gate — keeps the PTY
+            # suite hermetic (zero network, no notice).
+            CI="true",
         )
         env.pop("ROOTLE_CONFIG", None)
         env.update(self.env_extra)

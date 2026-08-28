@@ -141,9 +141,10 @@ impl App {
         if let Some(warning) = warning {
             app.status = Some(warning);
         }
-        // 0017 M3: the 24h-cached update notice — never offline, never
-        // blocking, silent on failure.
-        if !app.offline && app.config.update.check {
+        // 0017 M3 / 0018 M2: the 24h-cached update notice — never
+        // offline, never blocking, silent on failure; CI, dumb
+        // terminals, and piped stdout never check at all.
+        if !app.offline && app.config.update.check && crate::update::check_allowed() {
             app.spawn_update_check();
         }
         // Warm the repos level for the initially selected org.
@@ -600,9 +601,14 @@ impl App {
             AppEvent::BlobAtFailed { path: _, error } => {
                 self.status = Some(provider_status(&error));
             }
-            AppEvent::UpdateAvailable { tag } => {
+            AppEvent::UpdateAvailable { tag, toast } => {
                 self.update_tag = Some(tag.clone());
-                self.status = Some(format!("rootle {tag} is out — run `rootle update`"));
+                // 0018 M2: the toast nags once a day and never steals
+                // the status line from real work — the chip is the
+                // persistent channel.
+                if toast && self.status.is_none() {
+                    self.status = Some(format!("rootle {tag} is out — run `rootle update`"));
+                }
             }
         }
     }
@@ -1546,6 +1552,14 @@ impl App {
     /// Queued yank text, drained by the main loop once per iteration.
     pub fn take_clipboard(&mut self) -> Option<String> {
         self.pending_clipboard.take()
+    }
+
+    /// 0018 M3: the quit-time restart trace — only when this session
+    /// knew about an update (the `↑` chip), compare the on-disk
+    /// binary once. The caller prints it after terminal restore.
+    pub fn update_exit_note(&self) -> Option<String> {
+        self.update_tag.as_ref()?;
+        crate::update::disk_newer_note()
     }
 
     /// Desired terminal cursor shape, if any text input is focused.

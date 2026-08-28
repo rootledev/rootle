@@ -156,14 +156,17 @@ impl App {
     }
 
     /// Startup update check (0017 M3): 24h-cached, one network call a
-    /// day at most; failures are silent by design.
+    /// day at most; failures are silent by design. The once-a-day
+    /// toast quota (0018 M2) is consumed here, cache-file side —
+    /// never on the UI thread.
     pub(super) fn spawn_update_check(&self) {
         let tx = self.tx.clone();
         std::thread::spawn(move || {
             if let Some(tag) = crate::update::latest_known()
                 && crate::update::is_newer(&tag)
             {
-                let _ = tx.send(AppEvent::UpdateAvailable { tag });
+                let toast = crate::update::take_toast(&tag);
+                let _ = tx.send(AppEvent::UpdateAvailable { tag, toast });
             }
         });
     }

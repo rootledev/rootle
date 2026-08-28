@@ -40,7 +40,7 @@ pub use refs::Ref;
 pub(crate) use release::latest_release_at;
 pub(crate) use release::{
     checksum_sidecar, download_bytes, extract_binary, latest_release, pick_asset, platform_target,
-    sha256_hex, verify_checksum,
+    verify_checksum,
 };
 
 use serde::{Deserialize, Serialize};
