@@ -20,7 +20,9 @@ pub struct Config {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default)]
 pub struct ProviderConfig {
-    /// "github" | "stdio"
+    /// "github" | "stdio" | a declared provider name — receipt name,
+    /// bare first-party name (`gitlab`), or `owner/repo` slug
+    /// (0019 M2): resolved through the manager at startup.
     pub kind: String,
     /// argv for kind = "stdio"
     pub command: Vec<String>,
@@ -39,6 +41,13 @@ pub struct ProviderConfig {
     /// "bitbucket", "folder") or a single literal glyph; wins over
     /// the provider's handshake-declared icon.
     pub icon: Option<String>,
+    /// Pin for a declared kind (0019 M2): install exactly this tag —
+    /// `rootle update` reports it pinned and skips. Omit to float.
+    pub tag: Option<String>,
+    /// Integrity pin for a declared kind: verify the release tarball
+    /// against this sha256 in addition to the forge's sidecar — the
+    /// trust root becomes this config, not the release.
+    pub sha: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -134,6 +143,8 @@ impl Default for ProviderConfig {
             stderr: "null".into(),
             name: None,
             icon: None,
+            tag: None,
+            sha: None,
         }
     }
 }

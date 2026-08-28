@@ -4,7 +4,7 @@
 use super::refs::{Ref, binary_name_of};
 use super::release::{
     checksum_sidecar, download_bytes, extract_binary, latest_release, latest_release_at,
-    pick_asset, platform_target, release_by_tag, sha256_hex, verify_checksum,
+    pick_asset, platform_target, release_by_tag_at, sha256_hex, verify_checksum,
 };
 use super::store::now_iso;
 use super::{Manager, ManagerError, Receipt, Result, SweepOutcome};
@@ -20,7 +20,7 @@ impl Manager {
         if let Some(url) = &r.tarball {
             return self.install_tarball(r, url, force);
         }
-        self.install_inner(r, force, &crate::provider::ui::Ui::new())
+        self.install_inner(r, force, &crate::provider::ui::Ui::new(), None)
     }
 
     /// The release-install flow with the Ui swapped in — the
@@ -32,6 +32,7 @@ impl Manager {
         r: &Ref,
         force: bool,
         ui: &crate::provider::ui::Ui,
+        expect_sha: Option<&str>,
     ) -> Result<Receipt> {
         if let Some(existing) = self.receipt(&r.name)
             && existing.tag == r.tag.clone().unwrap_or_default()
@@ -44,9 +45,8 @@ impl Manager {
             )));
         }
         let timer = crate::provider::ui::Timer::start();
-        ui.step("Resolving", &r.repo);
         let release = match &r.tag {
-            Some(tag) => release_by_tag(&r.repo, tag)?,
+            Some(tag) => release_by_tag_at(&self.api, &r.repo, tag)?,
             None => latest_release_at(&self.api, &r.repo)?,
         };
         ui.done(
@@ -62,6 +62,16 @@ impl Manager {
         drop(spinner);
         ui.step("Verifying", "sha256 checksum");
         verify_checksum(&tarball, &sidecar.browser_download_url)?;
+        // 0019 M2: a config-pinned sha wins over the forge's own
+        // sidecar — the trust root is the committed config.
+        if let Some(want) = expect_sha {
+            let got = sha256_hex(&tarball);
+            if got != want {
+                return Err(ManagerError::User(format!(
+                    "sha256 pin mismatch: config pins {want}, release serves {got}"
+                )));
+            }
+        }
         ui.done("Verified", &format!("sha256 ok ({})", asset.name));
 
         ui.step("Extracting", &binary_name_of(r));
@@ -341,7 +351,7 @@ impl Manager {
             };
             // Force through the already-installed check; the UI
             // stages render through the caller's Ui in install_inner.
-            match self.install_inner(&r, true, ui) {
+            match self.install_inner(&r, true, ui, None) {
                 Ok(done) => out.push(SweepOutcome::Upgraded {
                     name: receipt.name,
                     from: receipt.tag,

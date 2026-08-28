@@ -180,6 +180,17 @@ pub enum AppEvent {
         tag: String,
         toast: bool,
     },
+    /// Declared-provider install finished (0019 M2): the app
+    /// hot-swaps the provider and drops the consent popup.
+    DeclarationInstalled {
+        name: String,
+    },
+    /// Declared-provider install refused or failed (0019 M2): honest
+    /// degraded mode — github fallback with a persistent status.
+    DeclarationFailed {
+        name: String,
+        error: String,
+    },
 }
 
 pub type AppTx = std::sync::mpsc::Sender<AppEvent>;

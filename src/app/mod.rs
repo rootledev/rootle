@@ -9,6 +9,7 @@ use crate::action::Action;
 use crate::components::browser::Browser;
 use crate::components::clone_wizard::CloneWizard;
 use crate::components::command_line::CommandLine;
+use crate::components::consent_popup::ConsentPopup;
 use crate::components::global_search::{GlobalSearch, SearchKind};
 use crate::components::keybinds_popup::KeybindsPopup;
 use crate::components::modeline::Modeline;
@@ -49,7 +50,13 @@ pub struct App {
     /// revision committed when it opened — Esc reverts the crumb.
     refs_popup: Option<RefsPopup>,
     refs_baseline: Option<String>,
-    /// Mode to restore when a lens opened from the preview submode
+    /// 0019 M2: declared-but-missing provider — the consent popup
+    /// owns startup until answered (y installs, n degrades honestly).
+    consent: Option<ConsentPopup>,
+    /// 0019 M2: sticky degradation notice (declared provider
+    /// unavailable — the honest-channel surface). Transient statuses
+    /// overlay it; nothing clears it for the session.
+    degraded: Option<String>,
     /// closes (history from blame, find from preview).
     history_return: Option<Mode>,
     find_return: Option<Mode>,
@@ -136,10 +143,17 @@ impl App {
     }
 
     pub fn new(tx: AppTx, config: Config, theme: Theme) -> Self {
-        let (provider, warning) = provider::build(&config);
+        let (provider, outcome) = provider::build(&config);
         let mut app = Self::build(State::load(), tx, provider, false, config, theme);
-        if let Some(warning) = warning {
-            app.status = Some(warning);
+        match outcome {
+            provider::BuildOutcome::Ready => {}
+            provider::BuildOutcome::Warn(warning) => app.status = Some(warning),
+            // 0019 M2: a declared provider is missing — ask, never
+            // silently download-and-run. github carries the session
+            // while the popup is up.
+            provider::BuildOutcome::Missing(decl) => {
+                app.consent = Some(ConsentPopup::new(decl));
+            }
         }
         // 0017 M3 / 0018 M2: the 24h-cached update notice — never
         // offline, never blocking, silent on failure; CI, dumb
@@ -201,6 +215,9 @@ impl App {
             wizard: None,
             refs_popup: None,
             refs_baseline: None,
+            // 0019 M2: declared-but-missing provider — the consent
+            consent: None,
+            degraded: None,
             history_return: None,
             find_return: None,
             update_tag: None,
@@ -610,11 +627,43 @@ impl App {
                     self.status = Some(format!("rootle {tag} is out — run `rootle update`"));
                 }
             }
+            // 0019 M2: the consent install landed — hot-swap the
+            // provider, drop the popup, say so.
+            AppEvent::DeclarationInstalled { name } => {
+                self.consent = None;
+                self.degraded = None;
+                match provider::spawn_installed(&self.config, &name) {
+                    Ok(p) => {
+                        self.provider = p;
+                        self.status = Some(format!("{name} ready"));
+                    }
+                    Err(e) => {
+                        let note = format!("{name} unavailable: {e} — browsing github");
+                        self.degraded = Some(note.clone());
+                        self.status = Some(note);
+                    }
+                }
+            }
+            AppEvent::DeclarationFailed { name, error } => {
+                // Honest degraded mode — the popup shows the error
+                // until dismissed, then the notice goes sticky.
+                let note = format!("{name} unavailable: {error} — browsing github");
+                self.degraded = Some(note.clone());
+                if let Some(popup) = &mut self.consent {
+                    popup.set_state(crate::action::DeclarationState::Failed(error));
+                } else {
+                    self.status = Some(note);
+                }
+            }
         }
     }
 
     fn dispatch(&mut self, key: KeyEvent) -> Action {
-        // Overlays capture keys, topmost first.
+        // Overlays capture keys, topmost first — the consent popup is
+        // the very top: a pending trust decision outranks everything.
+        if let Some(consent) = &mut self.consent {
+            return consent.handle_key(key);
+        }
         if let Some(wizard) = &mut self.wizard {
             return wizard.handle_key(key);
         }
@@ -1489,6 +1538,34 @@ impl App {
                     None => {}
                 }
             }
+
+            // 0019 M2: the consent popup's answers.
+            Action::DeclarationAccept => {
+                if let Some(consent) = &mut self.consent {
+                    let decl = consent.declaration().clone();
+                    consent.set_state(crate::action::DeclarationState::Installing);
+                    self.status = Some(format!("installing {}…", decl.name));
+                    self.spawn_declared_install(decl);
+                }
+            }
+            Action::DeclarationDecline => {
+                if let Some(consent) = self.consent.take() {
+                    let name = consent.declaration().name.clone();
+                    // Honest degraded mode: the fallback is named, the
+                    // declaration stays in the config, the retry is a
+                    // command away — and the notice is sticky.
+                    let note = format!(
+                        "{name} not installed — browsing github (retry: rootle provider install {name})"
+                    );
+                    self.degraded = Some(note.clone());
+                    self.status = Some(note);
+                }
+            }
+            Action::DeclarationState(state) => {
+                if let Some(consent) = &mut self.consent {
+                    consent.set_state(state);
+                }
+            }
             Action::Noop => {}
         }
 
@@ -1627,8 +1704,8 @@ impl App {
                 rows[1],
             );
         }
+        self.modeline.status = self.status.clone().or_else(|| self.degraded.clone());
         let modeline_row = rows[rows.len() - 1];
-        self.modeline.status = self.status.clone();
         self.modeline.update_tag = self.update_tag.clone();
         self.modeline.render(frame, modeline_row, mode, &theme);
 
@@ -1647,6 +1724,11 @@ impl App {
         }
         if let Some(refs) = &mut self.refs_popup {
             refs.render(frame, rows[0], &theme);
+        }
+        // 0019 M2: the consent popup is the topmost surface — a
+        // pending trust decision renders above everything.
+        if let Some(consent) = &mut self.consent {
+            consent.render(frame, rows[0], &theme);
         }
         // Command strip sits on the modeline's doorstep, last.
         if let Some(command_line) = &mut self.command_line {

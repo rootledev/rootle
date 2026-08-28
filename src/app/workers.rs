@@ -171,6 +171,34 @@ impl App {
         });
     }
 
+    /// 0019 M2: the consent-approved install — the same verified
+    /// flow as the CLI, through a recorder Ui (no stderr writes
+    /// inside the TUI), honoring the config's tag and sha pins.
+    pub(super) fn spawn_declared_install(&self, decl: crate::provider::Declaration) {
+        let tx = self.tx.clone();
+        std::thread::spawn(move || {
+            let r = crate::provider::manager::Ref {
+                repo: decl.repo.clone(),
+                name: decl.name.clone(),
+                tag: decl.tag.clone(),
+                tarball: None,
+            };
+            let event = match crate::provider::manager::Manager::new().and_then(|m| {
+                let (ui, _log) = crate::provider::ui::Ui::recorder();
+                m.install_inner(&r, true, &ui, decl.sha.as_deref())
+            }) {
+                Ok(_) => crate::event::AppEvent::DeclarationInstalled {
+                    name: decl.name.clone(),
+                },
+                Err(e) => crate::event::AppEvent::DeclarationFailed {
+                    name: decl.name.clone(),
+                    error: e.to_string(),
+                },
+            };
+            let _ = tx.send(event);
+        });
+    }
+
     /// Revision fetches (v1.5, plans/0016 M1): one worker per lens;
     /// landings are identity-checked by the UI.
     pub(super) fn spawn_refs(&self, repo: String) {
