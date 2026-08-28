@@ -3,6 +3,42 @@
 User-visible changes per release. Protocol archaeology lives in
 `plans/`; this file is for "what's new for me".
 
+## [0.8.4] — 2026-08-28
+
+### Added
+
+- `rootle update` sweeps providers too: every managed, unpinned,
+  releases-tracked provider upgrades through the same verified flow,
+  pinned and install-and-pin sources report untouched, and one dead
+  forge fails only itself. brew/cargo/mise installs get the sweep as
+  well — providers live outside the app's channel.
+- Declarative providers: `[provider] kind = "gitlab"` (or any receipt
+  name / `owner/repo` slug) resolves at startup; a missing one asks
+  (`y install · n browse github instead`), installs checksum-verified,
+  and hot-swaps. Optional `tag`/`sha` pins lock the build. `provider
+  use` writes the declaration — no more absolute paths in synced
+  configs.
+- The preview header band dresses every file with its last commit
+  (`sha · subject · author · date`, ambient and memoized) — not just
+  at-commit views.
+- The grep/find expanded pane speaks the preview-submode grammar: `y`
+  yanks the cursor-anchored URL, `:N` jumps by line, `b` runs the
+  blame lens. Query matches chip in the pane too, boundary-aware.
+- Find's current match is bold+underlined — `n`/`N` reads at a glance
+  on any palette.
+
+### Fixed
+
+- Scoped greps no longer show a quiet zero when GitHub's code index
+  omits the repo (young/low-activity repos): rootle falls back to a
+  local grep over the default-branch tarball — real line numbers,
+  real blob shas.
+- GitHub blame works again: upstream removed the GraphQL `Blob.blame`
+  field; blame is now a bounded commits-walk over REST (parallel
+  detail fetches, session cache).
+- Match chips survive comment-span boundaries: a needle split across
+  syntax spans chips instead of vanishing.
+
 ## [0.8.3] — 2026-08-28
 
 ### Added
@@ -113,6 +149,7 @@ User-visible changes per release. Protocol archaeology lives in
 - Chrome: powerline modeline (Nerd Font opt-in), bat-style gutters,
   fzf prompts, `[ui] border` / `[ui] nerd_font`.
 
+[0.8.4]: https://github.com/rootledev/rootle/releases/tag/v0.8.4
 [0.8.2]: https://github.com/rootledev/rootle/releases/tag/v0.8.2
 [0.8.3]: https://github.com/rootledev/rootle/releases/tag/v0.8.3
 [0.8.1]: https://github.com/rootledev/rootle/releases/tag/v0.8.1
