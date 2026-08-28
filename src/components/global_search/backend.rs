@@ -237,6 +237,7 @@ fn code_search(
     let unfiltered = grammar::unexpressible(&g);
     let client_filtered = std::sync::atomic::AtomicUsize::new(0);
     let preview_budget = std::sync::atomic::AtomicUsize::new(PREVIEW_CAP);
+    let delivered = std::sync::atomic::AtomicUsize::new(0);
     let result =
         provider.search_code_progressive(&q, &|items: &[crate::provider::CodeMatch]| {
             let mut batch: Vec<RawHit> = Vec::with_capacity(items.len());
@@ -274,8 +275,21 @@ fn code_search(
             }
             let (batch, dropped) = grammar::filter_hits(&g, batch);
             client_filtered.fetch_add(dropped, std::sync::atomic::Ordering::Relaxed);
+            delivered.fetch_add(batch.len(), std::sync::atomic::Ordering::Relaxed);
             on_hits(batch);
         })?;
+    // The index can lie by omission: GitHub's code search doesn't
+    // cover young/low-activity repos, and a scoped grep there returns
+    // a silent zero. The tree can't lie — fall back to grepping the
+    // default branch's tarball locally (one download, real line
+    // numbers, blob shas that the API still honors).
+    if kind == SearchKind::Grep
+        && delivered.load(std::sync::atomic::Ordering::Relaxed) == 0
+        && let Some(repo) = scope_label.strip_prefix("repo:")
+        && let Some(hits) = tarball_grep(provider, repo, &g)
+    {
+        on_hits(hits);
+    }
     Ok(SearchOutcome {
         clipped: result.truncated,
         index_as_of: result.index_as_of,
@@ -284,6 +298,109 @@ fn code_search(
     })
 }
 
+/// The local-grep fallback (the index can't be trusted for a silent
+/// zero): download the default branch's tarball, walk it, and match
+/// files the way GitHub's code search would — every term present
+/// somewhere in the file, negation and language/extension filters
+/// applied — with previews from `locate_in_blob` and git blob shas
+/// (so yank/edit/fetch-by-sha all keep working). `None` = the
+/// provider can't serve a tarball (or it's over budget); the zero
+/// stands.
+fn tarball_grep(
+    provider: &dyn Provider,
+    repo_full: &str,
+    g: &grammar::Grammar,
+) -> Option<Vec<RawHit>> {
+    const FILE_CAP: usize = 1 << 20; // matches the preview pane's blob cap
+    let tarball = provider.source_tarball(repo_full).ok()?;
+    let branch = provider
+        .fetch_tree(repo_full, None)
+        .map(|t| t.branch)
+        .unwrap_or_default();
+    let needles: Vec<String> = g.terms.iter().map(|t| t.to_lowercase()).collect();
+    if needles.is_empty() {
+        return None;
+    }
+    let mut hits: Vec<RawHit> = Vec::new();
+    let decoder = flate2::read::GzDecoder::new(&tarball[..]);
+    let mut archive = tar::Archive::new(decoder);
+    let entries = archive.entries().ok()?;
+    for mut entry in entries.flatten() {
+        if entry.header().entry_type() != tar::EntryType::Regular || entry.size() > FILE_CAP as u64
+        {
+            continue;
+        }
+        let path = match entry
+            .path()
+            .ok()
+            .and_then(|p| p.to_str().map(str::to_string))
+        {
+            Some(p) => p,
+            None => continue,
+        };
+        let Some((_, path)) = path.split_once('/') else {
+            continue;
+        };
+        if path.is_empty() {
+            continue;
+        }
+        let path_lower = path.to_lowercase();
+        if let Some(inline) = &g.extension
+            && !path_lower.ends_with(&format!(".{}", inline.to_lowercase()))
+        {
+            continue;
+        }
+        if let Some(false) = grammar::lang_matches(&g.language, &path_lower) {
+            continue;
+        }
+        if let Some(true) = grammar::lang_matches(&g.negated_language, &path_lower) {
+            continue;
+        }
+        let mut bytes = Vec::with_capacity(entry.size() as usize);
+        if std::io::Read::read_to_end(&mut entry, &mut bytes).is_err() {
+            continue;
+        }
+        if crate::sanitize::is_binary(&bytes) {
+            continue;
+        }
+        let text = crate::sanitize::sanitize(&bytes);
+        let text_lower = text.to_lowercase();
+        // GitHub semantics: every term occurs somewhere in the file.
+        if !needles.iter().all(|n| text_lower.contains(n)) {
+            continue;
+        }
+        if g.negated.iter().any(|n| text_lower.contains(n)) {
+            continue;
+        }
+        let Some((line, preview, count)) = locate_in_blob(&bytes, &needles) else {
+            continue;
+        };
+        let sha = {
+            use sha1::{Digest, Sha1};
+            let mut h = Sha1::new();
+            h.update(format!("blob {}\0", bytes.len()));
+            h.update(&bytes);
+            h.finalize()
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>()
+        };
+        hits.push(RawHit {
+            repo: repo_full.to_string(),
+            path: path.to_string(),
+            sha,
+            branch: branch.clone(),
+            line,
+            preview,
+            match_count: count,
+            stale: false,
+        });
+        if hits.len() >= BACKEND_CAP {
+            break;
+        }
+    }
+    Some(hits)
+}
 /// (first match line, preview lines, matched-line count).
 pub(crate) type LocatedPreview = (u32, Vec<(u32, String)>, u32);
 
@@ -450,5 +567,155 @@ mod tests {
             code_query(SearchKind::Grep, "q", "org:x", "rs"),
             "q org:x extension:rs"
         );
+    }
+
+    /// The index can lie by omission (young repos aren't in GitHub's
+    /// code index): a scoped grep that the API answers with a silent
+    /// zero falls back to grepping the tarball locally — GitHub AND
+    /// semantics, negation, real line numbers, git blob shas.
+    #[test]
+    fn scoped_grep_falls_back_to_tarball_on_silent_zero() {
+        use crate::provider::{
+            Capabilities, Provider, ProviderResult, SearchCodeResult, TreeResult,
+        };
+
+        let a_rs = b"fn target() {}\n";
+        let b_rs = b"nothing relevant here\n";
+        let c_rs = b"target\nand target again\n";
+        let bin = vec![0u8, 159, 146, 150, 0, 1, 2, 3];
+
+        // codeload shape: every path under "owner-repo-sha/".
+        let enc = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+        let mut builder = tar::Builder::new(enc);
+        let mut add = |path: &str, bytes: &[u8]| {
+            let mut header = tar::Header::new_gnu();
+            header.set_size(bytes.len() as u64);
+            header.set_mode(0o644);
+            header.set_entry_type(tar::EntryType::Regular);
+            header.set_cksum();
+            builder
+                .append_data(&mut header, format!("o-r-deadbeef/{path}"), bytes)
+                .unwrap();
+        };
+        add("src/a.rs", a_rs);
+        add("src/b.rs", b_rs);
+        add("src/c.rs", c_rs);
+        add("img.bin", &bin);
+        let tarball = builder.into_inner().unwrap().finish().unwrap();
+
+        struct Mock(Vec<u8>);
+        impl Provider for Mock {
+            fn name(&self) -> &str {
+                "mock"
+            }
+            fn capabilities(&self) -> Capabilities {
+                Capabilities {
+                    orgs: false,
+                    code_search: true,
+                    file_search: true,
+                    refs: false,
+                    log: false,
+                    blame: false,
+                }
+            }
+            fn search(&self, _: &str) -> ProviderResult<Vec<crate::provider::SearchItem>> {
+                Err("mock".into())
+            }
+            fn org_repos(&self, _: &str) -> ProviderResult<Vec<crate::provider::RepoInfo>> {
+                Err("mock".into())
+            }
+            fn fetch_tree(&self, _: &str, _: Option<&str>) -> ProviderResult<TreeResult> {
+                Ok(TreeResult {
+                    entries: Vec::new(),
+                    truncated: false,
+                    branch: "main".into(),
+                })
+            }
+            fn fetch_blob(&self, _: &str, _: &str) -> ProviderResult<Vec<u8>> {
+                Err("mock".into())
+            }
+            fn search_code(&self, _: &str) -> ProviderResult<SearchCodeResult> {
+                // The silent zero: total index omission, no error.
+                Ok(SearchCodeResult {
+                    hits: Vec::new(),
+                    truncated: false,
+                    index_as_of: None,
+                })
+            }
+            fn clone_url(&self, _: &str) -> ProviderResult<String> {
+                Err("mock".into())
+            }
+            fn web_url(
+                &self,
+                _: &str,
+                _: &str,
+                _: &str,
+                _: Option<u32>,
+                _: Option<u32>,
+                _: bool,
+            ) -> ProviderResult<String> {
+                Err("mock".into())
+            }
+            fn org_url(&self, _: &str) -> ProviderResult<String> {
+                Err("mock".into())
+            }
+            fn source_tarball(&self, _: &str) -> ProviderResult<Vec<u8>> {
+                Ok(self.0.clone())
+            }
+        }
+
+        let provider = Mock(tarball);
+        let run = |query: &str| -> Vec<RawHit> {
+            let hits = std::sync::Mutex::new(Vec::new());
+            run_view_search(
+                &provider,
+                SearchKind::Grep,
+                query,
+                "repo:o/r",
+                "",
+                &|batch: Vec<RawHit>| hits.lock().unwrap().extend(batch),
+            )
+            .unwrap();
+            hits.into_inner().unwrap()
+        };
+
+        let hits = run("target");
+        let paths: Vec<&str> = hits.iter().map(|h| h.path.as_str()).collect();
+        assert_eq!(
+            paths,
+            vec!["src/a.rs", "src/c.rs"],
+            "binary skipped, non-matches skipped"
+        );
+        assert_eq!(hits[0].line, 1);
+        assert_eq!(hits[0].match_count, 1, "a.rs has one matching line");
+        assert_eq!(hits[1].match_count, 2, "c.rs has two");
+        assert_eq!(hits[0].branch, "main");
+        // git blob sha — what fetch_blob/yank/edit address.
+        let want = {
+            use sha1::{Digest, Sha1};
+            let mut h = Sha1::new();
+            h.update(format!("blob {}\0", a_rs.len()));
+            h.update(a_rs);
+            h.finalize()
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>()
+        };
+        assert_eq!(hits[0].sha, want);
+        assert!(!hits[0].stale);
+        assert!(
+            hits[0].preview.iter().any(|(_, l)| l.contains("target")),
+            "preview carries the matched line"
+        );
+
+        // GitHub AND semantics: both terms must occur in the file.
+        let hits = run("target again");
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].path, "src/c.rs");
+
+        // Negation subtracts.
+        let hits = run("target -again");
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].path, "src/a.rs");
     }
 }

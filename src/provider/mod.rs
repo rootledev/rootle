@@ -260,7 +260,19 @@ pub trait Provider: Send + Sync {
     fn fetch_tree(&self, repo: &str, ref_: Option<&str>) -> ProviderResult<TreeResult>;
     /// Blob bytes by content id.
     fn fetch_blob(&self, repo: &str, sha: &str) -> ProviderResult<Vec<u8>>;
-    /// v1.5: branches and tags (capability `refs`).
+
+    /// The repo's default-branch source as a gzip tarball — fuel for
+    /// the local-grep fallback when a repo-scoped code search returns
+    /// nothing (GitHub's index does not cover young/low-activity
+    /// repos; the tree can't lie, the index can). Optional: the
+    /// default refuses and the fallback is simply unavailable —
+    /// external providers grow it when the wire protocol does.
+    fn source_tarball(&self, repo: &str) -> ProviderResult<Vec<u8>> {
+        let _ = repo;
+        Err(ProviderError::other(
+            "source tarball not supported by this provider",
+        ))
+    }
     fn refs(&self, repo: &str) -> ProviderResult<RepoRefs> {
         let _ = repo;
         Err(ProviderError::new(
