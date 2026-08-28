@@ -78,6 +78,9 @@ pub enum ManagerError {
 pub struct Manager {
     store: PathBuf,
     state: PathBuf,
+    /// Releases-API base — github.com in every real path; tests point
+    /// it at a loopback host (the `latest_release_at` seam).
+    api: String,
 }
 
 impl Manager {
@@ -85,6 +88,7 @@ impl Manager {
         Ok(Manager {
             store: store::store_root().ok_or_else(|| ManagerError::User("no data dir".into()))?,
             state: store::state_root().ok_or_else(|| ManagerError::User("no state dir".into()))?,
+            api: "https://api.github.com".into(),
         })
     }
 
@@ -92,7 +96,18 @@ impl Manager {
     /// user's real XDG store.
     #[cfg(test)]
     pub(crate) fn rooted_at(store: PathBuf, state: PathBuf) -> Manager {
-        Manager { store, state }
+        Manager {
+            store,
+            state,
+            api: "https://api.github.com".into(),
+        }
+    }
+
+    /// Point the releases API at a loopback host (tests).
+    #[cfg(test)]
+    pub(crate) fn with_api(mut self, api: &str) -> Manager {
+        self.api = api.into();
+        self
     }
 }
 
@@ -102,4 +117,39 @@ pub struct Installed {
     pub receipt: Receipt,
     pub active: bool,
     pub current: Option<String>,
+}
+
+/// One provider's result in `rootle update`'s sweep (0019 M1) —
+/// rendered by the caller, never printed here.
+#[derive(Debug, Clone)]
+pub enum SweepOutcome {
+    Upgraded {
+        name: String,
+        from: String,
+        to: String,
+    },
+    /// Would upgrade (`--check`): nothing was swapped.
+    Stale {
+        name: String,
+        from: String,
+        to: String,
+    },
+    Current {
+        name: String,
+        tag: String,
+    },
+    Pinned {
+        name: String,
+        tag: String,
+    },
+    /// plain-HTTP / `--path` install: install-and-pin, untouched
+    /// (plans/0014 #1b) — reported, not silently skipped.
+    Untracked {
+        name: String,
+        source: String,
+    },
+    Failed {
+        name: String,
+        error: String,
+    },
 }

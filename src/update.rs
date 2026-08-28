@@ -66,17 +66,22 @@ pub fn is_newer(latest: &str) -> bool {
     }
 }
 
-/// `rootle update`: tarball installs self-update (progress on stderr
-/// via the manager's Ui); every other channel gets its own command.
-/// `Ok(Some(line))` is for the caller to print (stdout); `Ok(None)`
-/// means the flow already rendered everything. `ROOTLE_UPDATE_API`
-/// points the check at a loopback host (tests, PTY evidence runs).
-pub fn update(check_only: bool) -> Result<Option<String>, String> {
+/// `rootle update`: the app half (tarball self-update with progress
+/// on stderr via the manager's Ui; other channels get their command
+/// on stdout), then the provider sweep (0019 M1) — every managed,
+/// unpinned, releases-tracked provider refreshed and upgraded with
+/// failures isolated. Any provider failure fails the command after
+/// everything was attempted. `ROOTLE_UPDATE_API` points the app half
+/// at a loopback host (tests, PTY evidence runs).
+pub fn update(check_only: bool) -> Result<(), String> {
     let api =
         std::env::var("ROOTLE_UPDATE_API").unwrap_or_else(|_| "https://api.github.com".to_string());
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let ui = crate::provider::ui::Ui::new();
-    update_inner(&api, check_only, &exe, channel(), &ui)
+    if let Some(line) = update_inner(&api, check_only, &exe, channel(), &ui)? {
+        println!("{line}");
+    }
+    sweep_providers(check_only, &ui)
 }
 
 /// The flow, with the API base, target exe, and Ui swapped in tests.
@@ -162,6 +167,82 @@ fn update_inner(
         "takes effect on next launch · what's new: rootle.dev/changelog#{anchor}"
     ));
     Ok(None)
+}
+
+// ---- the provider sweep (0019 M1) ----
+
+/// The provider half of `rootle update`: every managed, unpinned,
+/// releases-tracked provider refreshed and upgraded, failures
+/// isolated per provider. No receipts on this machine (or no data
+/// dir at all): the section is skipped silently.
+fn sweep_providers(check_only: bool, ui: &crate::provider::ui::Ui) -> Result<(), String> {
+    let manager = match mgr::Manager::new() {
+        Ok(m) => m,
+        Err(_) => return Ok(()),
+    };
+    if manager.receipts().is_empty() {
+        return Ok(());
+    }
+    let timer = crate::provider::ui::Timer::start();
+    ui.heading("Updating providers");
+    let outcomes = manager.sweep(check_only, ui);
+    render_sweep(&outcomes, ui, timer.elapsed());
+    let failed: Vec<&str> = outcomes
+        .iter()
+        .filter_map(|o| match o {
+            mgr::SweepOutcome::Failed { name, .. } => Some(name.as_str()),
+            _ => None,
+        })
+        .collect();
+    if failed.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("provider sweep failed: {}", failed.join(", ")))
+    }
+}
+
+/// Outcome rows + the counts summary. `Upgraded` carries no row —
+/// `install_inner` already rendered that provider's full stage block
+/// through the same Ui.
+fn render_sweep(
+    outcomes: &[mgr::SweepOutcome],
+    ui: &crate::provider::ui::Ui,
+    elapsed: std::time::Duration,
+) {
+    let (mut upgraded, mut current, mut pinned, mut untracked, mut failed) =
+        (0usize, 0usize, 0usize, 0usize, 0usize);
+    for outcome in outcomes {
+        match outcome {
+            mgr::SweepOutcome::Upgraded { .. } => upgraded += 1,
+            mgr::SweepOutcome::Stale { name, from, to } => {
+                ui.update_row("→", name, &format!("{from} → {to} (run `rootle update`)"));
+            }
+            mgr::SweepOutcome::Current { name, tag } => {
+                current += 1;
+                ui.update_row("·", name, &format!("{tag} current"));
+            }
+            mgr::SweepOutcome::Pinned { name, tag } => {
+                pinned += 1;
+                ui.update_row("📌", name, &format!("{tag} pinned — skipped"));
+            }
+            mgr::SweepOutcome::Untracked { name, source } => {
+                untracked += 1;
+                ui.update_row("·", name, &format!("{source} install-and-pin — untouched"));
+            }
+            mgr::SweepOutcome::Failed { name, error } => {
+                failed += 1;
+                ui.update_row("✗", name, error);
+            }
+        }
+    }
+    let mut detail = format!("{upgraded} upgraded · {current} current · {pinned} pinned");
+    if untracked > 0 {
+        detail.push_str(&format!(" · {untracked} install-and-pin"));
+    }
+    if failed > 0 {
+        detail.push_str(&format!(" · {failed} failed"));
+    }
+    ui.summary("Swept", "providers", &detail, elapsed);
 }
 
 // ---- the 24h-cached startup check (modeline notice) ----
@@ -513,5 +594,54 @@ mod tests {
         );
         assert_eq!(std::fs::read(&exe3).unwrap(), b"#!/bin/sh\necho old\n");
         assert!(log3.lock().unwrap().is_empty(), "check renders no steps");
+    }
+
+    /// 0019 M1: outcome rows render honestly — pinned and
+    /// install-and-pin say so, failures carry their error, and the
+    /// summary counts everything (upgraded rows come from the stage
+    /// blocks install_inner already rendered).
+    #[test]
+    fn sweep_rows_render_honestly() {
+        let (ui, log) = crate::provider::ui::Ui::recorder();
+        render_sweep(
+            &[
+                mgr::SweepOutcome::Upgraded {
+                    name: "live".into(),
+                    from: "v0.1.0".into(),
+                    to: "v0.2.0".into(),
+                },
+                mgr::SweepOutcome::Current {
+                    name: "bb".into(),
+                    tag: "v0.1.4".into(),
+                },
+                mgr::SweepOutcome::Pinned {
+                    name: "internal".into(),
+                    tag: "v0.3.0".into(),
+                },
+                mgr::SweepOutcome::Untracked {
+                    name: "artifact".into(),
+                    source: "https://artifacts.corp/x.tar.gz".into(),
+                },
+                mgr::SweepOutcome::Failed {
+                    name: "dead".into(),
+                    error: "network: refused".into(),
+                },
+            ],
+            &ui,
+            std::time::Duration::from_millis(50),
+        );
+        let lines = log.lock().unwrap().clone();
+        assert_eq!(
+            lines,
+            vec![
+                " · bb  v0.1.4 current",
+                " 📌 internal  v0.3.0 pinned — skipped",
+                " · artifact  https://artifacts.corp/x.tar.gz install-and-pin — untouched",
+                " ✗ dead  network: refused",
+                // <100ms: no timing suffix.
+                " ✓ Swept providers 1 upgraded · 1 current · 1 pinned · 1 install-and-pin · 1 failed",
+            ],
+            "rows: {lines:?}"
+        );
     }
 }

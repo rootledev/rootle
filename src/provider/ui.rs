@@ -15,6 +15,7 @@ use std::time::{Duration, Instant};
 
 const DIM: &str = "\x1b[2m";
 const BOLD: &str = "\x1b[1m";
+const RED: &str = "\x1b[31m";
 const GREEN: &str = "\x1b[32m";
 const CYAN: &str = "\x1b[36m";
 const YELLOW: &str = "\x1b[33m";
@@ -107,6 +108,26 @@ impl Ui {
                 " {} {} {detail}",
                 self.paint(GREEN, "✓"),
                 self.paint(&format!("{BOLD}{GREEN}"), verb),
+            ),
+        );
+    }
+
+    /// A sweep row (0019 M1): ` ✓ gitlab  v0.2.0 → v0.2.1`. The glyph
+    /// colors itself — ✓ green, ✗ red, everything else dim.
+    pub fn update_row(&self, glyph: &str, name: &str, detail: &str) {
+        let color = match glyph {
+            "✓" => GREEN,
+            "✗" => RED,
+            "📌" => YELLOW,
+            _ => DIM,
+        };
+        self.out(
+            &format!(" {glyph} {name}  {detail}"),
+            &format!(
+                " {} {}  {}",
+                self.paint(color, glyph),
+                self.paint(BOLD, name),
+                self.paint(DIM, detail),
             ),
         );
     }

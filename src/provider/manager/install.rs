@@ -3,20 +3,36 @@
 
 use super::refs::{Ref, binary_name_of};
 use super::release::{
-    checksum_sidecar, download_bytes, extract_binary, latest_release, pick_asset, platform_target,
-    release_by_tag, sha256_hex, verify_checksum,
+    checksum_sidecar, download_bytes, extract_binary, latest_release, latest_release_at,
+    pick_asset, platform_target, release_by_tag, sha256_hex, verify_checksum,
 };
 use super::store::now_iso;
-use super::{Manager, ManagerError, Receipt, Result};
+use super::{Manager, ManagerError, Receipt, Result, SweepOutcome};
 use std::path::Path;
 
 impl Manager {
     /// Install (or upgrade to a specific tag). The krew atomicity
     /// sequence: staging → verify → extract → receipt LAST → swap.
+    /// Plain-HTTP tarball refs stay on the CLI path (deliberate
+    /// deployments, plans/0014); everything else flows through
+    /// [`install_inner`] with a live Ui.
     pub fn install(&self, r: &Ref, force: bool) -> Result<Receipt> {
         if let Some(url) = &r.tarball {
             return self.install_tarball(r, url, force);
         }
+        self.install_inner(r, force, &crate::provider::ui::Ui::new())
+    }
+
+    /// The release-install flow with the Ui swapped in — the
+    /// `update_inner` pattern: `rootle update`'s sweep and the TUI's
+    /// consent install (0019) drive the same verified flow, the
+    /// latter through a silent recorder Ui.
+    pub(crate) fn install_inner(
+        &self,
+        r: &Ref,
+        force: bool,
+        ui: &crate::provider::ui::Ui,
+    ) -> Result<Receipt> {
         if let Some(existing) = self.receipt(&r.name)
             && existing.tag == r.tag.clone().unwrap_or_default()
             && !force
@@ -28,11 +44,10 @@ impl Manager {
             )));
         }
         let timer = crate::provider::ui::Timer::start();
-        let ui = crate::provider::ui::Ui::new();
         ui.step("Resolving", &r.repo);
         let release = match &r.tag {
             Some(tag) => release_by_tag(&r.repo, tag)?,
-            None => latest_release(&r.repo)?,
+            None => latest_release_at(&self.api, &r.repo)?,
         };
         ui.done(
             "Resolved",
@@ -267,6 +282,79 @@ impl Manager {
         }
         Ok(())
     }
+
+    /// `rootle update`'s provider sweep (0019 M1): refresh-and-upgrade
+    /// every tracked, unpinned receipt with failures isolated per
+    /// provider — one dead forge neither aborts the rest nor fails
+    /// the command's app half. Outcome rows are returned for the
+    /// caller to render; the release-install stages render through
+    /// `ui`. `dry_run` reports staleness without swapping anything.
+    pub fn sweep(&self, dry_run: bool, ui: &crate::provider::ui::Ui) -> Vec<SweepOutcome> {
+        let mut out = Vec::new();
+        for receipt in self.receipts() {
+            if !tracks_releases(&receipt.source) {
+                out.push(SweepOutcome::Untracked {
+                    name: receipt.name.clone(),
+                    source: receipt.source.clone(),
+                });
+                continue;
+            }
+            if receipt.pinned {
+                out.push(SweepOutcome::Pinned {
+                    name: receipt.name.clone(),
+                    tag: receipt.tag.clone(),
+                });
+            }
+            let latest = match &receipt.latest_tag {
+                Some(t) => t.clone(),
+                None => match latest_release_at(&self.api, &receipt.source) {
+                    Ok(rel) => rel.tag_name,
+                    Err(e) => {
+                        out.push(SweepOutcome::Failed {
+                            name: receipt.name,
+                            error: e.to_string(),
+                        });
+                        continue;
+                    }
+                },
+            };
+            if latest == receipt.tag {
+                out.push(SweepOutcome::Current {
+                    name: receipt.name,
+                    tag: receipt.tag,
+                });
+                continue;
+            }
+            if dry_run {
+                out.push(SweepOutcome::Stale {
+                    name: receipt.name,
+                    from: receipt.tag,
+                    to: latest,
+                });
+                continue;
+            }
+            let r = Ref {
+                repo: receipt.source.clone(),
+                name: receipt.name.clone(),
+                tag: None,
+                tarball: None,
+            };
+            // Force through the already-installed check; the UI
+            // stages render through the caller's Ui in install_inner.
+            match self.install_inner(&r, true, ui) {
+                Ok(done) => out.push(SweepOutcome::Upgraded {
+                    name: receipt.name,
+                    from: receipt.tag,
+                    to: done.tag,
+                }),
+                Err(e) => out.push(SweepOutcome::Failed {
+                    name: receipt.name,
+                    error: e.to_string(),
+                }),
+            }
+        }
+        out
+    }
 }
 
 /// Only releases-API sources (`owner/repo` on github.com) are tracked
@@ -386,5 +474,126 @@ mod tests {
         assert!(manager.update(None).unwrap().is_empty());
         manager.upgrade(None, false, true).unwrap();
         assert_eq!(manager.receipt("gitlab").unwrap().tag, "v0.1.0");
+    }
+
+    /// 0019 M1: the sweep upgrades tracked receipts through the full
+    /// verified flow, reports pinned and install-and-pin sources
+    /// untouched, isolates a dead forge per provider, and `--check`
+    /// swaps nothing.
+    #[test]
+    fn sweep_upgrades_reports_and_isolates() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let target = platform_target();
+        let file = format!("rootle-live-0.2.0-{target}.tar.gz");
+        let tarball = tarball_with("rootle-live", b"#!/bin/sh\necho live 0.2.0\n");
+
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let server = rt.block_on(MockServer::start());
+        let base = server.uri();
+        rt.block_on(async {
+            Mock::given(method("GET"))
+                .and(path("/repos/acme/live/releases/latest"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "tag_name": "v0.2.0",
+                    "assets": [
+                        {"name": file, "browser_download_url": format!("{base}/dl/{file}")},
+                        {"name": format!("{file}.sha256"), "browser_download_url": format!("{base}/dl/{file}.sha256")},
+                    ]
+                })))
+                .mount(&server)
+                .await;
+            Mock::given(method("GET"))
+                .and(path(format!("/dl/{file}")))
+                .respond_with(ResponseTemplate::new(200).set_body_bytes(tarball.clone()))
+                .mount(&server)
+                .await;
+            Mock::given(method("GET"))
+                .and(path(format!("/dl/{file}.sha256")))
+                .respond_with(ResponseTemplate::new(200).set_body_string(format!(
+                    "{}  {file}",
+                    sha256_hex(&tarball)
+                )))
+                .mount(&server)
+                .await;
+            // acme/dead stays unmounted: every request 404s.
+        });
+
+        let manager = test_manager("sweep").with_api(&base);
+        let seed = |name: &str, source: &str, tag: &str, pinned: bool| {
+            manager
+                .write_receipt(&Receipt {
+                    name: name.into(),
+                    source: source.into(),
+                    tag: tag.into(),
+                    sha256: "seeded".into(),
+                    pinned,
+                    installed_at: None,
+                    latest_tag: None,
+                })
+                .unwrap();
+        };
+        seed("live", "acme/live", "v0.1.0", false);
+        seed("dead", "acme/dead", "v0.1.0", false);
+        seed("pinned", "acme/live", "v0.1.0", true);
+        seed(
+            "artifact",
+            "https://artifacts.corp/x.tar.gz",
+            "v0.9.0",
+            true,
+        );
+
+        let (ui, _log) = crate::provider::ui::Ui::recorder();
+        let outcomes = manager.sweep(false, &ui);
+        // receipts() iterates sorted by name.
+        assert!(matches!(&outcomes[0], SweepOutcome::Untracked { name, .. } if name == "artifact"));
+        assert!(matches!(&outcomes[1], SweepOutcome::Failed { name, .. } if name == "dead"));
+        assert!(
+            matches!(&outcomes[2], SweepOutcome::Upgraded { name, from, to }
+            if name == "live" && from == "v0.1.0" && to == "v0.2.0")
+        );
+        assert!(matches!(&outcomes[3], SweepOutcome::Pinned { name, tag }
+            if name == "pinned" && tag == "v0.1.0"));
+
+        // The upgraded provider landed atomically: versioned dir,
+        // current pointer, executable payload, fresh receipt.
+        let bin = manager.current_binary("live").expect("current resolves");
+        assert_eq!(
+            std::fs::read(&bin).unwrap(),
+            b"#!/bin/sh\necho live 0.2.0\n"
+        );
+        assert_eq!(manager.receipt("live").unwrap().tag, "v0.2.0");
+        assert!(
+            manager.receipt("dead").unwrap().tag == "v0.1.0",
+            "dead untouched"
+        );
+
+        // --check swaps nothing: a stale receipt reports Stale only.
+        manager
+            .write_receipt(&Receipt {
+                name: "live".into(),
+                source: "acme/live".into(),
+                tag: "v0.1.0".into(),
+                sha256: "seeded".into(),
+                pinned: false,
+                installed_at: None,
+                latest_tag: Some("v0.2.0".into()),
+            })
+            .unwrap();
+        let outcomes = manager.sweep(true, &ui);
+        assert!(
+            matches!(&outcomes[2], SweepOutcome::Stale { name, from, to }
+            if name == "live" && from == "v0.1.0" && to == "v0.2.0"),
+            "got: {outcomes:?}"
+        );
+        assert_eq!(
+            manager.receipt("live").unwrap().tag,
+            "v0.1.0",
+            "dry run swaps nothing"
+        );
     }
 }
