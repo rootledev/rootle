@@ -3,8 +3,25 @@
 User-visible changes per release. Protocol archaeology lives in
 `plans/`; this file is for "what's new for me".
 
-## [0.8.2] — 2026-08-28
+## [0.8.3] — 2026-08-28
 
+### Added
+
+- `rootle update` shows staged progress — resolved, downloading
+  (spinner), verified, extracted, swapped, a timed `0.8.2 → 0.8.3`
+  summary, and a link to the changelog anchor for what's new.
+- Quitting a session whose binary was updated in a shell prints
+  `vX.Y.Z installed — relaunch for it` after the terminal restores.
+
+### Fixed
+
+- The update toast nags once per version per 24h instead of on every
+  launch — the `↑ vX.Y.Z` modeline chip remains the persistent notice,
+  and it never replaces a busy status line. The startup check is
+  skipped entirely in CI, on dumb terminals, and when stdout isn't a
+  terminal.
+
+## [0.8.2] — 2026-08-28
 ### Added
 
 - Preview header band: the full path rides every file preview;
@@ -97,6 +114,7 @@ User-visible changes per release. Protocol archaeology lives in
   fzf prompts, `[ui] border` / `[ui] nerd_font`.
 
 [0.8.2]: https://github.com/rootledev/rootle/releases/tag/v0.8.2
+[0.8.3]: https://github.com/rootledev/rootle/releases/tag/v0.8.3
 [0.8.1]: https://github.com/rootledev/rootle/releases/tag/v0.8.1
 [0.8.0]: https://github.com/rootledev/rootle/releases/tag/v0.8.0
 [0.7.1]: https://github.com/rootledev/rootle/releases/tag/v0.7.1
