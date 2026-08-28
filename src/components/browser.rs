@@ -154,11 +154,12 @@ impl History {
 }
 
 /// Blame lens state (plans/0016 M1c): ranges for one path, fetched on
-/// demand; the marks live in the Preview.
-struct BlameState {
-    path: String,
-    ranges: Vec<crate::provider::BlameRange>,
-    loading: bool,
+/// demand; the marks live in the Preview. Shared with the search
+/// view's expanded pane (0019 parity).
+pub(crate) struct BlameState {
+    pub(crate) path: String,
+    pub(crate) ranges: Vec<crate::provider::BlameRange>,
+    pub(crate) loading: bool,
 }
 
 impl Default for Browser {

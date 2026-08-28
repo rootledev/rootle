@@ -1976,6 +1976,61 @@ fn hit_expand_shows_full_file_at_anchor_and_esc_restores_results() {
     assert!(!screen.contains("6/40"), "readout gone with the pane");
 }
 
+/// 0019 parity: `b` in the expanded pane runs the blame lens there —
+/// the fetch lands, the run margins render in the pane.
+#[test]
+fn expanded_pane_blame_lens_renders() {
+    let mut hit = rootle::components::global_search::SearchHit::plain(
+        "owner/repo",
+        "src/main.rs",
+        2,
+        vec![(2, "let x = 1;".to_string())],
+        1,
+        String::new(),
+    );
+    hit.sha = "blob123".into();
+    hit.branch = "main".into();
+    let mut app = grep_view_on_hit(hit);
+    app.handle_key(key(KeyCode::Enter)); // expand
+    let lines: Vec<_> = (1..=30)
+        .map(|i| ratatui::text::Line::from(format!("src line {i}")))
+        .collect();
+    app.handle_action(rootle::action::Action::HitFileLoaded {
+        repo: "owner/repo".into(),
+        path: "src/main.rs".into(),
+        sha: "blob123".into(),
+        lang: "rust".into(),
+        lines,
+    });
+
+    // `b` opens the lens (fetch in flight), the ranges land, margins
+    // render with the run sha + author.
+    app.handle_key(key(KeyCode::Char('b')));
+    app.handle_app_event(rootle::event::AppEvent::BlameLoaded {
+        path: "src/main.rs".into(),
+        ranges: vec![rootle::provider::BlameRange {
+            start_line: 1,
+            end_line: 30,
+            sha: "abcdef1234".into(),
+            author: "Tarek".into(),
+            date: "2026-08-28".into(),
+        }],
+    });
+    let screen = render(&mut app, 100, 30).join("\n");
+    assert!(
+        screen.contains("abcdef1") || screen.contains("Tarek"),
+        "blame run margins render in the pane:\n{screen}"
+    );
+
+    // `b` again drops the lens.
+    app.handle_key(key(KeyCode::Char('b')));
+    let screen = render(&mut app, 100, 30).join("\n");
+    assert!(
+        !screen.contains("abcdef1"),
+        "second b clears the lens:\n{screen}"
+    );
+}
+
 #[test]
 fn file_pane_find_in_file_reuses_preview_session() {
     let mut hit = rootle::components::global_search::SearchHit::plain(

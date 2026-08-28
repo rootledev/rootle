@@ -209,6 +209,17 @@ impl GlobalSearch {
         if key.code == KeyCode::Char('Y') {
             return Action::PreviewCopy;
         }
+        // 0019 parity with the preview submode: yank the cursor line's
+        // URL, jump by line, blame the file.
+        if key.code == KeyCode::Char('y') {
+            return Action::LeaderYank;
+        }
+        if key.code == KeyCode::Char(':') {
+            return Action::CommandLine;
+        }
+        if key.code == KeyCode::Char('b') {
+            return Action::BlameToggle;
+        }
         if key.code == KeyCode::Esc && exp.preview.clear_visual() {
             return Action::Noop;
         }

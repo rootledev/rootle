@@ -490,8 +490,24 @@ impl App {
                     }
                 } else {
                     let text = crate::sanitize::sanitize(&bytes);
-                    let lines = self.highlighter.highlight(&path, &text);
+                    let mut lines = self.highlighter.highlight(&path, &text);
                     let lang = self.highlighter.language(&path);
+                    // 0019: the expanded pane wears the same match chips
+                    // as the results list — a boundary-aware chip so a
+                    // match straddling syntax spans (half in a comment)
+                    // still shows.
+                    if let Some(view) = &self.search_view
+                        && view.is_grep()
+                    {
+                        let needle = view.query_text().to_lowercase();
+                        if !needle.is_empty() {
+                            let (bg, fg) =
+                                (self.theme.semantic.search_match, self.theme.semantic.crust);
+                            for line in &mut lines {
+                                crate::components::global_search::chip_line(line, &needle, bg, fg);
+                            }
+                        }
+                    }
                     Action::HitFileLoaded {
                         repo,
                         path,
@@ -571,9 +587,20 @@ impl App {
                 self.status = Some(provider_status(&error));
             }
             AppEvent::BlameLoaded { path, ranges } => {
-                self.browser.blame_store(path, ranges);
+                if let Some(view) = &mut self.search_view
+                    && view.blame_loading_for(&path)
+                {
+                    view.blame_store(path, ranges);
+                } else {
+                    self.browser.blame_store(path, ranges);
+                }
             }
-            AppEvent::BlameFailed { path: _, error } => {
+            AppEvent::BlameFailed { path, error } => {
+                if let Some(view) = &mut self.search_view
+                    && view.blame_loading_for(&path)
+                {
+                    view.blame_clear();
+                }
                 self.status = Some(provider_status(&error));
             }
             AppEvent::BlobAtLoaded {
@@ -1012,7 +1039,26 @@ impl App {
                 }
             }
             Action::BlameToggle => {
-                if self.browser.preview.blaming() {
+                // 0019 parity: the search view's expanded pane runs the
+                // same lens at the hit's default branch.
+                if let Some(view) = &mut self.search_view {
+                    if view.blame_active() {
+                        view.blame_clear();
+                    } else if !self.provider.capabilities().blame {
+                        self.status = Some("provider has no blame".into());
+                    } else if !view.blame_toggle_on() {
+                        self.status = Some("blame: preview is not a text file".into());
+                    } else if let Some((repo, path, branch)) = view.blame_needed() {
+                        view.blame_mark_loading(path.clone());
+                        let ref_ = if branch.is_empty() {
+                            None
+                        } else {
+                            Some(branch)
+                        };
+                        self.spawn_blame(repo, path, ref_);
+                        self.status = Some("blame…".into());
+                    }
+                } else if self.browser.preview.blaming() {
                     self.browser.clear_blame();
                 } else if !self.provider.capabilities().blame {
                     // Honest absence (Bitbucket has no blame API).
@@ -1118,9 +1164,9 @@ impl App {
                 // URLs come from the provider — no GitHub grammar
                 // outside the GitHub impl (plans/0005).
                 let url = if let Some(view) = &self.search_view {
-                    view.selected_hit().and_then(|h| {
+                    view.yank_target().and_then(|t| {
                         self.provider
-                            .web_url(&h.repo, &h.path, &h.branch, Some(h.line), None, true)
+                            .web_url(&t.repo, &t.path, &t.branch, t.line, t.end, true)
                             .ok()
                     })
                 } else if let Some((owner, repo)) = self.browser.repo_coords() {

@@ -196,11 +196,11 @@ pub(super) fn line_text(line: &Line) -> String {
     line.spans.iter().map(|s| s.content.as_ref()).collect()
 }
 
-/// Grep: restyle occurrences of `query` inside preview lines with the
-/// theme's match chip (search_match bg, crust fg). Stage 2 will use the
-/// API's text-match ranges instead of re-finding the substring.
-/// Byte offsets come from the lowercased text — exact for ASCII,
-/// cosmetic-only drift on exotic unicode case folds.
+/// Grep: restyle occurrences of `query` with the theme's match chip
+/// (search_match bg, crust fg) — boundary-aware: the needle is found
+/// over the WHOLE line, then spans are split at match edges, so a
+/// match straddling syntax spans (a word half in a comment) still
+/// chips.
 pub fn highlight_matches(
     hits: &mut [SearchHit],
     query: &str,
@@ -211,34 +211,84 @@ pub fn highlight_matches(
     if needle.is_empty() {
         return;
     }
-    let chip = ratatui::style::Style::default()
-        .fg(match_fg)
-        .bg(match_bg)
-        .add_modifier(Modifier::BOLD);
     for hit in hits {
         for (_, line) in &mut hit.preview {
-            let mut spans: Vec<Span<'static>> = Vec::new();
-            for span in &line.spans {
-                let text = span.content.to_string();
-                let lower = text.to_lowercase();
-                let mut at = 0; // byte offset into `text`
-                let mut rest = lower.as_str();
-                while let Some(pos) = rest.find(&needle) {
-                    let (start, end) = (at + pos, at + pos + needle.len());
-                    if start > at {
-                        spans.push(Span::styled(text[at..start].to_string(), span.style));
-                    }
-                    spans.push(Span::styled(text[start..end].to_string(), chip));
-                    at = end;
-                    rest = &lower[end..];
-                }
-                if at < text.len() {
-                    spans.push(Span::styled(text[at..].to_string(), span.style));
-                }
-            }
-            *line = Line::from(spans);
+            chip_line(line, &needle, match_bg, match_fg);
         }
     }
+}
+
+/// One line, one needle: join the spans, find every case-insensitive
+/// occurrence, then rebuild the span list splitting at match edges so
+/// each surviving piece keeps its own syntax style while matches take
+pub fn chip_line(
+    line: &mut Line<'static>,
+    needle: &str,
+    bg: ratatui::style::Color,
+    fg: ratatui::style::Color,
+) {
+    if needle.is_empty() || line.spans.is_empty() {
+        return;
+    }
+    // Case folds that change byte length would misalign the offsets —
+    // skip them (cosmetic loss on exotic unicode, never a panic).
+    let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+    let lower = text.to_lowercase();
+    if lower.len() != text.len() {
+        return;
+    }
+    let mut matches: Vec<(usize, usize)> = Vec::new();
+    let mut rest = lower.as_str();
+    let mut at = 0;
+    while let Some(pos) = rest.find(needle) {
+        matches.push((at + pos, at + pos + needle.len()));
+        at += pos + needle.len();
+        rest = &lower[at..];
+    }
+    if matches.is_empty() {
+        return;
+    }
+    let chip = ratatui::style::Style::default()
+        .fg(fg)
+        .bg(bg)
+        .add_modifier(Modifier::BOLD);
+    // Walk the spans, cutting each at the match edges it overlaps —
+    // surviving pieces keep their syntax style, matches take the chip.
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    let mut offset = 0usize;
+    for span in std::mem::take(&mut line.spans) {
+        let content = span.content;
+        let len = content.len();
+        let (start, end) = (offset, offset + len);
+        let mut piece_start = start;
+        for (m0, m1) in &matches {
+            let (m0, m1) = (*m0, *m1);
+            if m1 <= piece_start || m0 >= end {
+                continue;
+            }
+            let cut_lo = m0.max(piece_start);
+            if cut_lo > piece_start {
+                spans.push(Span::styled(
+                    content[piece_start - start..cut_lo - start].to_string(),
+                    span.style,
+                ));
+            }
+            let cut_hi = m1.min(end);
+            spans.push(Span::styled(
+                content[cut_lo - start..cut_hi - start].to_string(),
+                chip,
+            ));
+            piece_start = cut_hi;
+        }
+        if piece_start < end {
+            spans.push(Span::styled(
+                content[piece_start - start..].to_string(),
+                span.style,
+            ));
+        }
+        offset = end;
+    }
+    line.spans = spans;
 }
 
 #[cfg(test)]
@@ -261,5 +311,67 @@ mod tests {
             .collect();
         assert_eq!(chipped.len(), 2);
         assert!(chipped.iter().all(|s| s.content.as_ref() == "query"));
+    }
+
+    /// Boundary-aware chipping (0019): a needle straddling syntax
+    /// spans still chips, and surviving pieces keep their styles.
+    #[test]
+    fn chip_line_splits_at_match_edges_across_spans() {
+        use ratatui::style::{Modifier, Style};
+        use ratatui::text::{Line, Span};
+
+        // "// comm" + "ent struct x" — `struct` sits in the second
+        // span; a needle split across spans must chip too.
+        let mut line = Line::from(vec![
+            Span::styled("// comm".to_string(), Style::default().fg(Color::Green)),
+            Span::styled(
+                "ent struct x".to_string(),
+                Style::default().fg(Color::Green),
+            ),
+        ]);
+        chip_line(&mut line, "struct", Color::Yellow, Color::Black);
+        let joined: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(joined, "// comment struct x", "text unchanged");
+        let chipped: Vec<&Span> = line
+            .spans
+            .iter()
+            .filter(|s| s.style.bg == Some(Color::Yellow))
+            .collect();
+        assert_eq!(chipped.len(), 1, "one chip: {:?}", line.spans);
+        assert_eq!(chipped[0].content, "struct");
+        assert!(chipped[0].style.add_modifier.contains(Modifier::BOLD));
+        assert!(
+            line.spans
+                .iter()
+                .all(|s| { s.style.bg == Some(Color::Yellow) || s.style.fg == Some(Color::Green) })
+        );
+
+        // Straddling: "ent str" crosses the span boundary.
+        let mut line = Line::from(vec![
+            Span::styled("// comm".to_string(), Style::default().fg(Color::Green)),
+            Span::styled(
+                "ent struct x".to_string(),
+                Style::default().fg(Color::Green),
+            ),
+        ]);
+        chip_line(&mut line, "ent str", Color::Yellow, Color::Black);
+        let chipped: Vec<&Span> = line
+            .spans
+            .iter()
+            .filter(|s| s.style.bg == Some(Color::Yellow))
+            .collect();
+        assert_eq!(
+            chipped.len(),
+            1,
+            "straddling needle still chips: {:?}",
+            line.spans
+        );
+        assert_eq!(chipped[0].content, "ent str");
+
+        // No match: spans untouched.
+        let mut line = Line::from(vec![Span::raw("plain".to_string())]);
+        chip_line(&mut line, "zzz", Color::Yellow, Color::Black);
+        assert_eq!(line.spans.len(), 1);
+        assert_eq!(line.spans[0].content, "plain");
     }
 }
