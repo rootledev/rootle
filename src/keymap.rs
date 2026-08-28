@@ -77,6 +77,9 @@ pub fn hints(mode: Mode) -> &'static [(&'static str, &'static str)] {
 /// these rows are hint-source, dispatch lives with the component.
 pub fn preview_named(code: KeyCode) -> Action {
     match code {
+        // The leader layer raises over the submode, same as over the
+        // search view's file pane.
+        KeyCode::Char(' ') => Action::Leader,
         KeyCode::Char('/') => Action::LeaderFindInFile,
         KeyCode::Char(':') => Action::CommandLine,
         KeyCode::Char('h') => Action::LeaderHistory,
