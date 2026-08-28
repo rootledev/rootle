@@ -393,6 +393,53 @@ fn refs_switcher_preview_commit_revert() {
 /// plans/0016 M1b/M1c: blame lens from real ranges, Enter opens the
 /// history lens at the blamed commit, Enter again opens the file at
 /// that commit, Esc unwinds to the present.
+/// plans/0012 M1 eye candy: the query field restyles grammar tokens —
+/// qualifier keys take the keyword color, quoted literals the string
+/// color, negation markers the invalid color. Cell-level proof, and
+/// plain terms keep the default text color (no bleed).
+#[test]
+fn query_field_restyles_grammar_tokens() {
+    let mut app = browsing_app();
+    app.handle_key(key(KeyCode::Char(' ')));
+    app.handle_key(key(KeyCode::Char('g')));
+    for c in "render -legacy language:rust".chars() {
+        app.handle_key(key(KeyCode::Char(c)));
+    }
+    let backend = TestBackend::new(140, 30);
+    let mut terminal = Terminal::new(backend).unwrap();
+    terminal
+        .draw(|f| {
+            let area = f.area();
+            app.render(f, area);
+        })
+        .unwrap();
+    let buf = terminal.backend().buffer();
+    let syntax = rootle::theme::Theme::catppuccin_mocha().syntax;
+    let row_y = (0..buf.area.height).find(|y| {
+        (0..buf.area.width)
+            .map(|x| buf[(x, *y)].symbol().to_string())
+            .collect::<String>()
+            .contains("render -legacy language:rust")
+    });
+    let y = row_y.expect("the query field row");
+    let text: String = (0..buf.area.width)
+        .map(|x| buf[(x, y)].symbol().to_string())
+        .collect();
+    let fg_at = |needle: &str| {
+        // text is one symbol per cell; ❯ is multi-byte, so the cell
+        // index is the CHAR count before the needle, not its byte offset.
+        let byte_pos = text.find(needle).expect(needle);
+        let x = text[..byte_pos].chars().count() as u16;
+        buf[(x, y)].fg
+    };
+    assert_eq!(fg_at("language"), syntax.keyword, "qualifier key color");
+    assert_eq!(fg_at("-legacy"), syntax.invalid, "negation marker color");
+    assert_eq!(fg_at("rust"), syntax.string, "qualifier value color");
+    // The plain term keeps the default text color — nothing bleeds.
+    let text_fg = rootle::theme::Theme::catppuccin_mocha().semantic.text;
+    assert_eq!(fg_at("render"), text_fg, "plain term color");
+}
+
 /// 0017 M3: a newer release lands the `↑` chip and a one-line status.
 #[test]
 fn update_notice_chips_in_the_modeline() {
@@ -518,9 +565,17 @@ fn preview_submode_zoom_blame_history() {
         ref_: "c7d8e9f0a1b2".into(),
         sha: "f00dbabe".into(),
         bytes: b"[package]\nname = \"ratatui-old\"\n".to_vec(),
+        subject: "refactor(Cargo.toml): extract".into(),
+        author: "mira".into(),
+        date: "2026-07-30".into(),
     });
     let screen = render(&mut app, 140, 30).join("\n");
     assert!(screen.contains("ratatui-old"), "commit content:\n{screen}");
+    // The header band: full path left, commit context right.
+    assert!(
+        screen.contains("refactor(Cargo.toml): extract · mira · 2026-07-30"),
+        "band context missing:\n{screen}"
+    );
     assert!(
         screen.contains("Cargo.toml @ c7d8e9f"),
         "commit marker:\n{screen}"

@@ -43,6 +43,9 @@ pub enum Action {
     LeaderHistory,
     /// `␣ p b` — blame lens over the preview (margin runs), M1c.
     BlameToggle,
+    /// `Y` in a file pane — copy content (the visual selection, else
+    /// the cursor line) to the clipboard (GitHub's copy button).
+    PreviewCopy,
     /// Enter in the preview submode: editor — or the line's commit in
     /// the history lens while blaming.
     PreviewEnter,

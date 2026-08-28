@@ -65,7 +65,7 @@ def test_history_blame_and_open_at_commit(git_tui: Tui) -> None:
     screen = tui.expect("yanked")
     assert "@ " in screen or "#L" not in screen  # sha-anchored, no line
     tui.key("ENTER")  # open at the commit
-    screen = tui.expect("fn main() {}")  # the OLD content
+    screen = tui.expect("initial main.rs · Tarek")  # the band's commit context
     assert "PREVIEW" in screen
     assert " @ " in screen  # commit marker in the title
     # The demo-caught regression: the at-commit view must still be
@@ -74,6 +74,46 @@ def test_history_blame_and_open_at_commit(git_tui: Tui) -> None:
     tui.key("ESC")  # restore the present
     tui.expect('println!("hi")' if "feature" in tui.screen() else "fn main")
     assert " @ " not in tui.screen(), "the marker must not stick after restore"
+
+
+def test_visual_select_copy_and_range_yank(tmp_path, binary) -> None:
+    """vim V in the pane: lines select, Y copies them (via the e2e
+    clipboard file), y yanks a #L2-L4 range URL."""
+    root = make_git_root(tmp_path)
+    clip = tmp_path / "clipboard.txt"
+    config = tmp_path / "p.toml"
+    config.write_text(
+        "[provider]\n"
+        'kind = "stdio"\n'
+        f'command = ["python3", "{FS_PROVIDER}", "{root}"]\n'
+    )
+    tui = Tui(
+        binary,
+        cols=110,
+        rows=30,
+        args=["--config", str(config)],
+        env_extra={"ROOTLE_CLIPBOARD": str(clip)},
+    ).start()
+    try:
+        open_proj(tui)
+        tui.send(" ")
+        tui.send("p")
+        tui.expect("PREVIEW")
+        tui.send("v")  # anchor at line 1
+        tui.send("j")
+        tui.send("j")  # select lines 1-3
+        screen = tui.expect("VISUAL 1-3")
+        assert "VISUAL" in screen
+        tui.send("Y")
+        tui.expect("copied 3 lines")
+        assert clip.read_text() == "fn main() {\n    run();\n}\n"
+
+        # y in visual: the URL anchors the range.
+        tui.send("y")
+        screen = tui.expect("yanked")
+        assert "#L1-L3" in screen, f"range fragment missing: {screen}"
+    finally:
+        tui.stop()
 
 
 def test_blame_lens_marks_runs(git_tui: Tui) -> None:

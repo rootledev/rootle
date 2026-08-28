@@ -158,12 +158,16 @@ pub enum AppEvent {
         path: String,
         error: ProviderError,
     },
-    /// File bytes at a commit (open-at-commit from the history lens).
+    /// File bytes at a commit (open-at-commit from the history lens);
+    /// the commit's subject/author/date dress the header band.
     BlobAtLoaded {
         path: String,
         ref_: String,
         sha: String,
         bytes: Vec<u8>,
+        subject: String,
+        author: String,
+        date: String,
     },
     BlobAtFailed {
         path: String,

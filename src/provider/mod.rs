@@ -371,6 +371,7 @@ pub trait Provider: Send + Sync {
         path: &str,
         branch: &str,
         line: Option<u32>,
+        end: Option<u32>,
         is_file: bool,
     ) -> ProviderResult<String>;
 
@@ -486,6 +487,7 @@ pub fn offline() -> Arc<dyn Provider> {
             _: &str,
             _: &str,
             _: &str,
+            _: Option<u32>,
             _: Option<u32>,
             _: bool,
         ) -> ProviderResult<String> {

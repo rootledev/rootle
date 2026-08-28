@@ -121,7 +121,7 @@ Optional/missing fields noted per method; everything else is required.
 | `repo/log` | `{"repo","path"?,"ref"?,"limit"?}` | `{"items":[…], "truncated"?}` |
 | `repo/blame` | `{"repo","path","ref"?}` | `{"ranges":[…]}` |
 | `repo/clone_url` | `{"repo"}` | `{"clone_url":"…"}` |
-| `repo/web_url` | `{"repo","path","branch","line"}` | `{"url":"…"}` |
+| `repo/web_url` | `{"repo","path","branch","line","end_line"?}` | `{"url":"…"}` |
 | `org/url` | `{"org"}` | `{"url":"…"}` |
 | `search/code` | `{"q"}` | `{"items":[…], "truncated"?:bool}` |
 

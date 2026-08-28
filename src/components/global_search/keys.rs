@@ -201,6 +201,17 @@ impl GlobalSearch {
         let Some(exp) = &mut self.expanded else {
             return Action::Noop;
         };
+        // vim V + copy lines (pane-local, same engine as ␣ p).
+        if key.code == KeyCode::Char('v') {
+            exp.preview.toggle_visual();
+            return Action::Noop;
+        }
+        if key.code == KeyCode::Char('Y') {
+            return Action::PreviewCopy;
+        }
+        if key.code == KeyCode::Esc && exp.preview.clear_visual() {
+            return Action::Noop;
+        }
         // vim vertical motions (plans/0016 M1) — the same engine the
         // preview submode uses.
         if exp.preview.motion_key(key) {

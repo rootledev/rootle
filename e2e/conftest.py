@@ -110,7 +110,13 @@ def make_git_root(tmp: Path) -> Path:
                        capture_output=True)
 
     git("init", "-b", "main")
-    (proj / "main.rs").write_text("fn main() {}\n")
+    (proj / "main.rs").write_text(
+        "fn main() {\n"
+        "    run();\n"
+        "}\n"
+        "\n"
+        "fn run() {}\n"
+    )
     git("add", ".")
     git("commit", "-qm", "initial main.rs")
     git("checkout", "-qb", "feature")

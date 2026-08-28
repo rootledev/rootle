@@ -563,6 +563,9 @@ impl App {
                 ref_,
                 sha,
                 bytes,
+                subject,
+                author,
+                date,
             } => {
                 // Open-at-commit: style like every blob, but show it
                 // directly — the tree cursor still names the
@@ -580,7 +583,14 @@ impl App {
                 let name = format!("{path} @ {short}");
                 let lines = self.highlighter.highlight(&path, &text);
                 let lang = self.highlighter.language(&path);
-                self.browser.show_at_commit(&sha, &name, &lang, text, lines);
+                let band = crate::components::preview::BandContext {
+                    sha: short,
+                    subject,
+                    author,
+                    date,
+                };
+                self.browser
+                    .show_at_commit(&sha, &name, &lang, text, lines, Some(band));
                 // The lens' work is done — the commit's content is up.
                 self.browser.close_history();
                 self.history_return = Some(Mode::Preview);
@@ -920,6 +930,23 @@ impl App {
                     self.mode = Mode::Preview;
                 }
             }
+            Action::PreviewCopy => {
+                // GitHub's copy button: the visual selection, else the
+                // cursor line — from whichever file pane is up.
+                let target = if let Some(view) = &mut self.search_view {
+                    view.expanded_copy_target()
+                } else {
+                    self.browser.preview.copy_target()
+                };
+                match target {
+                    Some((text, n)) => {
+                        self.pending_clipboard = Some(text);
+                        self.status =
+                            Some(format!("copied {n} line{}", if n == 1 { "" } else { "s" }));
+                    }
+                    None => self.status = Some("nothing to copy".into()),
+                }
+            }
             Action::ExitPreview => {
                 // The commit-view ladder: Esc restores the present-day
                 // blob first, exits the submode second.
@@ -983,10 +1010,14 @@ impl App {
                 // commit sha as its ref.
                 let target = self.browser.repo_coords().zip(self.browser.history_pick());
                 if let Some(((owner, name), (path, sha))) = target {
-                    match self
-                        .provider
-                        .web_url(&format!("{owner}/{name}"), &path, &sha, None, true)
-                    {
+                    match self.provider.web_url(
+                        &format!("{owner}/{name}"),
+                        &path,
+                        &sha,
+                        None,
+                        None,
+                        true,
+                    ) {
                         Ok(u) => {
                             self.pending_clipboard = Some(u.clone());
                             self.status = Some(format!("yanked {u}"));
@@ -1001,9 +1032,17 @@ impl App {
                 // Open the file at the picked commit — bytes land via
                 // BlobAtLoaded; the restore point is noted there.
                 let target = self.browser.repo_coords().zip(self.browser.history_pick());
-                if let Some(((owner, name), (path, sha))) = target {
-                    self.spawn_blob_at(format!("{owner}/{name}"), path, sha);
-                    self.status = Some("opening at commit…".into());
+                let entry = self.browser.history_pick_entry();
+                if let (Some(((owner, name), (path, sha))), Some(entry)) = (target, entry) {
+                    self.spawn_blob_at(
+                        format!("{owner}/{name}"),
+                        path,
+                        sha,
+                        entry.subject,
+                        entry.author,
+                        entry.date,
+                    );
+                    self.status = Some("opening at commit".into());
                 }
             }
             Action::HistoryClose => {
@@ -1026,7 +1065,7 @@ impl App {
                 let url = if let Some(view) = &self.search_view {
                     view.selected_hit().and_then(|h| {
                         self.provider
-                            .web_url(&h.repo, &h.path, &h.branch, Some(h.line), true)
+                            .web_url(&h.repo, &h.path, &h.branch, Some(h.line), None, true)
                             .ok()
                     })
                 } else if let Some((owner, repo)) = self.browser.repo_coords() {
@@ -1037,15 +1076,23 @@ impl App {
                         None => (self.browser.dir_path(), false),
                     };
                     let branch = self.browser.branch().unwrap_or("");
-                    // File yank anchors to the preview line cursor
-                    // (plans/0006 §5); dirs/orgs stay line-less.
-                    let line = if is_file {
-                        self.browser.preview_line()
+                    // File yank anchors to the preview line cursor —
+                    // or the visual range as `#L3-L7` (v1.5); dirs/orgs
+                    // stay line-less.
+                    let (line, end) = if is_file {
+                        self.browser.yank_anchor()
                     } else {
-                        None
+                        (None, None)
                     };
                     self.provider
-                        .web_url(&format!("{owner}/{repo}"), &path, branch, line, is_file)
+                        .web_url(
+                            &format!("{owner}/{repo}"),
+                            &path,
+                            branch,
+                            line,
+                            end,
+                            is_file,
+                        )
                         .ok()
                 } else {
                     self.browser
