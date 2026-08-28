@@ -174,8 +174,11 @@ pub enum AppEvent {
         error: ProviderError,
     },
     /// Startup update check (0017 M3): a newer release tag exists.
+    /// `toast` (0018 M2): the once-a-day status nag was still due
+    /// when the worker consumed it — the chip shows either way.
     UpdateAvailable {
         tag: String,
+        toast: bool,
     },
 }
 

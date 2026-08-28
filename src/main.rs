@@ -27,10 +27,12 @@ fn main() -> io::Result<()> {
         return Ok(());
     }
 
-    // Self-update (plans/0017 M2): same run-and-exit shape.
+    // Self-update (plans/0017 M2, 0018 M1): same run-and-exit shape —
+    // the stage UI renders on stderr, `Some(line)` is stdout's share.
     if cli.update {
         match rootle::update::update(cli.check) {
-            Ok(line) => println!("{line}"),
+            Ok(Some(line)) => println!("{line}"),
+            Ok(None) => {}
             Err(e) => {
                 eprintln!("update: {e}");
                 std::process::exit(1);
@@ -62,7 +64,14 @@ fn main() -> io::Result<()> {
     // Restore the user's cursor shape — never leave it mutated (PLAN.md §5).
     stdout().execute(SetCursorStyle::DefaultUserShape)?;
     stdout().execute(LeaveAlternateScreen)?;
-    result
+    // 0018 M3: the restart trace lands on the real screen, after the
+    // alternate screen is gone.
+    match result {
+        Ok(Some(line)) => println!("{line}"),
+        Ok(None) => {}
+        Err(e) => return Err(e),
+    }
+    Ok(())
 }
 
 /// SIGTERM/SIGINT set this; the poll loop exits through the normal
@@ -73,7 +82,10 @@ fn terminated_flag() -> &'static std::sync::Arc<std::sync::atomic::AtomicBool> {
     FLAG.get_or_init(|| std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)))
 }
 
-fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cli: Cli) -> io::Result<()> {
+fn run(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    cli: Cli,
+) -> io::Result<Option<String>> {
     {
         use signal_hook::consts::{SIGINT, SIGTERM};
         let _ = signal_hook::flag::register(SIGTERM, terminated_flag().clone());
@@ -164,7 +176,9 @@ fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cli: Cli) -> io::R
         }
 
         if app.should_quit || terminated_flag().load(std::sync::atomic::Ordering::Relaxed) {
-            return Ok(());
+            // 0018 M3: compare the on-disk binary once, post-update
+            // sessions only — main prints it after terminal restore.
+            return Ok(app.update_exit_note());
         }
     }
 }

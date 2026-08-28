@@ -440,12 +440,15 @@ fn query_field_restyles_grammar_tokens() {
     assert_eq!(fg_at("render"), text_fg, "plain term color");
 }
 
-/// 0017 M3: a newer release lands the `↑` chip and a one-line status.
+/// 0017 M3 + 0018 M2: a newer release lands the `↑` chip; the toast
+/// rides the event (once-a-day, worker-side) and never fires without
+/// the flag.
 #[test]
 fn update_notice_chips_in_the_modeline() {
     let mut app = browsing_app();
     app.handle_app_event(rootle::event::AppEvent::UpdateAvailable {
         tag: "v9.9.9".into(),
+        toast: true,
     });
     let screen = render(&mut app, 100, 30).join("\n");
     assert!(
@@ -455,6 +458,25 @@ fn update_notice_chips_in_the_modeline() {
     assert!(
         screen.contains("rootle v9.9.9 is out"),
         "status line missing:\n{screen}"
+    );
+}
+
+/// 0018 M2: the spent toast quota leaves the chip, drops the status.
+#[test]
+fn update_notice_chip_persists_without_the_toast() {
+    let mut app = browsing_app();
+    app.handle_app_event(rootle::event::AppEvent::UpdateAvailable {
+        tag: "v9.9.9".into(),
+        toast: false,
+    });
+    let screen = render(&mut app, 100, 30).join("\n");
+    assert!(
+        screen.contains("↑ v9.9.9"),
+        "modeline chip missing:\n{screen}"
+    );
+    assert!(
+        !screen.contains("is out"),
+        "toast should be spent:\n{screen}"
     );
 }
 
