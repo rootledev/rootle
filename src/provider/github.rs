@@ -185,6 +185,11 @@ impl Provider for GitHubProvider {
         })
     }
 
+    fn source_tarball(&self, repo: &str) -> ProviderResult<Vec<u8>> {
+        split_repo(repo)?;
+        self.client.source_tarball(repo)
+    }
+
     /// v1.3 progressive (plans/0011): stream `search/code` pages as
     /// they arrive — the first 100 render while later pages fetch.
     /// Budget: 3 pages × 100 (rate-conscious); GitHub caps code search

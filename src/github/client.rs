@@ -363,6 +363,34 @@ impl Client {
         Ok((resp.items, resp.total_count))
     }
 
+    /// The default branch's source as a gzip tarball (api.github.com
+    /// 302s to codeload). Capped — a repo past this size is not a
+    /// fallback candidate.
+    pub fn source_tarball(&self, repo: &str) -> ProviderResult<Vec<u8>> {
+        const CAP: u64 = 64 * 1024 * 1024;
+        let url = format!("{API}/repos/{repo}/tarball");
+        let mut req = self.http.get(&url);
+        if let Some(token) = &self.token {
+            req = req.bearer_auth(token);
+        }
+        let mut resp = req.send().map_err(classify_send)?;
+        if !resp.status().is_success() {
+            return Err(classify_status(resp));
+        }
+        if let Some(len) = resp.content_length()
+            && len > CAP
+        {
+            return Err(ProviderError::other(format!(
+                "tarball too large for local grep ({len} bytes)"
+            )));
+        }
+        let mut bytes = Vec::new();
+        let mut capped = std::io::Read::take(&mut resp, CAP);
+        std::io::Read::read_to_end(&mut capped, &mut bytes)
+            .map_err(|e| ProviderError::other(e.to_string()))?;
+        Ok(bytes)
+    }
+
     /// GET with an explicit Accept header (text-match fragments).
     fn get_accept<T: serde::de::DeserializeOwned>(
         &self,
