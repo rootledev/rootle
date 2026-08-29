@@ -172,6 +172,21 @@ impl StdioProvider {
         }
         drop(routing);
         self.shared.changed.notify_all();
+        // 0022 M1: mid-session health — a failure streak surfaces
+        // once (the app's sticky degraded slot), never per attempt.
+        match outcome {
+            Ok(()) => *self.failure_noticed.lock() = false,
+            Err(e) => {
+                let mut noticed = self.failure_noticed.lock();
+                if !*noticed {
+                    *noticed = true;
+                    *self.notice.lock() = Some(format!(
+                        "provider keeps failing to restart ({}) — running without it",
+                        e.message
+                    ));
+                }
+            }
+        }
     }
 }
 

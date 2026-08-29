@@ -19,6 +19,7 @@ fn fake_provider_child() {
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout();
     let mut handshaken = false;
+
     // "swap-2-3": id 2's reply is held back until id 3 arrives, then
     // answered after it — replies arrive out of request order.
     let mut stashed: Option<u64> = None;
@@ -31,11 +32,36 @@ fn fake_provider_child() {
             .as_str()
             .unwrap_or_default()
             .to_string();
+        if mode == "die-on-reinit" && method != "initialize" && handshaken {
+            // gen-1 dies serving the first real request; every later
+            // initialize (the rebuild's re-handshake) dies too.
+            std::process::exit(0);
+        }
         // initialize may arrive on every process generation AND again
         // when rootle re-handshakes with fresh advisory params — a
         // conforming provider answers each one (restart obligations).
         if method == "initialize" {
+            // "die-on-reinit": the first initialize answers (the
+            // constructor handshake), every later one dies — every
+            // rebuild's handshake proof fails (0022 M1's streak).
             handshaken = true;
+            // "die-on-reinit": only the FIRST initialize anywhere in
+            // this test run answers (the constructor's); every later
+            // generation's handshake proof fails. Cross-generation
+            // state rides a counter file (each child is a fresh
+            // process, so in-memory flags can't do it).
+            if mode == "die-on-reinit" {
+                let run_id = std::env::var("ROOTLE_FAKE_RUN_ID").unwrap_or_default();
+                let counter = std::env::temp_dir().join(format!("rootle-die-reinit-{run_id}"));
+                let n: u32 = std::fs::read_to_string(&counter)
+                    .ok()
+                    .and_then(|s| s.trim().parse().ok())
+                    .unwrap_or(0);
+                std::fs::write(&counter, (n + 1).to_string()).unwrap();
+                if n >= 1 {
+                    std::process::exit(0);
+                }
+            }
             let params: serde_json::Value = serde_json::from_str(&line).unwrap();
             if mode == "echo-init"
                 && params
@@ -81,6 +107,9 @@ fn fake_provider_child() {
             // requests — models a single lost/hung backend call.
             "hang-on-2" if id == 2 => {}
             "die-on-2" if id == 2 => std::process::exit(0),
+            // Dies the moment it spawns: the handshake never lands —
+            // every rebuild fails (0022 M1's failure streak).
+            "die-now" => std::process::exit(0),
             // Error taxonomy: each id answers with a differently
             // kinded error (plans/0008 §2).
             "error-kinds" => {
@@ -219,8 +248,16 @@ pub(super) fn fake(mode: &str, timeout: Duration) -> StdioProvider {
         "--exact".to_string(),
         "--nocapture".to_string(),
     ];
-    StdioProvider::spawn_with_env(&argv, timeout, &[("ROOTLE_FAKE_PROVIDER", mode)])
-        .expect("fake provider spawns + initializes")
+    let run_id = std::process::id().to_string();
+    StdioProvider::spawn_with_env(
+        &argv,
+        timeout,
+        &[
+            ("ROOTLE_FAKE_PROVIDER", mode),
+            ("ROOTLE_FAKE_RUN_ID", run_id.as_str()),
+        ],
+    )
+    .expect("fake provider spawns + initializes")
 }
 
 #[test]
