@@ -146,8 +146,6 @@ impl BorderShape {
 }
 
 /// One role override as a (name, hex) pair — the embedded palettes and
-/// palette files share this shape via `set_role`.
-
 /// Catppuccin Mocha, the baseline. Unlisted roles in the other palettes
 /// inherit from here — every embedded theme is complete anyway, the
 /// inheritance exists for future partial palettes.
@@ -410,7 +408,7 @@ mod tests {
     fn embedded_palettes_all_load_and_differ() {
         let mocha = Theme::catppuccin_mocha();
         let mut bases = vec![mocha.semantic.base];
-        for (name, roles, _) in EMBEDDED {
+        for (name, roles, _) in palettes::EMBEDDED {
             let theme = Theme::embedded(name).expect("embedded theme loads");
             if roles.is_empty() {
                 continue; // mocha baseline
@@ -458,7 +456,7 @@ mod tests {
     #[test]
     fn embedded_palettes_have_spec_syntax() {
         let mocha = Theme::catppuccin_mocha().syntax;
-        for (name, roles, syntax) in EMBEDDED {
+        for (name, roles, syntax) in palettes::EMBEDDED {
             let theme = Theme::embedded(name).expect("embedded theme loads");
             if syntax.is_empty() {
                 continue; // mocha baseline
