@@ -199,7 +199,6 @@ impl Browser {
     /// tree cursor's sha is the present-day one — but cache the bytes
     /// so switching back and forth stays free.
     #[allow(clippy::too_many_arguments)]
-
     /// VISUAL mode on: checkboxes appear on every pane.
     pub fn enter_visual(&mut self) {
         self.visual = true;
