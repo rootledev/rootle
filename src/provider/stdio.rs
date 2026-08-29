@@ -67,6 +67,9 @@ pub struct StdioProvider {
     /// One-shot UI notice (a successful restart, a config warning),
     /// drained via `take_notice` (plans/0008 §5).
     notice: Mutex<Option<String>>,
+    /// 0022 M1: a rebuild-failure streak notices once per streak
+    /// (reset on recovery) — not once per attempt.
+    failure_noticed: Mutex<bool>,
     /// Set by Drop: a rebuild sleeping in backoff checks this before
     /// spawning a replacement, so dropping the provider mid-recovery
     /// can't leak an orphan child after the app is gone. Drop can't
@@ -187,6 +190,7 @@ impl StdioProvider {
             stderr_mode,
             reader: Mutex::new(Some(reader)),
             notice: Mutex::new(None),
+            failure_noticed: Mutex::new(false),
             closed: AtomicBool::new(false),
             cache_bytes: 0,
             cache_dir: None,

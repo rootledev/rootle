@@ -384,9 +384,13 @@ impl App {
         // uniformly at the end of every route.
         self.maybe_load_blob();
 
-        // Provider notices (a stdio child's successful restart) ride
-        // the status line once (plans/0008 §5).
+        // Provider notices ride the status line once (plans/0008 §5).
+        // 0022 M1: a restart-failure streak goes sticky; successes
+        // stay transient.
         if let Some(note) = self.provider.take_notice() {
+            if note.contains("keeps failing to restart") {
+                self.degraded = Some(note.clone());
+            }
             self.status = Some(note);
         }
     }

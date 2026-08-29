@@ -232,3 +232,27 @@ fn backoff_ladder() {
     assert_eq!(super::backoff_for(3), Duration::from_secs(5));
     assert_eq!(super::backoff_for(9), Duration::from_secs(30));
 }
+
+/// 0022 M1: a provider that dies on every spawn notices the failure
+/// streak ONCE — the sticky degraded surface, never per attempt.
+#[test]
+fn failure_streak_notices_once() {
+    // "die-on-reinit": the child exits before the handshake — every
+    // rebuild fails its proof. Construction itself handshakes lazily,
+    // so the machine only discovers death on the first request.
+    let provider = fake("die-on-reinit", Duration::from_secs(1));
+    // Two independent requests = two rebuild attempts, one notice.
+    let _ = provider.request("org/repos", json!({ "org": "o" }));
+    let _ = provider.request("org/repos", json!({ "org": "o" }));
+    let notice = provider
+        .take_notice()
+        .expect("a failing streak leaves a notice");
+    assert!(
+        notice.contains("keeps failing to restart"),
+        "streak notice: {notice}"
+    );
+    assert!(
+        provider.take_notice().is_none(),
+        "the streak notices once, not per attempt"
+    );
+}
