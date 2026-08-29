@@ -3,6 +3,20 @@
 User-visible changes per release. Protocol archaeology lives in
 `plans/`; this file is for "what's new for me".
 
+## [0.8.6] — 2026-08-29
+
+### Added
+
+- Fallbacks are never quiet: a degraded provider (spawn failure,
+  bad config, tarball-kind, missing data dir) leaves a sticky modeline
+  notice naming the provider and cause — transient statuses overlay
+  but never erase it, and the forge chip tints warning until the
+  declaration succeeds.
+- The provider health prompt: when the configured provider won't
+  start, rootle asks — `r` retry once, `g` browse github (sticky
+  notice stays), `e` edit the config in your editor. Kinds that can't
+  be retried (plain-HTTP tarball refs) offer `g`/`e` only.
+
 ## [0.8.5] — 2026-08-29
 
 ### Added
@@ -170,6 +184,7 @@ User-visible changes per release. Protocol archaeology lives in
 - Chrome: powerline modeline (Nerd Font opt-in), bat-style gutters,
   fzf prompts, `[ui] border` / `[ui] nerd_font`.
 
+[0.8.6]: https://github.com/rootledev/rootle/releases/tag/v0.8.6
 [0.8.5]: https://github.com/rootledev/rootle/releases/tag/v0.8.5
 [0.8.4]: https://github.com/rootledev/rootle/releases/tag/v0.8.4
 [0.8.2]: https://github.com/rootledev/rootle/releases/tag/v0.8.2
