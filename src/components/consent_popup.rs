@@ -15,8 +15,15 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 
+/// What the popup is asking about (0022 M2): install a missing
+/// declared provider, or repair one that fails to start.
+pub enum ConsentKind {
+    Install(Declaration),
+    Health(crate::provider::HealthIssue),
+}
+
 pub struct ConsentPopup {
-    decl: Declaration,
+    kind: ConsentKind,
     /// None = asking; Some(Installing) = worker running;
     /// Some(Failed) = refused, Esc closes.
     state: Option<DeclarationState>,
@@ -24,11 +31,32 @@ pub struct ConsentPopup {
 
 impl ConsentPopup {
     pub fn new(decl: Declaration) -> Self {
-        ConsentPopup { decl, state: None }
+        ConsentPopup {
+            kind: ConsentKind::Install(decl),
+            state: None,
+        }
+    }
+
+    /// The health variant (0022 M2): a provider that won't start.
+    pub fn health(issue: crate::provider::HealthIssue) -> Self {
+        ConsentPopup {
+            kind: ConsentKind::Health(issue),
+            state: None,
+        }
     }
 
     pub fn declaration(&self) -> &Declaration {
-        &self.decl
+        match &self.kind {
+            ConsentKind::Install(d) => d,
+            ConsentKind::Health(_) => unreachable!("health popup has no declaration"),
+        }
+    }
+
+    pub fn health_issue(&self) -> Option<&crate::provider::HealthIssue> {
+        match &self.kind {
+            ConsentKind::Health(h) => Some(h),
+            ConsentKind::Install(_) => None,
+        }
     }
 
     /// Worker state landing (via `Action::DeclarationState`).
@@ -37,76 +65,34 @@ impl ConsentPopup {
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) -> Action {
-        match (key.code, &self.state) {
-            (KeyCode::Char('y'), None) => Action::DeclarationAccept,
-            (KeyCode::Char('n') | KeyCode::Esc, _) => Action::DeclarationDecline,
-            // While installing or after a failure only Esc/n leave;
-            // everything else is a Noop the app ignores.
+        let retryable = self.health_issue().is_some_and(|h| h.retryable);
+        match (&self.kind, key.code, &self.state) {
+            (ConsentKind::Install(_), KeyCode::Char('y'), None) => Action::DeclarationAccept,
+            (ConsentKind::Install(_), KeyCode::Char('n') | KeyCode::Esc, _) => {
+                Action::DeclarationDecline
+            }
+            // 0022 M2 health: r retries (when sensible), g degrades to
+            // github, e opens the config in the editor.
+            (ConsentKind::Health(_), KeyCode::Char('r'), _) if retryable => {
+                Action::DeclarationRetry
+            }
+            (ConsentKind::Health(_), KeyCode::Char('g') | KeyCode::Esc, _) => {
+                Action::DeclarationDecline
+            }
+            (ConsentKind::Health(_), KeyCode::Char('e'), _) => Action::DeclarationEditConfig,
             _ => Action::Noop,
         }
     }
 
     pub fn render(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
         let sem = &theme.semantic;
-        let area = centered(area, 64, 40);
-        let decl = &self.decl;
-        let mut lines = vec![
-            Line::from(vec![
-                Span::styled("config declares ", Style::default().fg(sem.subtext0)),
-                Span::styled(
-                    decl.name.clone(),
-                    Style::default().fg(sem.text).add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(
-                    " — not installed on this machine",
-                    Style::default().fg(sem.subtext0),
-                ),
-            ]),
-            Line::from(vec![
-                Span::styled("source  ", Style::default().fg(sem.subtext0)),
-                Span::styled(decl.repo.clone(), Style::default().fg(sem.text)),
-            ]),
-        ];
-        if decl.tag.is_some() || decl.sha.is_some() {
-            let pins = [
-                decl.tag.clone().map(|t| format!("tag {t}")),
-                decl.sha.is_some().then(|| "sha256".to_string()),
-            ]
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>()
-            .join(" · ");
-            lines.push(Line::from(vec![
-                Span::styled("pins    ", Style::default().fg(sem.subtext0)),
-                Span::styled(pins, Style::default().fg(sem.warning)),
-            ]));
-        }
-        lines.push(Line::raw(""));
-        lines.push(Line::from(Span::styled(
-            format!(
-                "you are trusting {} — the tarball is sha256-verified{} before anything runs",
-                decl.repo,
-                if decl.sha.is_some() {
-                    " against your config's pin and its sidecar"
-                } else {
-                    " against its release sidecar"
-                }
-            ),
-            Style::default().fg(sem.hint),
-        )));
+        let area = centered(area, 64, 50);
+        let mut lines = match &self.kind {
+            ConsentKind::Health(issue) => health_lines(issue, sem),
+            ConsentKind::Install(decl) => install_lines(decl, sem),
+        };
         match &self.state {
-            None => lines.push(Line::from(vec![
-                Span::styled(
-                    "y",
-                    Style::default().fg(sem.text).add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(" install  ·  ", Style::default().fg(sem.subtext0)),
-                Span::styled(
-                    "n",
-                    Style::default().fg(sem.text).add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(" browse github instead", Style::default().fg(sem.subtext0)),
-            ])),
+            None => {}
             Some(DeclarationState::Installing) => lines.push(Line::from(Span::styled(
                 "installing — verified download running…",
                 Style::default().fg(sem.hint),
@@ -122,12 +108,16 @@ impl ConsentPopup {
                 )));
             }
         }
+        let title = match &self.kind {
+            ConsentKind::Health(_) => " provider health ",
+            ConsentKind::Install(_) => " install provider? ",
+        };
         let block = Block::default()
             .borders(Borders::ALL)
             .border_type(theme.border_type())
             .border_style(Style::default().fg(sem.border_focused))
             .title(Span::styled(
-                " install provider? ",
+                title,
                 Style::default().fg(sem.text).add_modifier(Modifier::BOLD),
             ));
         frame.render_widget(Clear, area);
@@ -138,6 +128,95 @@ impl ConsentPopup {
             area,
         );
     }
+}
+
+/// Install-variant rows (moved verbatim from the single-kind popup).
+fn install_lines(decl: &Declaration, sem: &crate::theme::Semantic) -> Vec<Line<'static>> {
+    let mut lines = vec![
+        Line::from(vec![
+            Span::styled("config declares ", Style::default().fg(sem.subtext0)),
+            Span::styled(
+                decl.name.clone(),
+                Style::default().fg(sem.text).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                " — not installed on this machine",
+                Style::default().fg(sem.subtext0),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("source  ", Style::default().fg(sem.subtext0)),
+            Span::styled(decl.repo.clone(), Style::default().fg(sem.text)),
+        ]),
+    ];
+    if decl.tag.is_some() || decl.sha.is_some() {
+        let pins = [
+            decl.tag.clone().map(|t| format!("tag {t}")),
+            decl.sha.is_some().then(|| "sha256".to_string()),
+        ]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(" · ");
+        lines.push(Line::from(vec![
+            Span::styled("pins    ", Style::default().fg(sem.subtext0)),
+            Span::styled(pins, Style::default().fg(sem.warning)),
+        ]));
+    }
+    lines.push(Line::raw(""));
+    lines.push(Line::from(Span::styled(
+        format!(
+            "you are trusting {} — the tarball is sha256-verified{} before anything runs",
+            decl.repo,
+            if decl.sha.is_some() {
+                " against your config's pin and its sidecar"
+            } else {
+                " against its release sidecar"
+            }
+        ),
+        Style::default().fg(sem.hint),
+    )));
+    lines.push(Line::from(vec![
+        Span::styled(
+            "y",
+            Style::default().fg(sem.text).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(" install  ·  ", Style::default().fg(sem.subtext0)),
+        Span::styled(
+            "n",
+            Style::default().fg(sem.text).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(" browse github instead", Style::default().fg(sem.subtext0)),
+    ]));
+    lines
+}
+
+/// Health-variant rows (0022 M2): name the provider, show the error,
+/// offer the three choices.
+fn health_lines(
+    issue: &crate::provider::HealthIssue,
+    sem: &crate::theme::Semantic,
+) -> Vec<Line<'static>> {
+    let choices = if issue.retryable {
+        "r retry once  ·  g browse github  ·  e edit config"
+    } else {
+        "g browse github  ·  e edit config"
+    };
+    vec![
+        Line::from(vec![
+            Span::styled(
+                issue.name.clone(),
+                Style::default().fg(sem.text).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(" failed to start", Style::default().fg(sem.error)),
+        ]),
+        Line::from(vec![
+            Span::styled("error   ", Style::default().fg(sem.subtext0)),
+            Span::styled(issue.error.clone(), Style::default().fg(sem.text)),
+        ]),
+        Line::raw(""),
+        Line::from(Span::styled(choices, Style::default().fg(sem.subtext0))),
+    ]
 }
 
 #[cfg(test)]

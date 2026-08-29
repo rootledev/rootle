@@ -152,7 +152,16 @@ impl App {
         let mut app = Self::build(State::load(), tx, provider, false, config, theme);
         match outcome {
             provider::BuildOutcome::Ready => {}
-            provider::BuildOutcome::Warn(warning) => app.status = Some(warning),
+            // 0022 M1: fallbacks stay visible — sticky, not transient.
+            provider::BuildOutcome::Warn(warning) => {
+                app.degraded = Some(warning.clone());
+                app.status = Some(warning);
+            }
+            // 0022 M2: the health prompt — retry / browse github /
+            // edit config. github carries the session meanwhile.
+            provider::BuildOutcome::Health(issue) => {
+                app.consent = Some(ConsentPopup::health(issue));
+            }
             // 0019 M2: a declared provider is missing — ask, never
             // silently download-and-run. github carries the session
             // while the popup is up.
@@ -233,6 +242,7 @@ impl App {
                 context: String::new(),
                 status: None,
                 update_tag: None,
+                degraded: false,
             },
             theme,
             config,
@@ -459,6 +469,17 @@ impl App {
         }
     }
 
+    /// Test hooks (0022): simulate a fallback outcome. (Integration
+    /// tests link the lib without cfg(test) — plain pub like App::with.)
+    pub fn set_degraded_for_test(&mut self, note: String) {
+        self.degraded = Some(note.clone());
+        self.status = Some(note);
+    }
+
+    pub fn clear_status_for_test(&mut self) {
+        self.status = None;
+    }
+
     /// 0018 M3: the quit-time restart trace — only when this session
     /// knew about an update (the `↑` chip), compare the on-disk
     /// binary once. The caller prints it after terminal restore.
@@ -535,6 +556,8 @@ impl App {
         self.modeline.status = self.status.clone().or_else(|| self.degraded.clone());
         let modeline_row = rows[rows.len() - 1];
         self.modeline.update_tag = self.update_tag.clone();
+        // 0022 M3: the forge chip tints warning while degraded.
+        self.modeline.degraded = self.degraded.is_some();
         self.modeline.render(frame, modeline_row, mode, &theme);
 
         if let Some(popup) = &mut self.popup {

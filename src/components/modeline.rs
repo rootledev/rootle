@@ -73,6 +73,9 @@ pub struct Modeline {
     /// A newer release tag when the startup check found one (0017 M3)
     /// — an accent ` ↑ vX.Y.Z ` before the keys affordance.
     pub update_tag: Option<String>,
+    /// 0022 M3: running on a fallback provider (degraded) — the forge
+    /// chip tints warning until the declaration succeeds.
+    pub degraded: bool,
 }
 
 impl Default for Modeline {
@@ -89,6 +92,7 @@ impl Modeline {
             context: String::new(),
             status: None,
             update_tag: None,
+            degraded: false,
         }
     }
 
@@ -127,7 +131,14 @@ impl Modeline {
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(arrow, Style::default().fg(chip_bg).bg(sem.forge)),
-            Span::styled(forge_text, Style::default().fg(sem.crust).bg(sem.forge)),
+            Span::styled(
+                forge_text,
+                Style::default().fg(sem.crust).bg(if self.degraded {
+                    sem.warning
+                } else {
+                    sem.forge
+                }),
+            ),
             Span::styled(arrow, Style::default().fg(sem.forge).bg(sem.mantle)),
         ];
 
@@ -283,6 +294,7 @@ mod tests {
             context: "ratatui/ratatui · main".into(),
             status: None,
             update_tag: None,
+            degraded: false,
         }
     }
 

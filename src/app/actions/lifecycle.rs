@@ -3,10 +3,11 @@
 //! change).
 
 use super::super::trace;
-use super::super::{App, provider_status};
+use super::super::{App, provider, provider_status};
 use crate::action::Action;
 use crate::components::clone_wizard::CloneWizard;
 use crate::components::command_line::CommandLine;
+use crate::components::consent_popup::ConsentPopup;
 use crate::components::keybinds_popup::KeybindsPopup;
 use crate::components::settings_popup::SettingsPopup;
 use crate::mode::Mode;
@@ -151,7 +152,12 @@ impl App {
             }
             Action::DeclarationDecline => {
                 if let Some(consent) = self.consent.take() {
-                    let name = consent.declaration().name.clone();
+                    // 0022: the health popup names its issue, the install
+                    // popup its declaration — both decline to github.
+                    let name = match consent.health_issue() {
+                        Some(issue) => issue.name.clone(),
+                        None => consent.declaration().name.clone(),
+                    };
                     // Honest degraded mode: the fallback is named, the
                     // declaration stays in the config, the retry is a
                     // command away — and the notice is sticky.
@@ -191,6 +197,52 @@ impl App {
                             self.status = Some(format!("yanked {u}"));
                         }
                         Err(e) => self.status = Some(provider_status(&e)),
+                    }
+                }
+                true
+            }
+            // 0022 M2 health prompt: retry the spawn once — rebuild
+            // the provider; swap it in on success, show the error on
+            // failure (the popup stays up).
+            Action::DeclarationRetry => {
+                let (provider, outcome) = provider::build(&self.config);
+                match outcome {
+                    provider::BuildOutcome::Ready | provider::BuildOutcome::Warn(_) => {
+                        self.provider = provider;
+                        self.consent = None;
+                        self.degraded = None;
+                        self.status = Some("provider back".into());
+                    }
+                    provider::BuildOutcome::Health(issue) => {
+                        self.provider = provider;
+                        if let Some(popup) = &mut self.consent {
+                            popup.set_state(crate::action::DeclarationState::Failed(issue.error));
+                        }
+                    }
+                    provider::BuildOutcome::Missing(decl) => {
+                        self.provider = provider;
+                        self.consent = Some(ConsentPopup::new(decl));
+                    }
+                }
+                true
+            }
+            // 0022 M2 health prompt: open the config in the editor —
+            // main suspends the terminal for it (the same editor path
+            // as file opens).
+            Action::DeclarationEditConfig => {
+                self.consent = None;
+                match (
+                    crate::editor::resolve_program(&self.config),
+                    crate::config::Config::path(),
+                ) {
+                    (Some(program), Some(path)) => {
+                        let mut args = crate::editor::build_args(&program, &self.config);
+                        args.push(path.to_string_lossy().into_owned());
+                        self.pending_editor = Some(crate::editor::EditorJob { program, args });
+                    }
+                    _ => {
+                        self.status =
+                            Some("no editor found — set [editor].program or $EDITOR".into())
                     }
                 }
                 true

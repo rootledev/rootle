@@ -419,17 +419,34 @@ pub struct Declaration {
     pub sha: Option<String>,
 }
 
-/// How `build()` landed (plans/0019 M2).
+/// How `build()` landed (plans/0019 M2, 0022).
 #[derive(Debug)]
 pub enum BuildOutcome {
     /// The configured provider is up.
     Ready,
-    /// Up with a warning for the status line (github fallback when
-    /// the configured one failed — never silent, never blocking).
+    /// Up with a warning (github fallback when the configured one
+    /// failed — never silent, never blocking; 0022 M1 makes the
+    /// notice sticky).
     Warn(String),
+    /// 0022 M2: the configured provider exists but won't start — the
+    /// health prompt (retry / browse github / edit config).
+    Health(HealthIssue),
     /// A declared provider is missing; github is carrying the session
     /// pending the consent popup.
     Missing(Declaration),
+}
+
+/// A provider that exists on disk (or in config) but fails to start —
+/// the health prompt's payload (0022 M2).
+#[derive(Debug, Clone)]
+pub struct HealthIssue {
+    /// What the config names (display name).
+    pub name: String,
+    /// Why it failed (spawn/parse error text).
+    pub error: String,
+    /// Does retry make sense? false for malformed/tarball kinds —
+    /// retrying a typo fixes nothing.
+    pub retryable: bool,
 }
 
 /// Build the configured provider. Invalid/unsupported config falls
@@ -447,7 +464,11 @@ pub fn build(config: &crate::config::Config) -> (Arc<dyn Provider>, BuildOutcome
                 Ok(p) => (p, warn.map_or(BuildOutcome::Ready, BuildOutcome::Warn)),
                 Err(e) => (
                     github_fallback(config),
-                    BuildOutcome::Warn(format!("provider stdio failed ({e}); fell back to github")),
+                    BuildOutcome::Health(HealthIssue {
+                        name: "stdio".into(),
+                        error: e,
+                        retryable: true,
+                    }),
                 ),
             }
         }
@@ -466,17 +487,22 @@ fn build_declared(config: &crate::config::Config, kind: &str) -> (Arc<dyn Provid
         Err(e) => {
             return (
                 github_fallback(config),
-                BuildOutcome::Warn(format!("provider kind {kind:?}: {e}; using github")),
+                BuildOutcome::Health(HealthIssue {
+                    name: kind.to_string(),
+                    error: e.to_string(),
+                    retryable: false,
+                }),
             );
         }
     };
     if r.tarball.is_some() {
         return (
             github_fallback(config),
-            BuildOutcome::Warn(format!(
-                "provider kind {kind:?} names a plain-HTTP tarball — install-and-pin only \
-                 (run `rootle provider install` with the URL); using github"
-            )),
+            BuildOutcome::Health(HealthIssue {
+                name: kind.to_string(),
+                error: "kind names a plain-HTTP tarball — install-and-pin only (run `rootle provider install` with the URL)".into(),
+                retryable: false,
+            }),
         );
     }
     let Ok(m) = manager::Manager::new() else {
@@ -495,9 +521,11 @@ fn build_declared(config: &crate::config::Config, kind: &str) -> (Arc<dyn Provid
                 Ok(p) => (p, BuildOutcome::Ready),
                 Err(e) => (
                     github_fallback(config),
-                    BuildOutcome::Warn(format!(
-                        "provider {kind} failed to start ({e}); fell back to github"
-                    )),
+                    BuildOutcome::Health(HealthIssue {
+                        name: kind.to_string(),
+                        error: e,
+                        retryable: true,
+                    }),
                 ),
             }
         }
