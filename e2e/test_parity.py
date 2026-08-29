@@ -84,3 +84,24 @@ def test_preview_band_shows_last_commit(tmp_path: Path) -> None:
         assert "Tarek" in screen and "2026-08-01" in screen, screen
     finally:
         tui.stop()
+
+
+def test_repo_popup_yank_no_dead_keys(tmp_path: Path) -> None:
+    """0021 M3 hygiene: `y` in the repo search popup yanks the selected
+    repo's URL instead of dying silently."""
+    root = make_git_root(tmp_path)
+    config = tmp_path / "p.toml"
+    config.write_text(
+        f'[provider]\nkind = "stdio"\n'
+        f'command = ["python3", "{FS_PROVIDER}", "{root}"]\n'
+    )
+    tui = Tui(build(), cols=110, rows=30, args=["--config", str(config)]).start()
+    try:
+        tui.type_query("proj")
+        tui.key("ENTER")   # submit — results focus
+        tui.expect("local/proj")
+        tui.send("y")
+        screen = tui.expect("yanked")
+        assert "local/proj" in screen, screen
+    finally:
+        tui.stop()

@@ -173,6 +173,7 @@ impl SearchPopup {
                     self.filtering = true;
                     Action::Noop
                 }
+                KeyCode::Char('y') => Action::SearchYank,
                 KeyCode::Enter => {
                     if let Some(entry) = self.results.selected_entry() {
                         return match entry.kind {
@@ -194,6 +195,11 @@ impl SearchPopup {
                 _ => Action::Noop,
             },
         }
+    }
+
+    /// The selected entry (for the yank action).
+    pub fn selected_entry(&self) -> Option<&crate::components::pane::Entry> {
+        self.results.selected_entry()
     }
 
     fn toggle_focus(&mut self) {
