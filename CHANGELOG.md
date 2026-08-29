@@ -3,6 +3,14 @@
 User-visible changes per release. Protocol archaeology lives in
 `plans/`; this file is for "what's new for me".
 
+## [0.8.7] — 2026-08-29
+
+### Added
+
+- Mid-session provider death is honest too: a restart-failure streak
+  surfaces once — sticky notice, warning-tinted forge chip — until the
+  provider recovers (instead of transient per-request errors).
+
 ## [0.8.6] — 2026-08-29
 
 ### Added
@@ -184,6 +192,7 @@ User-visible changes per release. Protocol archaeology lives in
 - Chrome: powerline modeline (Nerd Font opt-in), bat-style gutters,
   fzf prompts, `[ui] border` / `[ui] nerd_font`.
 
+[0.8.7]: https://github.com/rootledev/rootle/releases/tag/v0.8.7
 [0.8.6]: https://github.com/rootledev/rootle/releases/tag/v0.8.6
 [0.8.5]: https://github.com/rootledev/rootle/releases/tag/v0.8.5
 [0.8.4]: https://github.com/rootledev/rootle/releases/tag/v0.8.4
