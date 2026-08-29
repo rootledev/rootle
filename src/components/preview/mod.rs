@@ -2,6 +2,10 @@
 //! Syntax highlighting lands in milestone 5; text is already sanitized.
 //! Find-in-file (`␣ /`) lives in `find.rs`.
 
+mod lens;
+pub use lens::{BandContext, BlameMark};
+mod motion;
+
 mod find;
 
 use find::{FindState, chip_line};
@@ -28,24 +32,6 @@ pub enum PreviewContent {
     Binary {
         size: usize,
     },
-}
-
-/// The at-commit header context (sha, subject, author, date).
-#[derive(Debug, Clone)]
-pub struct BandContext {
-    pub sha: String,
-    pub subject: String,
-    pub author: String,
-    pub date: String,
-}
-
-/// A blame run's first-line mark (plans/0016 M1c): the margin shows
-/// sha + author where a commit's run starts; continuation lines carry
-/// `None` and get a dim leader.
-#[derive(Debug, Clone)]
-pub struct BlameMark {
-    pub sha: String,
-    pub author: String,
 }
 
 pub struct Preview {
@@ -95,16 +81,6 @@ impl Default for Preview {
     }
 }
 
-/// The sha prefix's length inside the shaped band text — the
-/// extreme-squeeze fallback text is sha-only (the whole thing).
-fn sha_len(text: &str, ctx: &BandContext) -> usize {
-    if text.starts_with(&ctx.sha) {
-        ctx.sha.len()
-    } else {
-        text.len()
-    }
-}
-
 impl Preview {
     pub fn new() -> Self {
         Preview {
@@ -130,47 +106,6 @@ impl Preview {
     /// Line total for blame-mark computation (plans/0016 M1c).
     pub fn text_line_count(&self) -> usize {
         self.line_count as usize
-    }
-
-    /// The blame lens: per-line marks, or None to leave it.
-    pub fn set_blame(&mut self, marks: Option<Vec<Option<BlameMark>>>) {
-        self.blame = marks;
-    }
-    /// The header band (always-on for file content): the full path
-    /// left; at-commit context right when set (None restores).
-    pub fn set_band(&mut self, path: Option<String>, context: Option<BandContext>) {
-        self.band_path = path;
-        self.band_context = context;
-    }
-
-    /// Blame lens active?
-    pub fn blaming(&self) -> bool {
-        self.blame.is_some()
-    }
-    /// vim's V (pane-local line visual): toggles the anchor at the
-    /// cursor; motions extend the range. No-op on cursorless content.
-    pub fn toggle_visual(&mut self) {
-        if self.line_count == 0 {
-            return;
-        }
-        self.visual_anchor = match self.visual_anchor {
-            Some(_) => None,
-            None => Some(self.cursor),
-        };
-    }
-
-    /// Esc inside the pane: a selection clears first, the caller's
-    /// exit follows. Returns true while visual stays/just cleared.
-    pub fn clear_visual(&mut self) -> bool {
-        self.visual_anchor.take().is_some()
-    }
-
-    /// The selected 1-based line range (start, end) while visual is
-    /// on; None otherwise.
-    pub fn visual_range(&self) -> Option<(u32, u32)> {
-        let a = self.visual_anchor?;
-        let (lo, hi) = (a.min(self.cursor), a.max(self.cursor));
-        Some((u32::from(lo) + 1, u32::from(hi) + 1))
     }
 
     /// The pane's text content as shown (spans rejoined — tabs are
@@ -274,202 +209,12 @@ impl Preview {
         self.reset();
     }
 
-    /// Move the line cursor (J/K). No-op for cursorless content
-    /// (dirs, binaries, empty).
-    pub fn move_cursor(&mut self, delta: i32) {
-        if self.line_count == 0 {
-            return;
-        }
-        self.cursor = self
-            .cursor
-            .saturating_add_signed(delta as i16)
-            .min(self.line_count - 1);
-    }
-
-    /// Drop the cursor onto a 1-based line (hit expand, plans/0012
-    /// M2): clamped to the content, scroll follows on the next
-    /// render. No-op for cursorless content; `line = 0` (unknown
-    /// anchor) keeps the top.
-    pub fn set_cursor_line(&mut self, line: u32) {
-        if self.line_count == 0 || line == 0 {
-            return;
-        }
-        let target = line.saturating_sub(1).min(u32::from(self.line_count - 1));
-        self.cursor = target as u16;
-    }
-
-    /// Current cursor line, 1-based — what `␣ y` anchors to.
-    pub fn line(&self) -> Option<u32> {
-        (self.line_count > 0).then(|| u32::from(self.cursor) + 1)
-    }
-
     // ---- vim vertical motions (plans/0016 M1) ----
     //
     // The set: counts, j/k, gg/G, ctrl-d/u/f/b, {/} paragraphs,
     // % bracket match, zt/zz/zb view positioning. Horizontal motions
     // (f/t/w/…) are deliberately excluded — the pane is line-oriented;
     // once you're on the line, you're there.
-
-    /// The pending count, cleared. None = no digits typed.
-    fn take_count(&mut self) -> Option<usize> {
-        let n = if self.motion_count.is_empty() {
-            None
-        } else {
-            self.motion_count.parse().ok()
-        };
-        self.motion_count.clear();
-        n
-    }
-
-    fn goto_line(&mut self, line_1based: usize) {
-        let max = self.line_count as usize;
-        self.cursor = (line_1based.max(1).min(max) - 1) as u16;
-    }
-
-    /// One key of the motion set. Consumed keys return true; anything
-    /// else falls through to the caller's named actions. Counts and a
-    /// pending head reset on any non-motion key.
-    pub fn motion_key(&mut self, key: ratatui::crossterm::event::KeyEvent) -> bool {
-        use ratatui::crossterm::event::{KeyCode, KeyModifiers};
-        if self.line_count == 0 {
-            return false;
-        }
-        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
-        match key.code {
-            KeyCode::Char(c) if !ctrl && c.is_ascii_digit() && self.motion_pending.is_none() => {
-                if self.motion_count.is_empty() && c == '0' {
-                    return false; // 0 is a column motion — out of scope
-                }
-                self.motion_count.push(c);
-                true
-            }
-            KeyCode::Char('j') | KeyCode::Down if !ctrl => {
-                let n = self.take_count().unwrap_or(1) as i32;
-                self.motion_pending = None;
-                self.move_cursor(n);
-                true
-            }
-            KeyCode::Char('k') | KeyCode::Up if !ctrl => {
-                let n = self.take_count().unwrap_or(1) as i32;
-                self.motion_pending = None;
-                self.move_cursor(-n);
-                true
-            }
-            KeyCode::Char('g') if !ctrl => {
-                if self.motion_pending == Some('g') {
-                    let n = self.take_count().unwrap_or(1);
-                    self.motion_pending = None;
-                    self.goto_line(n);
-                } else {
-                    self.motion_pending = Some('g');
-                }
-                true
-            }
-            KeyCode::Char('G') if !ctrl => {
-                let n = self.take_count().unwrap_or(self.line_count as usize);
-                self.motion_pending = None;
-                self.goto_line(n);
-                true
-            }
-            KeyCode::Char('d') if ctrl => {
-                let n = (self.viewport as usize / 2).max(1) * self.take_count().unwrap_or(1);
-                self.move_cursor(n as i32);
-                true
-            }
-            KeyCode::Char('u') if ctrl => {
-                let n = (self.viewport as usize / 2).max(1) * self.take_count().unwrap_or(1);
-                self.move_cursor(-(n as i32));
-                true
-            }
-            KeyCode::Char('f') if ctrl => {
-                let n = (self.viewport as usize).max(1) * self.take_count().unwrap_or(1);
-                self.move_cursor(n as i32);
-                true
-            }
-            KeyCode::Char('b') if ctrl => {
-                let n = (self.viewport as usize).max(1) * self.take_count().unwrap_or(1);
-                self.move_cursor(-(n as i32));
-                true
-            }
-            KeyCode::Char('{') if !ctrl => {
-                self.motion_pending = None;
-                self.take_count();
-                let lines = self.plain_lines();
-                let mut i = self.cursor as usize;
-                // vim-true: off any blank, to the paragraph's first
-                // line, then the blank above it.
-                while i > 0 && lines[i].trim().is_empty() {
-                    i -= 1;
-                }
-                while i > 0 && !lines[i - 1].trim().is_empty() {
-                    i -= 1;
-                }
-                i = i.saturating_sub(1);
-                self.cursor = i as u16;
-                true
-            }
-            KeyCode::Char('}') if !ctrl => {
-                self.motion_pending = None;
-                self.take_count();
-                let lines = self.plain_lines();
-                let max = self.line_count as usize;
-                let mut i = self.cursor as usize;
-                while i + 1 < max && lines[i + 1].trim().is_empty() {
-                    i += 1;
-                }
-                while i + 1 < max && !lines[i + 1].trim().is_empty() {
-                    i += 1;
-                }
-                if i + 1 < max {
-                    i += 1; // land on the blank below
-                }
-                self.cursor = i as u16;
-                true
-            }
-            KeyCode::Char('%') if !ctrl => {
-                self.motion_pending = None;
-                self.take_count();
-                let lines = self.plain_lines();
-                if let Some(target) = bracket_match(&lines, self.cursor as usize) {
-                    self.cursor = target as u16;
-                }
-                true
-            }
-            KeyCode::Char('z') if !ctrl => {
-                match self.motion_pending {
-                    Some('z') => {
-                        // zz: center the cursor line.
-                        self.motion_pending = None;
-                        self.scroll = self
-                            .cursor
-                            .saturating_sub(self.viewport / 2)
-                            .min(self.line_count.saturating_sub(self.viewport));
-                    }
-                    _ => self.motion_pending = Some('z'),
-                }
-                true
-            }
-            KeyCode::Char('t') if !ctrl && self.motion_pending == Some('z') => {
-                self.motion_pending = None;
-                // vim's zt pads past EOF rather than not pinning.
-                self.scroll = self.cursor;
-                true
-            }
-            KeyCode::Char('b') if !ctrl && self.motion_pending == Some('z') => {
-                self.motion_pending = None;
-                self.scroll = self
-                    .cursor
-                    .saturating_add_signed(1)
-                    .saturating_sub(self.viewport);
-                true
-            }
-            _ => {
-                self.motion_count.clear();
-                self.motion_pending = None;
-                false
-            }
-        }
-    }
 
     /// Plain text of the content (tab-expanded, matching what render
     /// shows) — the find needle haystack.
@@ -763,12 +508,12 @@ impl Preview {
                 spans.push(Span::styled(
                     ctx.sha
                         .chars()
-                        .take(sha_len(&text, ctx))
+                        .take(lens::sha_len(&text, ctx))
                         .collect::<String>(),
                     Style::default().fg(sem.warning).bg(sem.surface0),
                 ));
                 spans.push(Span::styled(
-                    text[sha_len(&text, ctx)..].to_string(),
+                    text[lens::sha_len(&text, ctx)..].to_string(),
                     Style::default().fg(sem.subtext0).bg(sem.surface0),
                 ));
             }
@@ -801,92 +546,6 @@ impl Preview {
                 theme,
             );
         }
-    }
-}
-
-/// `%`: the first bracket on the cursor line, matched across lines
-/// with nesting depth. Returns the target LINE (vertical motion only).
-/// Strings/comments aren't parsed — the tree-sitter upgrade path is
-/// plans/0013's grammar set.
-fn bracket_match(lines: &[String], line: usize) -> Option<usize> {
-    let text = lines.get(line)?;
-    // No column to anchor on (vertical motion): the target is the
-    // first bracket whose pair is NOT closed on this same line —
-    // `fn main() {` means the brace, not the paren.
-    let (col, b) = text
-        .char_indices()
-        .filter(|(_, c)| "(){}[]".contains(*c))
-        .find(|(ci, c)| {
-            if "([{".contains(*c) {
-                !text[*ci + c.len_utf8()..].contains(pairs(*c))
-            } else {
-                // A closer whose opener sits on this line pairs
-                // locally — keep scanning.
-                !text[..*ci].contains(pairs(*c))
-            }
-        })?;
-    let (open, close, forward) = match b {
-        '(' | '[' | '{' => (b, pairs(b), true),
-        _ => (pairs(b), b, false),
-    };
-    let mut depth = 1i32;
-    if forward {
-        let mut li = line;
-        let mut skip = col + 1;
-        while li < lines.len() {
-            for (ci, c) in lines[li].char_indices() {
-                if ci < skip {
-                    continue;
-                }
-                if c == open {
-                    depth += 1;
-                } else if c == close {
-                    depth -= 1;
-                    if depth == 0 {
-                        return Some(li);
-                    }
-                }
-            }
-            skip = 0;
-            li += 1;
-        }
-    } else {
-        let mut li = line;
-        let mut take_until = col;
-        loop {
-            for (ci, c) in lines[li].char_indices().rev() {
-                if ci >= take_until {
-                    continue;
-                }
-                if c == b {
-                    depth += 1;
-                } else if c == open {
-                    depth -= 1;
-                    if depth == 0 {
-                        return Some(li);
-                    }
-                }
-            }
-            if li == 0 {
-                break;
-            }
-            li -= 1;
-            take_until = usize::MAX;
-        }
-    }
-    None
-}
-
-/// Matching bracket pairs.
-fn pairs(c: char) -> char {
-    match c {
-        '(' => ')',
-        '[' => ']',
-        '{' => '}',
-        ')' => '(',
-        ']' => '[',
-        '}' => '{',
-        _ => unreachable!(),
     }
 }
 
