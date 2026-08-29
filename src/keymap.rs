@@ -223,3 +223,128 @@ pub fn hint_row(rows: &[(&'static str, &'static str)]) -> String {
         .join(" · ");
     format!(" {body} ")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::crossterm::event::KeyCode;
+
+    /// One representative KeyCode per table row's key string (multi-key
+    /// rows pick their first form — the point is "resolves", not "the
+    /// full grammar matrix").
+    fn code_of(key: &str) -> Option<KeyCode> {
+        let single = |c: char| Some(KeyCode::Char(c));
+        match key {
+            "esc" => Some(KeyCode::Esc),
+            "enter" => Some(KeyCode::Enter),
+            "tab" => Some(KeyCode::Tab),
+            "/" => single('/'),
+            ":" | ":42" => single(':'),
+            "space" | "␣" => single(' '),
+            "?" => single('?'),
+            "y" => single('y'),
+            "Y" => single('Y'),
+            "b" => single('b'),
+            "v" => single('v'),
+            "q" => single('q'),
+            "h" => single('h'),
+            "l" => single('l'),
+            "g" => single('g'),
+            "f" => single('f'),
+            "s" => single('s'),
+            "p" => single('p'),
+            "r" => single('r'),
+            "c" => single('c'),
+            "d" => single('d'),
+            "i" => single('i'),
+            "n" => single('n'),
+            "N" => single('N'),
+            _ => None, // motion multi-keys (gg/G, ^D/^U, j/k…) — same fn, same guarantee
+        }
+    }
+
+    /// 0021 M3 hygiene: every row the modeline/hint tables advertise
+    /// must resolve to a real action through the context's dispatch —
+    /// no advertised-but-dead keys.
+    #[test]
+    fn keymap_tables_resolve_to_real_actions() {
+        for (key, _desc) in hints(Mode::Leader) {
+            if let Some(code) = code_of(key) {
+                assert_ne!(
+                    leader(code),
+                    Action::Noop,
+                    "leader table row {key:?} resolves"
+                );
+            }
+        }
+        // The expanded file pane (0019 parity): action-bearing rows
+        // resolve through the pane's own dispatch; pane-local motion
+        // rows are exercised by the preview motion tests.
+        {
+            use crate::action::Action as A;
+            use crate::components::global_search::{GlobalSearch, SearchKind, mock};
+            let mut view = GlobalSearch::new(SearchKind::Grep, None, None, None, None);
+            view.update(&A::GlobalSearchResults {
+                hits: mock::hits(SearchKind::Grep, "query", ""),
+                clipped: false,
+                index: None,
+                client_filtered: 0,
+                unfiltered: vec![],
+            });
+            // Tab to the results field, then Enter expands the hit.
+            for _ in 0..4 {
+                view.handle_key(ratatui::crossterm::event::KeyEvent::new(
+                    KeyCode::Tab,
+                    ratatui::crossterm::event::KeyModifiers::NONE,
+                ));
+            }
+            view.handle_key(ratatui::crossterm::event::KeyEvent::new(
+                KeyCode::Enter,
+                ratatui::crossterm::event::KeyModifiers::NONE,
+            ));
+            for (key, action) in [
+                ("y", A::LeaderYank),
+                (":", A::CommandLine),
+                ("b", A::BlameToggle),
+                ("Y", A::PreviewCopy),
+            ] {
+                let code = code_of(key).unwrap();
+                assert_eq!(
+                    view.handle_key(ratatui::crossterm::event::KeyEvent::new(
+                        code,
+                        ratatui::crossterm::event::KeyModifiers::NONE,
+                    )),
+                    action,
+                    "search_file row {key:?} resolves in the pane"
+                );
+            }
+        }
+        for (key, _desc) in hints(Mode::History) {
+            if let Some(code) = code_of(key) {
+                assert_ne!(history(code), Action::Noop, "history row {key:?} resolves");
+            }
+        }
+        // The preview submode: named verbs resolve through
+        // preview_named; the motion rows (v, gg/G, ^D, zt…, {/}, %)
+        // are pane-local and covered by the preview motion tests.
+        const PREVIEW_NAMED: &[&str] = &[
+            "/", ":", "h", "b", "y", "n", "N", "enter", "esc", "q", "space",
+        ];
+        for (key, _desc) in hints(Mode::Preview) {
+            if PREVIEW_NAMED.contains(key)
+                && let Some(code) = code_of(key)
+            {
+                assert_ne!(
+                    preview_named(code),
+                    Action::Noop,
+                    "preview row {key:?} resolves"
+                );
+            }
+        }
+        for (key, _desc) in hints(Mode::Browse) {
+            if let Some(code) = code_of(key) {
+                assert_ne!(browsing(code), Action::Noop, "browse row {key:?} resolves");
+            }
+        }
+    }
+}

@@ -72,6 +72,9 @@ pub enum Action {
 
     // Declared-provider lifecycle (plans/0019 M2): the consent popup
     // asks, the app spawns the verified install, the events land.
+    /// `y` in the repo search popup: yank the selected entry's URL
+    /// (0021 M3 hygiene — no silent dead keys in any context).
+    SearchYank,
     DeclarationAccept,
     DeclarationDecline,
     /// Worker state landing back in the popup (installing / failed).

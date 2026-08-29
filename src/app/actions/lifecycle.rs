@@ -2,8 +2,8 @@
 //! (moved from app/mod.rs, plans/0021 M1 — a pure move, zero behavior
 //! change).
 
-use super::super::App;
 use super::super::trace;
+use super::super::{App, provider_status};
 use crate::action::Action;
 use crate::components::clone_wizard::CloneWizard;
 use crate::components::command_line::CommandLine;
@@ -171,6 +171,30 @@ impl App {
             }
             Action::Noop => true,
             // 0019 M2: the consent popup's answers.
+            // 0021 M3 hygiene: yank from the repo search popup — the
+            // selected entry's URL (org page or repo tree).
+            Action::SearchYank => {
+                if let Some(popup) = &self.popup
+                    && let Some(entry) = popup.selected_entry()
+                {
+                    let url = match entry.kind {
+                        crate::components::pane::EntryKind::Org => {
+                            self.provider.org_url(&entry.name)
+                        }
+                        _ => self
+                            .provider
+                            .web_url(&entry.name, "", "", None, None, false),
+                    };
+                    match url {
+                        Ok(u) => {
+                            self.pending_clipboard = Some(u.clone());
+                            self.status = Some(format!("yanked {u}"));
+                        }
+                        Err(e) => self.status = Some(provider_status(&e)),
+                    }
+                }
+                true
+            }
             Action::DeclarationAccept => {
                 if let Some(consent) = &mut self.consent {
                     let decl = consent.declaration().clone();

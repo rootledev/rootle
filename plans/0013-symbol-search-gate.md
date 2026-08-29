@@ -90,6 +90,10 @@ Capability: `symbols` (bool, default false).
 
 ## UI
 
+- 0021 M3 binding decision (2026-08-29, supersedes the original `␣ s`
+  proposal): symbols get **`␣ S`** (capital = the heavier search) —
+  `␣ s` stays repo search — plus a kind radio in the search view (the
+  scope-popup pattern) when the kind lands.
 - `␣ s` opens the search view in a third kind: `symbols` beside
   `grep` and `file find` (SearchKind gains it; the kind chip exists
   already). Query is the bare symbol name; scope radio works as-is.
