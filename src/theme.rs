@@ -498,7 +498,7 @@ mod tests {
 
     fn available_names_lists_embedded() {
         let names = Theme::available_names();
-        for expected in EMBEDDED.iter().map(|(n, _, _)| *n) {
+        for expected in palettes::EMBEDDED.iter().map(|(n, _, _)| *n) {
             assert!(names.contains(&expected.to_string()), "{expected} missing");
         }
     }
