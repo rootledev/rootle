@@ -76,6 +76,10 @@ pub enum Action {
     /// (0021 M3 hygiene — no silent dead keys in any context).
     SearchYank,
     DeclarationAccept,
+    /// 0022 M2 health prompt: retry the failed spawn once.
+    DeclarationRetry,
+    /// 0022 M2 health prompt: open the config file in the editor.
+    DeclarationEditConfig,
     DeclarationDecline,
     /// Worker state landing back in the popup (installing / failed).
     DeclarationState(DeclarationState),

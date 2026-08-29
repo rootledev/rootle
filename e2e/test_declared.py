@@ -49,3 +49,42 @@ def test_declared_pin_fields_surface_in_the_popup(tmp_path: Path) -> None:
         tui.expect("browsing github")
     finally:
         tui.stop()
+
+
+def test_broken_stdio_raises_health_prompt(tmp_path: Path) -> None:
+    """0022 M2: a spawn that fails at startup raises the health prompt
+    (r/g/e), and `g` degrades to github with the notice sticky — the
+    0018-class race that used to erase it can't happen anymore."""
+    config = tmp_path / "broken.toml"
+    config.write_text(
+        '[provider]\nkind = "stdio"\ncommand = ["/nonexistent/no-such-provider"]\n'
+    )
+    tui = Tui(build(), cols=130, rows=30, args=["--config", str(config)]).start()
+    try:
+        screen = tui.expect("provider health")
+        assert "stdio failed to start" in screen or "failed to start" in screen, screen
+        assert "r retry" in screen, screen
+
+        # g — browse github, and the notice stays on the modeline
+        # (middle-truncated — assert the surviving fragments).
+        tui.send("g")
+        screen = tui.expect("not installed")
+        assert "provider install" in screen, screen
+    finally:
+        tui.stop()
+
+
+def test_tarball_kind_health_no_retry(tmp_path: Path) -> None:
+    """A kind naming a plain-HTTP tarball is never auto-fetched (0019
+    rule) and never retryable: the health prompt offers g/e only."""
+    config = tmp_path / "tarball.toml"
+    config.write_text(
+        '[provider]\nkind = "https://artifacts.corp.example/rootle-x.tar.gz"\n'
+    )
+    tui = Tui(build(), cols=130, rows=30, args=["--config", str(config)]).start()
+    try:
+        screen = tui.expect("provider health")
+        assert "g browse github" in screen, screen
+        assert "r retry" not in screen, screen
+    finally:
+        tui.stop()
