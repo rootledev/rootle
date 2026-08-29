@@ -3,6 +3,27 @@
 User-visible changes per release. Protocol archaeology lives in
 `plans/`; this file is for "what's new for me".
 
+## [0.8.5] — 2026-08-29
+
+### Added
+
+- Search-pane `y` works in the repo search popup too — `y` now yanks
+  the selected repo or org URL; every context honors or names its
+  keys (the keymap tables gained a conformance test: every advertised
+  row resolves to a real action).
+
+### Changed
+
+- Architecture pass (0021): `app/mod.rs` 1929 → 606 lines; workers,
+  browser, preview, global-search and theme split along their seams
+  (workers/search/lenses/lifecycle, browser/lenses/blobs,
+  preview/lens/motion, global_search/pane, theme/palettes) — pure
+  moves, zero behavior change.
+- rootle-gitlab answers requests concurrently (v1.3): slow requests
+  (tree fetches, blame walks) no longer stall previews behind them;
+  transcripts stay id-tagged and line-atomic. rootle-gitlab ≥ this
+  release carries it.
+
 ## [0.8.4] — 2026-08-28
 
 ### Added
@@ -149,6 +170,7 @@ User-visible changes per release. Protocol archaeology lives in
 - Chrome: powerline modeline (Nerd Font opt-in), bat-style gutters,
   fzf prompts, `[ui] border` / `[ui] nerd_font`.
 
+[0.8.5]: https://github.com/rootledev/rootle/releases/tag/v0.8.5
 [0.8.4]: https://github.com/rootledev/rootle/releases/tag/v0.8.4
 [0.8.2]: https://github.com/rootledev/rootle/releases/tag/v0.8.2
 [0.8.3]: https://github.com/rootledev/rootle/releases/tag/v0.8.3
