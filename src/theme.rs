@@ -147,7 +147,6 @@ impl BorderShape {
 
 /// One role override as a (name, hex) pair — the embedded palettes and
 /// palette files share this shape via `set_role`.
-
 /// Catppuccin Mocha, the baseline. Unlisted roles in the other palettes
 /// inherit from here — every embedded theme is complete anyway, the
 /// inheritance exists for future partial palettes.
