@@ -72,19 +72,45 @@ Plans live in `plans/` per release; flip milestone status in the same
 PR that ships the work. PRs follow the
 [rootle-pr](../.agents/skills/rootle-pr/SKILL.md) skill (evidence required).
 
+## Testing tiers
+
+Three tiers, cheapest-first — a new behavioral test belongs in the
+cheapest tier that exercises it (plans/0023):
+
+1. **Frame tests** (`tests/render.rs`, in-crate `#[cfg(test)]`) —
+   `TestBackend` renders, offline state injected via `App::with` +
+   `handle_action`. Deterministic; no workers, no subprocesses.
+2. **Headless scripts** (`rootle --headless SCRIPT`, driver in
+   `src/headless.rs`, suite in `e2e/test_headless.py`) — the real
+   binary, real provider subprocesses, real input path
+   (`App::handle_key`); only the terminal byte layer is skipped.
+   Script language: `keys <text>` (`<esc> <cr> <bs> <tab> <space>`
+   `<up|down|left|right>` tokens), `settle` (drain workers to
+   quiescence), `wait <ms>`, `frame` (cell-grid dump), `state` (JSON:
+   mode/overlays/context/status/yanks/editor_jobs). `-` reads the
+   script from stdin; viewport via `ROOTLE_HEADLESS_COLS/ROWS`
+   (default 100×30). This is also the review/stress surface for
+   agents: pipe a script in, read frames out — no PTY, no timing
+   heuristics, no ANSI.
+3. **PTY suite** (the rest of `e2e/`) — only for what a terminal
+   proves: byte parsing (ESC merging), window size, terminal
+   restore, suspend/resume into $EDITOR.
+
 ## The e2e harness (`e2e/`)
 
-A uv-managed pytest suite that drives the **real binary** on a PTY
-and reconstructs the screen with pyte — the live complement to
-`TestBackend` frame tests in `tests/render.rs`.
+A uv-managed pytest suite. The headless tier
+(`e2e/test_headless.py`) pipes scripts to `rootle --headless -` and
+asserts on frames/state JSON — deterministic. The PTY tier drives
+the **real binary** on a PTY and reconstructs the screen with pyte —
+the live complement to `TestBackend` frame tests in `tests/render.rs`.
 
-- `tui.py` — the driver. Hermetic per test: HOME/XDG point at a temp
-  dir (`VISUAL=true` makes editor-open a no-op). Window size is set
-  on the PTY **before** spawn (0×0 PTY = blank screen = looks hung).
-  Output settling is quiescence-based (pump until the app stops
-  repainting), which is both faster and more robust than fixed sleeps.
-  `expect()`/`expect_gone()` poll with the screen dumped on timeout.
-  Also records asciinema v2 casts (debugging only — see
+- `tui.py` — the PTY driver. Hermetic per test: HOME/XDG point at a
+  temp dir (`VISUAL=true` makes editor-open a no-op). Window size is
+  set on the PTY **before** spawn (0×0 PTY = blank screen = looks
+  hung). Output settling is quiescence-based (pump until the app
+  stops repainting), which is both faster and more robust than fixed
+  sleeps. `expect()`/`expect_gone()` poll with the screen dumped on
+  timeout. Also records asciinema v2 casts (debugging only — see
   [rootle-demo-capture](../.agents/skills/rootle-demo-capture/SKILL.md)
   for why casts must not be rendered to GIF).
 - `conftest.py` — fixtures: `tui` (plain app), `provider_tui` (fs
@@ -98,7 +124,8 @@ and reconstructs the screen with pyte — the live complement to
 Gotchas that have bitten (all covered by the suite):
 
 - ESC bytes sent back-to-back merge into `Alt+<key>` in crossterm's
-  parser — send ESC one call at a time.
+  parser — send ESC one call at a time. (Headless scripts feed
+  discrete key events; `<esc><esc>` in one `keys` step is safe there.)
 - A stdio provider's child must die with rootle (`StdioProvider::drop`
   kills it); the lifecycle test enforces it.
 - `docker compose run` needs `--build` after source changes or it

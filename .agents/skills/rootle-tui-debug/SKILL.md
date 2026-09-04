@@ -5,14 +5,19 @@ description: End-to-end debugging and verification workflow for the rootle ratat
 
 # rootle TUI end-to-end debugging
 
-Three complementary verification paths. Use the first two for every
-behavioral change; hub PTY is for ad-hoc poking only:
+Four complementary verification paths. For behavioral changes prefer
+headless + frame snapshots; PTY paths only for what a terminal proves:
 
-1. **e2e harness** (`e2e/`, uv + pytest + pyte) — scripted PTY runs
-   against the real binary with screen reconstruction and assertions.
+1. **Headless driver** (`rootle --headless SCRIPT`, plans/0023) — the
+   real binary, no terminal: `keys`/`settle`/`frame`/`state` script
+   steps in, cell-grid frames + state JSON out. Deterministic; the
+   fastest way to drive a flow and capture evidence. `-` reads the
+   script from stdin; `ROOTLE_HEADLESS_COLS/ROWS` size the viewport.
 2. **Frame snapshots** (`tests/render.rs`, ratatui `TestBackend`) —
    deterministic frame content without a TTY.
-3. **hub PTY** — manual/ad-hoc interaction when the above don't fit.
+3. **e2e harness** (`e2e/`, uv + pytest + pyte) — scripted PTY runs
+   against the real binary with screen reconstruction and assertions.
+4. **hub PTY** — manual/ad-hoc interaction when the above don't fit.
 
 ## 1. e2e harness (`e2e/`)
 
