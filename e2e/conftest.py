@@ -13,10 +13,6 @@ def binary():
     return build()
 
 
-@pytest.fixture
-def tui(binary):
-    with Tui(binary) as t:
-        yield t
 
 
 def dismiss_launch_popup(tui: Tui) -> None:
@@ -59,19 +55,6 @@ def make_fs_root(tmp: Path) -> Path:
     return root
 
 
-@pytest.fixture
-def provider_tui(tmp_path, binary):
-    """rootle on the fs stdio provider over a temp root, launch popup open."""
-    root = make_fs_root(tmp_path)
-    config = tmp_path / "provider.toml"
-    config.write_text(
-        "[provider]\n"
-        'kind = "stdio"\n'
-        f'command = ["python3", "{FS_PROVIDER}", "{root}"]\n'
-    )
-    t = Tui(binary, cols=110, rows=30, args=["--config", str(config)]).start()
-    yield t
-    t.stop()
 
 
 def open_fs_repo(tui: Tui) -> None:

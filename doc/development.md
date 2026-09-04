@@ -92,17 +92,19 @@ cheapest tier that exercises it (plans/0023):
    (default 100×30). This is also the review/stress surface for
    agents: pipe a script in, read frames out — no PTY, no timing
    heuristics, no ANSI.
-3. **PTY suite** (the rest of `e2e/`) — only for what a terminal
-   proves: byte parsing (ESC merging), window size, terminal
-   restore, suspend/resume into $EDITOR.
+3. **PTY smoke** (`e2e/test_pty.py` — five tests, nothing else) — only
+   for what a terminal proves: alternate-screen enter/leave, exit
+   code, merged-ESC byte parsing, $EDITOR suspend/resume, resize
+   redraw, TERM=dumb.
 
 ## The e2e harness (`e2e/`)
 
-A uv-managed pytest suite. The headless tier
-(`e2e/test_headless.py`) pipes scripts to `rootle --headless -` and
-asserts on frames/state JSON — deterministic. The PTY tier drives
-the **real binary** on a PTY and reconstructs the screen with pyte —
-the live complement to `TestBackend` frame tests in `tests/render.rs`.
+A uv-managed pytest suite. Nearly everything is the headless tier:
+`e2e/headless.py` (`run_headless` / `fs_config` / `states` /
+`frames`) pipes scripts to `rootle --headless -` and asserts on
+frames/state JSON — deterministic, no pyte. The terminal boundary
+itself is pinned by `e2e/test_pty.py`, which drives the real binary
+on a PTY and can inspect the raw escape stream (`Tui.raw()`).
 
 - `tui.py` — the PTY driver. Hermetic per test: HOME/XDG point at a
   temp dir (`VISUAL=true` makes editor-open a no-op). Window size is
@@ -113,8 +115,9 @@ the live complement to `TestBackend` frame tests in `tests/render.rs`.
   timeout. Also records asciinema v2 casts (debugging only — see
   [rootle-demo-capture](../.agents/skills/rootle-demo-capture/SKILL.md)
   for why casts must not be rendered to GIF).
-- `conftest.py` — fixtures: `tui` (plain app), `provider_tui` (fs
-  stdio provider over a temp root), helpers like `open_fs_repo`.
+- `conftest.py` — the session `binary` fixture, hermetic helpers
+  (`dismiss_launch_popup`, `open_fs_repo`), and the fs/git fixtures
+  (`make_fs_root`, `make_git_root`).
 - The suites run **offline**: `examples/providers/fs_provider.py`
   serves temp dirs as repos, so search → tree → preview → grep →
   clone all exercise the real stdio protocol with no network.

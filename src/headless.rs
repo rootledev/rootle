@@ -84,6 +84,8 @@ impl Headless {
 
     /// The main loop's out-of-draw side effects, recorded instead of
     /// executed: no clipboard to write, no editor to suspend into.
+    /// Exception: `ROOTLE_CLIPBOARD=<path>` (the e2e/CI override) is a
+    /// plain file write, not a terminal escape — honored for fidelity.
     fn collect_side_effects(&mut self) {
         if let Some(job) = self.app.take_editor_job() {
             let mut cmd = job.program;
@@ -94,6 +96,9 @@ impl Headless {
             self.editor_jobs.push(cmd);
         }
         if let Some(text) = self.app.take_clipboard() {
+            if std::env::var_os("ROOTLE_CLIPBOARD").is_some() {
+                crate::clipboard::copy(&text);
+            }
             self.yanks.push(text);
         }
     }

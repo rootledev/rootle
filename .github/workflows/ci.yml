@@ -37,9 +37,12 @@ jobs:
       - uses: astral-sh/setup-uv@v7
 
       # uv, not pip: homebrew's python is PEP-668 externally-managed.
+      # -v + timeout: a wedged test must name itself and fail the job,
+      # never idle the runner for an hour (the 0023 rewrite hang).
       - name: E2E (headless + PTY suite)
         working-directory: e2e
-        run: uv run pytest
+        timeout-minutes: 15
+        run: uv run pytest -v
 
   # plans/0015: the canonical conformance suite gates the reference
   # adapter — protocol changes must keep fs_provider.py green.
