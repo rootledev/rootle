@@ -45,7 +45,7 @@ impl Manager {
         let receipt = self
             .receipt(name)
             .ok_or_else(|| ManagerError::User(format!("{name} is not installed")))?;
-        let mut config = Config::load();
+        let (mut config, _) = Config::load();
         config.provider.kind = name.to_string();
         config.provider.command = extra_argv.to_vec();
         config.provider.tag = receipt.pinned.then(|| receipt.tag.clone());
@@ -61,7 +61,7 @@ impl Manager {
 
     /// Everything `list` shows, including the ACTIVE row.
     pub fn list(&self) -> Vec<Installed> {
-        let config = Config::load();
+        let (config, _) = Config::load();
         let active_command = if config.provider.kind == "stdio" {
             config.provider.command.first().cloned()
         } else {

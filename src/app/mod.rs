@@ -504,6 +504,18 @@ impl App {
         self.status = Some(note);
     }
 
+    /// A malformed/unreadable config still starts on defaults — but
+    /// the warning is sticky-visible (0022 honesty class, 0023 round
+    /// 2): degraded slot when free, the status line always.
+    pub fn config_warning(&mut self, warning: Option<String>) {
+        if let Some(warning) = warning {
+            if self.degraded.is_none() {
+                self.degraded = Some(warning.clone());
+            }
+            self.status = Some(warning);
+        }
+    }
+
     pub fn clear_status_for_test(&mut self) {
         self.status = None;
     }

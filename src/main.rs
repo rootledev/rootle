@@ -93,13 +93,14 @@ fn run(
         let _ = signal_hook::flag::register(SIGTERM, terminated_flag().clone());
         let _ = signal_hook::flag::register(SIGINT, terminated_flag().clone());
     }
-    let config = match &cli.config {
+    let (config, config_warning) = match &cli.config {
         Some(path) => Config::load_from(path),
         None => Config::load(),
     };
     let theme = cli.resolve_theme(&config);
     let (tx, rx) = rootle::event::channel();
     let mut app = App::new(tx, config, theme);
+    app.config_warning(config_warning);
     // `rootle owner/repo`: skip search, go straight to browsing.
     // `owner/repo@ref` (plans/0016 M1a): open AT the revision — the ref
     // lands first, so the tree spawn below reads it.
