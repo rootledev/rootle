@@ -1,107 +1,127 @@
-"""Search-pane parity e2e (0019): the expanded file pane speaks the
-preview-submode grammar — `y` yanks the cursor-anchored remote URL,
-`:N` jumps by line, `b` runs the blame lens with run margins. Drives
-the real binary on the fs stdio provider over a git fixture (blame
-needs history), fully offline."""
+"""Search-pane parity e2e (0019), headless tier: the expanded file pane
+speaks the preview-submode grammar — `y` yanks the cursor-anchored remote
+URL, `:N` jumps by line, `b` runs the blame lens with run margins. Drives
+the real binary via `rootle --headless -` on the fs stdio provider over a
+git fixture (blame needs history), fully offline. Yanks are asserted from
+the `state` step's recorded clipboard, not a toast race."""
 
 from pathlib import Path
 
-from conftest import FS_PROVIDER, make_git_root
-from tui import Tui, build
+from conftest import make_git_root
+from headless import frames, fs_config, run_headless, states
 
 
-def test_expanded_pane_yank_goto_and_blame(tmp_path: Path) -> None:
-    root = make_git_root(tmp_path)
-    config = tmp_path / "p.toml"
-    config.write_text(
-        f'[provider]\nkind = "stdio"\n'
-        f'command = ["python3", "{FS_PROVIDER}", "{root}"]\n'
-    )
-    tui = Tui(build(), cols=170, rows=30, args=["--config", str(config)]).start()
-    try:
+def test_expanded_pane_yank_goto_and_blame(tmp_path: Path, binary) -> None:
+    config = fs_config(tmp_path, root=make_git_root(tmp_path))
+    out = run_headless(
+        binary,
         # Repo search -> open the fixture repo.
-        tui.type_query("proj")
-        tui.key("ENTER")
-        tui.expect("local/proj")
-        tui.key("ENTER")  # open the selected repo
-        tui.expect("main.rs")
-        tui.send(" ", settle=0.4)
-        tui.expect("grep")
-        tui.send("g", settle=0.3)
-        tui.expect("query")
-        tui.type_query("main")
-        tui.key("ENTER")
-        tui.expect("main.rs")
-        tui.key("ENTER")  # expand the hit
-        screen = tui.expect("fn main")
-        assert "main.rs" in screen, screen
-
-        # y — the cursor line's URL lands on the status line.
-        tui.send("y")
-        screen = tui.expect("yanked")
-        assert "main.rs" in screen, screen
-
+        "keys proj\n"
+        "keys <cr>\n"
+        "settle\n"
+        "keys <cr>\n"
+        "settle\n"
+        "frame\n"
+        # Leader g — global grep over the open repo.
+        "keys <space>\n"
+        "keys g\n"
+        "settle\n"
+        "keys main\n"
+        "keys <cr>\n"
+        "settle\n"
+        "frame\n"
+        "keys <cr>\n"  # expand the hit
+        "settle\n"
+        "frame\n"
+        # y — the cursor line's URL is yanked.
+        "keys y\n"
+        "state\n"
         # :2 — command line opens from the pane; the jump moves the
-        # cursor (line 2 of the fixture's main.rs).
-        tui.send(":")
-        tui.type_query("2")
-        tui.key("ENTER")
-        tui.expect("fn main")
-
+        # cursor to line 2 of the fixture's main.rs.
+        "keys :\n"
+        "keys 2\n"
+        "keys <cr>\n"
+        "settle\n"
+        "frame\n"
         # b — blame lens: run margins carry sha + author right of the
-        # gutter ("Tarek │" — the band's author reads "Tarek · <date>",
+        # gutter ("fe6823b Tarek" — the band reads "fe6823b · … · Tarek",
         # so this shape only matches margins).
-        tui.send("b")
-        tui.expect("fe6823b Tarek")
-
+        "keys b\n"
+        "settle\n"
+        "frame\n"
         # b again clears it.
-        tui.send("b")
-        tui.expect_gone("fe6823b Tarek")
-    finally:
-        tui.stop()
+        "keys b\n"
+        "settle\n"
+        "frame\n",
+        "--config",
+        str(config),
+        home=tmp_path / "home",
+        cols=170,
+    )
+    tree, results, expanded, goto, blame, cleared = frames(out)
+    (yank,) = states(out)
+
+    assert "main.rs" in tree
+    assert "main.rs" in results
+    assert "fn main" in expanded and "main.rs" in expanded
+
+    assert (yank["status"] or "").startswith("yanked")
+    assert "main.rs" in yank["yanks"][0]
+
+    # The jump moved the cursor: readout 2/5, file still under the pane.
+    assert "fn main" in goto
+    assert "2/5" in goto
+
+    assert "fe6823b Tarek" in blame
+    assert "fe6823b Tarek" not in cleared
 
 
-def test_preview_band_shows_last_commit(tmp_path: Path) -> None:
+def test_preview_band_shows_last_commit(tmp_path: Path, binary) -> None:
     """0019 polish: previewing a file dresses the header band with the
     file's last commit (sha · subject · author · date), ambient and
     cached — github.com's file header, in the terminal."""
-    root = make_git_root(tmp_path)
-    config = tmp_path / "p.toml"
-    config.write_text(
-        f'[provider]\nkind = "stdio"\n'
-        f'command = ["python3", "{FS_PROVIDER}", "{root}"]\n'
+    config = fs_config(tmp_path, root=make_git_root(tmp_path))
+    out = run_headless(
+        binary,
+        "keys proj\n"
+        "keys <cr>\n"
+        "settle\n"
+        "keys <cr>\n"  # open the repo
+        "settle\n"  # the ambient git-log fetch dresses the band
+        "frame\n",
+        "--config",
+        str(config),
+        home=tmp_path / "home",
+        cols=170,
     )
-    tui = Tui(build(), cols=170, rows=30, args=["--config", str(config)]).start()
-    try:
-        tui.type_query("proj")
-        tui.key("ENTER")
-        tui.expect("local/proj")
-        tui.key("ENTER")  # open the repo
-        tui.expect("main.rs")
-        # The band dresses with the file's last commit once the ambient
-        # fetch lands (fs provider: git log -1 main.rs).
-        screen = tui.expect("initial main.rs")
-        assert "Tarek" in screen and "2026-08-01" in screen, screen
-    finally:
-        tui.stop()
+    (frame,) = frames(out)
+    assert "main.rs" in frame
+    assert "initial main.rs" in frame  # subject
+    assert "Tarek" in frame and "2026-08-01" in frame, frame
 
 
-def test_repo_popup_yank_no_dead_keys(tmp_path: Path) -> None:
+def test_repo_popup_yank_no_dead_keys(tmp_path: Path, binary) -> None:
     """0021 M3 hygiene: `y` in the repo search popup yanks the selected
     repo's URL instead of dying silently."""
-    root = make_git_root(tmp_path)
-    config = tmp_path / "p.toml"
-    config.write_text(
-        f'[provider]\nkind = "stdio"\n'
-        f'command = ["python3", "{FS_PROVIDER}", "{root}"]\n'
+    config = fs_config(tmp_path, root=make_git_root(tmp_path))
+    out = run_headless(
+        binary,
+        "keys proj\n"
+        "keys <cr>\n"  # submit — results focus
+        "settle\n"
+        "frame\n"
+        "keys y\n"
+        "state\n"
+        "frame\n",
+        "--config",
+        str(config),
+        home=tmp_path / "home",
+        cols=110,
     )
-    tui = Tui(build(), cols=110, rows=30, args=["--config", str(config)]).start()
-    try:
-        tui.type_query("proj")
-        tui.key("ENTER")   # submit — results focus
-        tui.expect("local/proj")
-        tui.send("y")
-        screen = tui.expect("yanked")
-        assert "local/proj" in screen, screen
-    finally:
-        tui.stop()
+    results, after = frames(out)
+    (state,) = states(out)
+    assert "local/proj" in results
+    assert (state["status"] or "").startswith("yanked")
+    assert state["yanks"][0].endswith("/proj")
+    # The popup survives the yank — no dead key, no closed view.
+    assert "local/proj" in after

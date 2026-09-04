@@ -8,51 +8,7 @@ what only a terminal proves (byte parsing, terminal restore).
 
 from __future__ import annotations
 
-import json
-import subprocess
-import tempfile
-from pathlib import Path
-
-from conftest import FS_PROVIDER, make_fs_root
-from tui import build, hermetic_env
-
-
-def run_headless(
-    binary: Path, script: str, *args: str, home: Path, cols: int = 100, rows: int = 30
-) -> str:
-    """Run `rootle --headless -` with the script on stdin; return stdout."""
-    home.mkdir(parents=True, exist_ok=True)
-    env = hermetic_env(home)
-    env["ROOTLE_HEADLESS_COLS"] = str(cols)
-    env["ROOTLE_HEADLESS_ROWS"] = str(rows)
-    proc = subprocess.run(
-        [str(binary), "--headless", "-", *args],
-        input=script.encode(),
-        capture_output=True,
-        env=env,
-        timeout=60,
-    )
-    assert proc.returncode == 0, proc.stderr.decode()
-    return proc.stdout.decode()
-
-
-def fs_config(tmp: Path) -> Path:
-    root = make_fs_root(tmp)
-    config = tmp / "config.toml"
-    config.write_text(
-        '[provider]\nkind = "stdio"\n'
-        f'command = ["python3", "{FS_PROVIDER}", "{root}"]\n'
-    )
-    return config
-
-
-def states(output: str) -> list[dict]:
-    """The parsed JSON of every `─── state {...}` line."""
-    out = []
-    for line in output.splitlines():
-        if line.startswith("─── state "):
-            out.append(json.loads(line.removeprefix("─── state ")))
-    return out
+from headless import frames, fs_config, run_headless, states
 
 
 def test_browse_search_drill_yank(tmp_path, binary):

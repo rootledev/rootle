@@ -1,11 +1,16 @@
-"""E2E for plans/0007: theme-driven syntax colors in the preview pane
-(settings theme switch restyles cached blobs) and vim-style
-find-in-file (␣ /, live chips, n/N with wrap, line-anchored yank)."""
+"""E2E for plans/0007, headless tier: vim-style find-in-file (␣ /, live
+chips, n/N with wrap, line-anchored yank) driven via `rootle --headless -`
+on the fs stdio provider.
+
+The theme-switch recolor test stays on the PTY tier (bottom of this
+file): it asserts cell-level 24-bit fg colors, which the headless frame —
+deliberately text-only — cannot carry."""
 
 from pathlib import Path
 
-from conftest import Tui
-from test_wiring import launch
+from conftest import FS_PROVIDER, Tui
+from headless import frames, fs_config, run_headless, states
+from tui import build
 
 MAIN_RS = (
     "fn main() {\n"
@@ -24,6 +29,95 @@ def make_root(tmp: Path) -> Path:
     (root / "alpha").mkdir(parents=True)
     (root / "alpha" / "main.rs").write_text(MAIN_RS)
     return root
+
+
+def test_find_in_file_highlights_steps_and_yanks_match_line(tmp_path, binary):
+    clip = tmp_path / "clip.txt"
+    config = fs_config(tmp_path, root=make_root(tmp_path))
+    out = run_headless(
+        binary,
+        "keys alpha\n"
+        "keys <cr>\n"
+        "settle\n"
+        "keys <cr>\n"  # open the tree: main.rs selected and previewed
+        "settle\n"
+        "frame\n"
+        "keys <space>\n"
+        "keys /\n"  # FIND opens over the preview
+        "frame\n"
+        "keys render\n"  # live: chips + jump while typing
+        "frame\n"
+        "keys <cr>\n"  # commit: chips stay, back to browse
+        "frame\n"
+        "state\n"
+        "keys n\n"
+        "frame\n"
+        "keys n\n"  # wraps to the first match
+        "frame\n"
+        "keys N\n"  # and back again
+        "frame\n"
+        "keys <space>\n"
+        "keys y\n"  # yank anchors at the match line
+        "state\n"
+        "keys <esc>\n"  # :nohlsearch — chips clear, cursor stays
+        "frame\n",
+        "--config",
+        str(config),
+        home=tmp_path / "home",
+        env_extra={"ROOTLE_CLIPBOARD": str(clip)},
+    )
+    (
+        opened,
+        find,
+        live,
+        browse,
+        after_n,
+        after_wrap,
+        after_big_n,
+        cleared,
+    ) = frames(out)
+    committed, yanked = states(out)
+
+    assert "rust · 8 lines" in opened  # footer metadata
+    assert "1/8" in opened  # plain readout before find
+
+    assert "FIND" in find
+
+    assert "1/2 · 2/8" in live  # live jump to the first match
+    assert "/render" in live  # query rides the preview title
+
+    assert committed["mode"] == "BROWSE"
+    assert "1/2 · 2/8" in browse
+
+    assert "2/2 · 6/8" in after_n
+    assert "1/2 · 2/8" in after_wrap
+    assert "2/2 · 6/8" in after_big_n
+
+    assert (yanked["status"] or "").startswith("yanked")
+    assert yanked["yanks"][0].endswith("#L6")  # the match line, not line 1
+    assert clip.read_text().endswith("#L6")
+
+    assert "2/2 ·" not in cleared  # chips cleared…
+    assert "6/8" in cleared  # …while the cursor stays on the match line
+
+
+# --- PTY leftover: cell-level style assertions --------------------------------
+#
+# The headless frame is text-only by design (plans/0023), so a test that
+# must read a cell's 24-bit fg color — theme-driven syntax highlighting —
+# has no headless expression. It stays on the Tui/pyte tier.
+
+
+def launch(tmp_path: Path, root: Path, env_extra: dict[str, str] | None = None) -> Tui:
+    """Inline PTY launcher (test_wiring's `launch` retired with its port)."""
+    config = tmp_path / "provider.toml"
+    config.write_text(
+        f'[provider]\nkind = "stdio"\n'
+        f'command = ["python3", "{FS_PROVIDER}", "{root}"]\n'
+    )
+    return Tui(
+        build(), cols=110, rows=30, args=["--config", str(config)], env_extra=env_extra
+    ).start()
 
 
 def open_main_rs(tui: Tui) -> str:
@@ -64,44 +158,5 @@ def test_theme_switch_recolors_preview_code(tmp_path: Path) -> None:
         tui.key("ESC")  # close: saves + applies
         tui.expect("settings saved")
         assert fg_of(tui, "fn main()") == "ff79c6"  # dracula pink keyword
-    finally:
-        tui.stop()
-
-
-def test_find_in_file_highlights_steps_and_yanks_match_line(tmp_path: Path) -> None:
-    clip = tmp_path / "clip.txt"
-    root = make_root(tmp_path)
-    tui = launch(tmp_path, root, {"ROOTLE_CLIPBOARD": str(clip)})
-    try:
-        screen = open_main_rs(tui)
-        assert "rust · 8 lines" in screen  # footer metadata
-        assert "1/8" in screen  # plain readout before find
-
-        tui.send(" ")
-        tui.send("/")
-        tui.expect("FIND")
-        tui.type_query("render")
-        tui.expect("1/2 · 2/8")  # live jump to the first match
-        tui.expect("/render")  # query rides the preview title
-
-        tui.key("ENTER")  # commit: chips stay, back to browse
-        tui.expect("BROWSE")
-        tui.expect("1/2 · 2/8")
-        # n/N stepping: poll the readout after each key — a raw
-        # screen() snapshot races the PTY render on slow runners.
-        tui.send("n")
-        tui.expect("2/2 · 6/8")
-        tui.send("n")  # wraps to the first match
-        tui.expect("1/2 · 2/8")
-        tui.send("N")  # and back again
-        tui.expect("2/2 · 6/8")
-
-        tui.send(" ")
-        tui.send("y")  # yank anchors at the match line
-        tui.expect("yanked")
-        assert clip.read_text().endswith("#L6"), clip.read_text()
-
-        tui.key("ESC")  # :nohlsearch — chips clear, cursor stays
-        tui.expect_gone("2/2 ·")
     finally:
         tui.stop()

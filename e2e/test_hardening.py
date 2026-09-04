@@ -1,24 +1,19 @@
-"""E2E for plans/0008 (remote-provider hardening): a hung backend call
-fails at the read deadline instead of wedging the UI, and a dead child
-is respawned with backoff — the session recovers without a relaunch."""
+"""Headless-tier e2e for plans/0008 (remote-provider hardening): a
+hung backend call fails at the read deadline instead of wedging the
+UI, and a dead child is respawned with backoff — the session recovers
+without a relaunch. plans/0023: scripted keys + frame/state dumps; the
+deadline and the respawn backoff are ridden out with `wait`."""
 
-import json
-import time
+from __future__ import annotations
+
 from pathlib import Path
 
-from conftest import Tui
-from test_wiring import launch
+from headless import frames, run_headless, states
 
 
 def write_provider(path: Path, body: str) -> None:
     path.write_text(body)
     path.chmod(0o755)
-
-
-def _binary():
-    from tui import build
-
-    return build()
 
 
 SLOW_PROVIDER = r"""
@@ -64,7 +59,7 @@ for line in sys.stdin:
 """
 
 
-def test_hung_call_times_out_and_ui_stays_responsive(tmp_path: Path) -> None:
+def test_hung_call_times_out_and_ui_stays_responsive(tmp_path, binary):
     provider = tmp_path / "slow_provider.py"
     write_provider(provider, SLOW_PROVIDER)
     config = tmp_path / "provider.toml"
@@ -72,26 +67,33 @@ def test_hung_call_times_out_and_ui_stays_responsive(tmp_path: Path) -> None:
         '[provider]\nkind = "stdio"\ntimeout_ms = 2000\n'
         f'command = ["python3", "{provider}"]\n'
     )
-    tui = Tui(_binary(), cols=110, rows=30, args=["--config", str(config)]).start()
-    try:
-        tui.type_query("alpha")
-        tui.key("ENTER")
-        # The search hangs; ~2s later the deadline fires with a
-        # timeout status — the app never wedges (expect polls the UI).
-        tui.expect("provider timeout", timeout=10)
-        # Still responsive: the popup cancels and the app quits cleanly.
-        tui.key("ESC")
-        tui.key("ESC")
-        tui.send("q")
-        deadline = time.monotonic() + 5
-        while tui._proc.poll() is None and time.monotonic() < deadline:
-            time.sleep(0.05)
-        assert tui._proc.poll() is not None, "app should quit after a timed-out provider"
-    finally:
-        tui.stop()
+    out = run_headless(
+        binary,
+        "keys alpha\n"
+        "keys <cr>\n"
+        "wait 3000\n"  # ride past the 2s read deadline
+        "frame\n"
+        "state\n"  # the popup still holds the error block
+        "keys <esc><esc>\n"  # still responsive: the popup cancels
+        "state\n"
+        "keys q\n",  # …and the app quits — the run returning is the proof
+        "--config",
+        str(config),
+        home=tmp_path / "home",
+        cols=110,
+    )
+    f = frames(out)
+    s = states(out)
+    # The deadline fired: the popup's results block carries the error
+    # — the UI never wedged (the run itself returning is the proof).
+    assert "provider timeout" in f[0]
+    assert s[0]["popup"] is True
+    # Keys still process after the deadline: the popup closed cleanly.
+    assert s[1]["popup"] is False
+    assert s[1]["mode"] == "BROWSE"
 
 
-def test_dead_child_respawns_and_session_recovers(tmp_path: Path) -> None:
+def test_dead_child_respawns_and_session_recovers(tmp_path, binary):
     provider = tmp_path / "flakey_provider.py"
     write_provider(provider, FLAKEY_PROVIDER)
     marker = tmp_path / "died-once"
@@ -100,18 +102,29 @@ def test_dead_child_respawns_and_session_recovers(tmp_path: Path) -> None:
         '[provider]\nkind = "stdio"\n'
         f'command = ["python3", "{provider}", "{marker}"]\n'
     )
-    tui = Tui(_binary(), cols=110, rows=30, args=["--config", str(config)]).start()
-    try:
-        tui.type_query("alpha")
-        tui.key("ENTER")
-        tui.expect("local/alpha")
-        tui.key("ENTER")  # open the repo — the child dies on this call
-        tui.expect("provider closed its output")
-        # Retry: ensure_alive respawns (1s backoff + handshake), the
-        # new generation serves the tree, and the status line notes it.
-        tui.key("ENTER")
-        tui.expect("provider restarted", timeout=10)
-        tui.expect("README.md", timeout=10)
-        tui.expect("# alpha", timeout=10)  # blob preview landed too
-    finally:
-        tui.stop()
+    out = run_headless(
+        binary,
+        "keys alpha\n"
+        "keys <cr>\n"
+        "settle\n"  # results land: initialize + search/repos answered
+        "frame\n"
+        "keys <cr>\n"  # open the repo — the child dies on this call
+        "settle\n"  # the closed-output error surfaces
+        "frame\n"
+        "keys <cr>\n"  # retry: ensure_alive respawns (1s backoff + handshake)
+        "wait 2500\n"  # the backoff gap outlives settle's quiet window
+        "settle\n"  # the new generation serves tree + blob
+        "frame\n",
+        "--config",
+        str(config),
+        home=tmp_path / "home",
+        cols=110,
+    )
+    f = frames(out)
+    assert "local/alpha" in f[0]
+    assert "provider closed its output" in f[1]
+    # The status line notes the respawn; the recovered tree and blob
+    # preview land on the same frame.
+    assert "provider restarted" in out
+    assert "README.md" in f[2]
+    assert "# alpha" in f[2]  # blob preview landed too
