@@ -3,6 +3,14 @@
 User-visible changes per release. Protocol archaeology lives in
 `plans/`; this file is for "what's new for me".
 
+## [0.9.2] — 2026-09-04
+
+### Fixed
+
+- A malformed or unreadable config is no longer silently ignored:
+  startup falls back to defaults but says so, sticky — "config <path>
+  malformed/unreadable (…) — using defaults". (Breaker round 2.)
+
 ## [0.9.1] — 2026-09-04
 
 ### Fixed
@@ -229,6 +237,7 @@ User-visible changes per release. Protocol archaeology lives in
 - Chrome: powerline modeline (Nerd Font opt-in), bat-style gutters,
   fzf prompts, `[ui] border` / `[ui] nerd_font`.
 
+[0.9.2]: https://github.com/rootledev/rootle/releases/tag/v0.9.2
 [0.9.1]: https://github.com/rootledev/rootle/releases/tag/v0.9.1
 [0.9.0]: https://github.com/rootledev/rootle/releases/tag/v0.9.0
 [0.8.7]: https://github.com/rootledev/rootle/releases/tag/v0.8.7
