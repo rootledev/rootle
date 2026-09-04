@@ -20,6 +20,26 @@ jobs:
       - name: E2E (PTY suite)
         run: docker compose run --build --rm e2e
 
+  # plans/0023 M3: behavioral coverage on real macOS — APFS
+  # case-insensitivity, symlink topology, BSD-flavored crossterm
+  # edges. Native, not docker: macOS runners have no compose story
+  # worth the latency (the gripsack lesson). Offline, same fs
+  # provider fixtures as the docker suite.
+  e2e-macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v7
+
+      # The suite builds the debug binary itself (e2e/tui.py build()).
+      - name: Build debug binary
+        run: cargo build --locked
+
+      - name: E2E (headless + PTY suite)
+        working-directory: e2e
+        run: |
+          python3 -m pip install --quiet uv
+          uv run pytest
+
   # plans/0015: the canonical conformance suite gates the reference
   # adapter — protocol changes must keep fs_provider.py green.
   forge-conformance:
