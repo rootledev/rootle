@@ -9,7 +9,7 @@
 
 use super::vim_input::{Outcome, VimInput};
 use crate::action::Action;
-use crate::components::{centered, scrollbar};
+use crate::components::{centered_clamped, scrollbar};
 use crate::theme::Theme;
 use ratatui::Frame;
 use ratatui::layout::Rect;
@@ -160,7 +160,7 @@ impl RefsPopup {
 
     pub fn render(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
         let sem = &theme.semantic;
-        let popup = centered(area, 50, 50);
+        let popup = centered_clamped(area, 50, 50, 30, 10);
         frame.render_widget(Clear, popup);
 
         let current = self.selected().map(|r| r.name.as_str()).unwrap_or("");

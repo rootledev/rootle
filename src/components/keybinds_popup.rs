@@ -75,7 +75,7 @@ impl KeybindsPopup {
 
     pub fn render(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
         let sem = &theme.semantic;
-        let popup = super::centered(area, 60, 70);
+        let popup = super::centered_clamped(area, 60, 70, 36, 12);
         frame.render_widget(Clear, popup);
 
         let block = Block::default()

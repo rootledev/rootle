@@ -49,6 +49,24 @@ pub(crate) fn centered(area: Rect, pct_x: u16, pct_y: u16) -> Rect {
         .split(vertical[1])[1]
 }
 
+/// centered() with a size floor. Popups have a minimum usable layout
+/// (input row + a bordered results box + hints); below it the fixed
+/// rows guillotine and content leaks past the border (0023 breaker,
+/// 40×10). Inflate to the minimum, recentered, never exceeding the
+/// viewport itself.
+pub(crate) fn centered_clamped(area: Rect, pct_x: u16, pct_y: u16, min_w: u16, min_h: u16) -> Rect {
+    let mut rect = centered(area, pct_x, pct_y);
+    if rect.width < min_w {
+        rect.width = min_w.min(area.width);
+        rect.x = area.x + (area.width - rect.width) / 2;
+    }
+    if rect.height < min_h {
+        rect.height = min_h.min(area.height);
+        rect.y = area.y + (area.height - rect.height) / 2;
+    }
+    rect
+}
+
 /// Pretty scrollbar embedded in the RIGHT border of a bordered box:
 /// the track is the border itself (│, surface2), the thumb a bold
 /// accent column (┃). No-op when the content fits. `total` = content

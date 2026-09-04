@@ -349,6 +349,11 @@ impl App {
                 } else {
                     self.browser.blame_store(path, ranges);
                 }
+                // The "blame…" transient has had its say — clear it,
+                // but never erase a NEWER status (scoped compare).
+                if self.status.as_deref() == Some("blame…") {
+                    self.status = None;
+                }
             }
             AppEvent::LastCommitLoaded { repo, path, entry } => {
                 if let Some(entry) = entry {
