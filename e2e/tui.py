@@ -110,6 +110,7 @@ class Tui:
         self._screen = pyte.Screen(cols, rows)
         self._stream = pyte.ByteStream(self._screen)
         self._master: int | None = None
+        self._raw = bytearray()  # every byte the app wrote (tier-3 escape checks)
         self._proc: subprocess.Popen[bytes] | None = None
         self._home = tempfile.TemporaryDirectory(prefix="rootle-e2e-")
         # asciinema v2 recording (demo capture): header + [dt, "o", text].
@@ -158,6 +159,7 @@ class Tui:
         """Feed the VT emulator (and the recorder, if armed)."""
         import time as _t
 
+        self._raw.extend(chunk)
         self._stream.feed(chunk)
         if self._recording is not None and self._rec_clock is not None:
             now = _t.monotonic()
@@ -192,6 +194,34 @@ class Tui:
 
     def __exit__(self, *_: object) -> None:
         self.stop()
+
+
+    def raw(self) -> bytes:
+        """Every byte the app emitted — escape-sequence assertions."""
+        return bytes(self._raw)
+
+    def wait_exit(self, timeout: float = 5.0) -> int:
+        """Wait for the app to exit; return its exit code."""
+        assert self._proc is not None, "Tui not started"
+        # Drain until EOF so _raw is complete at exit.
+        deadline = time.monotonic() + timeout
+        while self._proc.poll() is None and time.monotonic() < deadline:
+            ready, _, _ = select.select([self._master], [], [], 0.05)
+            if ready:
+                try:
+                    self._feed(os.read(self._master, 65536))
+                except OSError:
+                    break
+        returncode = self._proc.wait(timeout=max(0.1, deadline - time.monotonic()))
+        while True:
+            try:
+                ready, _, _ = select.select([self._master], [], [], 0.05)
+                if not ready:
+                    break
+                self._feed(os.read(self._master, 65536))
+            except OSError:
+                break
+        return returncode
 
     # -- input ----------------------------------------------------------
 
