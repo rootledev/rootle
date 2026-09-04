@@ -15,7 +15,7 @@ impl App {
                 if gen_id != self.search_gen {
                     return; // stale submission
                 }
-                self.status = None;
+                self.clear_loading_status(&["searching"]);
                 if let Some(popup) = &mut self.popup {
                     popup.update(&Action::SearchResults { items });
                 }
@@ -24,13 +24,13 @@ impl App {
                 if gen_id != self.search_gen {
                     return;
                 }
-                self.status = None;
+                self.clear_loading_status(&["searching"]);
                 if let Some(popup) = &mut self.popup {
                     popup.update(&Action::SearchFailed { error });
                 }
             }
             AppEvent::OrgReposLoaded { org, repos } => {
-                self.status = None;
+                self.clear_loading_status(&["loading ", "reloading org repos"]);
                 self.browser.org_repos_loaded(&org, repos);
             }
             AppEvent::OrgReposFailed { org, error } => {
@@ -96,7 +96,7 @@ impl App {
                 if gen_id != self.view_gen {
                     return; // stale submission
                 }
-                self.status = None;
+                self.clear_loading_status(&["searching code"]);
                 let Some(view) = &self.search_view else {
                     return;
                 };
@@ -129,7 +129,7 @@ impl App {
                 if gen_id != self.view_gen {
                     return;
                 }
-                self.status = None;
+                self.clear_loading_status(&["searching code"]);
                 if let Some(view) = &mut self.search_view {
                     view.update(&Action::GlobalSearchFailed { error });
                 }
