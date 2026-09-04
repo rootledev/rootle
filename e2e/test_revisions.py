@@ -36,8 +36,9 @@ def test_revision_switcher_swaps_the_tree(git_tui: Tui) -> None:
     open_proj(tui)
     tui.send(" ")  # leader
     tui.send("b")  # revisions
-    tui.expect("loading revisions")
-    # branches + the default marker land
+    # No "loading revisions" expectation: a fast local provider clears
+    # the transient inside one tick — it may never be drawn (macOS CI
+    # flake). The durable outcome is the branch list.
     tui.expect("feature")
     tui.expect("main")
     assert "default" in tui.screen()
