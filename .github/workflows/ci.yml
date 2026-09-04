@@ -34,11 +34,12 @@ jobs:
       - name: Build debug binary
         run: cargo build --locked
 
+      - uses: astral-sh/setup-uv@v7
+
+      # uv, not pip: homebrew's python is PEP-668 externally-managed.
       - name: E2E (headless + PTY suite)
         working-directory: e2e
-        run: |
-          python3 -m pip install --quiet uv
-          uv run pytest
+        run: uv run pytest
 
   # plans/0015: the canonical conformance suite gates the reference
   # adapter — protocol changes must keep fs_provider.py green.
