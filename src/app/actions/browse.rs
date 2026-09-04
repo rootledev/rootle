@@ -82,7 +82,7 @@ impl App {
                 truncated,
                 branch,
             } => {
-                self.status = None;
+                self.clear_loading_status(&["loading ", "reloading tree"]);
                 self.browser
                     .tree_loaded(&owner, &name, entries, truncated, branch);
                 true

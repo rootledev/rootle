@@ -516,6 +516,20 @@ impl App {
         }
     }
 
+    /// Clear the transient only when it still is this operation's
+    /// loading marker — a background success must never erase a fresh
+    /// ERROR from an unrelated in-flight operation (0023 round 3: the
+    /// default-org warm-up wiped the direct-arg repo's 404).
+    pub(crate) fn clear_loading_status(&mut self, prefixes: &[&str]) {
+        let Some(status) = &self.status else {
+            return;
+        };
+        let is_loading = status.ends_with('…') && prefixes.iter().any(|p| status.starts_with(p));
+        if is_loading {
+            self.status = None;
+        }
+    }
+
     pub fn clear_status_for_test(&mut self) {
         self.status = None;
     }

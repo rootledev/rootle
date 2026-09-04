@@ -2417,3 +2417,44 @@ fn search_popup_respects_size_floor() {
     );
     assert!(text.contains("❯"), "input still renders:\n{text}");
 }
+
+/// plans/0023 breaker round 3: a background success must never erase
+/// a fresh error from an unrelated in-flight operation — the direct-
+/// arg repo's 404 was wiped by the default-org warm-up landing after.
+#[test]
+fn background_success_never_erases_a_fresh_error() {
+    let mut app = browsing_app();
+    // The failing fetch lands first (direct-arg 404)…
+    app.handle_action(rootle::action::Action::TreeFailed {
+        owner: "zzz".into(),
+        name: "nope".into(),
+        error: rootle::provider::ProviderError::other("HTTP 404 Not Found"),
+    });
+    assert!(
+        app.snapshot()["status"]
+            .as_str()
+            .unwrap()
+            .contains("HTTP 404"),
+        "error visible"
+    );
+    // …then an unrelated org-repos success arrives: the error stays.
+    app.handle_app_event(rootle::event::AppEvent::OrgReposLoaded {
+        org: "ratatui".into(),
+        repos: vec![],
+    });
+    assert!(
+        app.snapshot()["status"]
+            .as_str()
+            .unwrap()
+            .contains("HTTP 404"),
+        "success must not erase the error"
+    );
+    // Its own loading marker, though, clears on success.
+    app.handle_action(rootle::action::Action::LoadOrgRepos("tokio-rs".into()));
+    assert_eq!(app.snapshot()["status"], "loading tokio-rs…");
+    app.handle_app_event(rootle::event::AppEvent::OrgReposLoaded {
+        org: "tokio-rs".into(),
+        repos: vec![],
+    });
+    assert_eq!(app.snapshot()["status"], serde_json::Value::Null);
+}
