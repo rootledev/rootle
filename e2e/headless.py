@@ -27,20 +27,37 @@ def run_headless(
     rows: int = 30,
     env_extra: dict[str, str] | None = None,
 ) -> str:
-    """Run `rootle --headless -` with the script on stdin; return stdout."""
+    """Run `rootle --headless -` with the script on stdin; return stdout.
+
+    The process runs in its own group and a timeout kills the GROUP:
+    rootle's provider children hold the stdout pipe, and a lone-child
+    kill would leave `communicate()` waiting on an orphan forever
+    (the macOS CI hang)."""
+    import os
+    import signal
+
     home.mkdir(parents=True, exist_ok=True)
     env = hermetic_env(home, env_extra)
     env["ROOTLE_HEADLESS_COLS"] = str(cols)
     env["ROOTLE_HEADLESS_ROWS"] = str(rows)
-    proc = subprocess.run(
+    proc = subprocess.Popen(
         [str(binary), "--headless", "-", *args],
-        input=script.encode(),
-        capture_output=True,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         env=env,
-        timeout=120,
+        start_new_session=True,
     )
-    assert proc.returncode == 0, proc.stderr.decode()
-    return proc.stdout.decode()
+    try:
+        stdout, stderr = proc.communicate(input=script.encode(), timeout=120)
+    except subprocess.TimeoutExpired:
+        os.killpg(proc.pid, signal.SIGKILL)
+        stdout, stderr = proc.communicate()
+        raise AssertionError(
+            f"headless run wedged (120s); partial stderr:\n{stderr.decode()}"
+        )
+    assert proc.returncode == 0, stderr.decode()
+    return stdout.decode()
 
 
 def fs_config(tmp: Path, root: Path | None = None) -> Path:
