@@ -19,8 +19,11 @@ def test_file_find_over_provider_tree(provider_tui: Tui) -> None:
 
     tui.type_query("main")
     tui.key("ENTER")
-    screen = tui.expect("src/main.rs")
-    assert "fn main() {" in screen  # blob head preview via provider
+    # Gate on the blob-head preview, not the hit row: the row lands
+    # before the lazy preview fetch, and asserting on the row's frame
+    # races it (macOS CI — "searching code…" still in the modeline).
+    screen = tui.expect("fn main() {")
+    assert "src/main.rs" in screen
     assert "BROWSE" in screen
 
 
