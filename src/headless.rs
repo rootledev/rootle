@@ -246,7 +246,7 @@ pub fn run_cli(cli: &crate::cli::Cli) -> std::io::Result<()> {
     } else {
         std::fs::read_to_string(path)?
     };
-    let mut config = match &cli.config {
+    let (mut config, config_warning) = match &cli.config {
         Some(path) => crate::config::Config::load_from(path),
         None => crate::config::Config::load(),
     };
@@ -256,6 +256,7 @@ pub fn run_cli(cli: &crate::cli::Cli) -> std::io::Result<()> {
     let theme = cli.resolve_theme(&config);
     let (tx, rx) = crate::event::channel();
     let mut app = App::new(tx, config, theme);
+    app.config_warning(config_warning);
     // `rootle owner/repo[@ref]`: same direct-open as the TUI.
     if let Some((owner, name, ref_)) = cli.repo_parts() {
         if let Some(r) = ref_ {

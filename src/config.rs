@@ -172,11 +172,17 @@ impl Config {
         crate::paths::config_dir().map(|d| d.join("rootle").join("config.toml"))
     }
 
-    /// Load config; missing or malformed → defaults (never fail startup).
-    pub fn load() -> Self {
+    /// Load config from the default path. Missing file is a normal
+    /// fresh install (silent defaults); a malformed file REPORTS —
+    /// silently browsing defaults while the user thinks their config
+    /// applied is the 0022-class quiet failure (0023 round 2).
+    pub fn load() -> (Self, Option<String>) {
         let Some(path) = Self::path() else {
-            return Self::default();
+            return (Self::default(), None);
         };
+        if !path.exists() {
+            return (Self::default(), None);
+        }
         Self::load_from(&path)
     }
 
@@ -193,11 +199,58 @@ impl Config {
         std::fs::rename(path.with_extension("toml.tmp"), path)
     }
 
-    /// Load from an explicit path (--config); missing/malformed → defaults.
-    pub fn load_from(path: &std::path::Path) -> Self {
-        let Ok(text) = std::fs::read_to_string(path) else {
-            return Self::default();
+    /// Load from an explicit path (--config). Missing or malformed
+    /// still falls back to defaults (startup never fails) — but the
+    /// warning names the file and the cause.
+    pub fn load_from(path: &std::path::Path) -> (Self, Option<String>) {
+        let text = match std::fs::read_to_string(path) {
+            Ok(text) => text,
+            Err(e) => {
+                return (
+                    Self::default(),
+                    Some(format!(
+                        "config {} unreadable ({e}) — using defaults",
+                        path.display()
+                    )),
+                );
+            }
         };
-        toml::from_str(&text).unwrap_or_default()
+        match toml::from_str(&text) {
+            Ok(config) => (config, None),
+            Err(e) => (
+                Self::default(),
+                Some(format!(
+                    "config {} malformed ({e}) — using defaults",
+                    path.display()
+                )),
+            ),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn malformed_config_reports_and_falls_back() {
+        let dir = std::env::temp_dir().join(format!("rootle-cfg-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("bad.toml");
+        std::fs::write(&path, "[provider\nkind = broken").unwrap();
+        let (config, warning) = Config::load_from(&path);
+        assert!(config.provider.kind.is_empty() || config.provider.kind == "github");
+        let warning = warning.expect("malformed config must report");
+        assert!(warning.contains("malformed"), "{warning}");
+        assert!(warning.contains("bad.toml"), "names the file: {warning}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn missing_explicit_config_reports() {
+        let dir = std::env::temp_dir();
+        let path = dir.join("rootle-cfg-test-nonexistent.toml");
+        let (_, warning) = Config::load_from(&path);
+        assert!(warning.unwrap().contains("unreadable"));
     }
 }
