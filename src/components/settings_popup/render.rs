@@ -5,7 +5,7 @@
 use super::SettingsPopup;
 use super::sections::Row;
 use crate::components::pane::fit;
-use crate::components::{centered, scrollbar};
+use crate::components::{centered_clamped, scrollbar};
 use crate::theme::Theme;
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
@@ -27,7 +27,7 @@ impl SettingsPopup {
         // palette, not the app's.
         let theme = self.preview.unwrap_or(*theme);
         let sem = &theme.semantic;
-        let popup = centered(area, 72, 62);
+        let popup = centered_clamped(area, 72, 62, 40, 12);
         frame.render_widget(Clear, popup);
 
         let hint = if self.editing.is_some() {

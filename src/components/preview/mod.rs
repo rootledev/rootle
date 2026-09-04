@@ -188,16 +188,27 @@ impl Preview {
     }
 
     /// File meta until blob content lands (milestone 5): size + blob sha.
-    pub fn set_file_meta(&mut self, name: &str, size: Option<u64>, sha: &str) {
+    fn set_meta_text(&mut self, name: &str, size: Option<u64>, sha: &str, tail: &str) {
         self.title = sanitize::sanitize_inline(name);
         let size = size.map(|s| s.to_string()).unwrap_or_else(|| "?".into());
         let short = &sha[..sha.len().min(7)];
-        let text = format!("{size} bytes · blob {short}\n\nloading…");
+        let text = format!("{size} bytes · blob {short}\n\n{tail}");
         self.line_count = text.lines().count() as u16;
         self.content = PreviewContent::Text(text);
         self.numbered = false;
         self.lang = None;
         self.reset();
+    }
+
+    pub fn set_file_meta(&mut self, name: &str, size: Option<u64>, sha: &str) {
+        self.set_meta_text(name, size, sha, "loading…");
+    }
+
+    /// Fetch failure: the meta line stays, the error replaces the
+    /// loading placeholder — re-shown on every re-select (0023
+    /// breaker found the "loading…"-forever regression).
+    pub fn set_error(&mut self, name: &str, size: Option<u64>, sha: &str, message: &str) {
+        self.set_meta_text(name, size, sha, &format!("error: {message}"));
     }
 
     pub fn set_highlighted(&mut self, name: &str, lang: &str, lines: Vec<Line<'static>>) {

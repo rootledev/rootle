@@ -3,7 +3,7 @@
 //! summary — and the button row.
 
 use super::{CloneWizard, Focus, Screen};
-use crate::components::{centered, scrollbar};
+use crate::components::{centered_clamped, scrollbar};
 use crate::theme::Theme;
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
@@ -14,7 +14,7 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 impl CloneWizard {
     pub fn render(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
         let sem = &theme.semantic;
-        let popup = centered(area, 70, 60);
+        let popup = centered_clamped(area, 70, 60, 36, 10);
         frame.render_widget(Clear, popup);
 
         let (back, next) = self.buttons();

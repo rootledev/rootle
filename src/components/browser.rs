@@ -41,6 +41,10 @@ pub struct Browser {
     blobs: HashMap<String, CachedBlob>,
     /// Shas with an in-flight fetch (dedupe worker spawns).
     pending_blobs: HashSet<String>,
+    /// Shas whose fetch failed, with the error — re-selecting re-shows
+    /// the error instead of a "loading…" placeholder nothing resolves
+    /// (0023 breaker). Cleared by explicit reload (the retry path).
+    failed_blobs: HashMap<String, String>,
     /// Set by refresh when the selected file needs a fetch; the app
     /// drains it via `take_blob_request` and routes `LoadBlob`.
     blob_request: Option<(String, String)>,
@@ -92,6 +96,7 @@ impl Browser {
             tree: None,
             blobs: HashMap::new(),
             pending_blobs: HashSet::new(),
+            failed_blobs: HashMap::new(),
             blob_request: None,
             preview: Preview::new(),
             filter_input: VimInput::transient(),
@@ -608,6 +613,13 @@ impl Browser {
                             let lines = blob.lines.clone();
                             let lang = blob.lang.clone();
                             self.preview.set_highlighted(&entry.name, &lang, lines);
+                        } else if let Some(err) = self.failed_blobs.get(&node.sha) {
+                            // Re-selecting a failed fetch re-shows the
+                            // honest error — never the loading
+                            // placeholder again.
+                            let err = err.clone();
+                            self.preview
+                                .set_error(&entry.name, node.size, &node.sha, &err);
                         } else {
                             if !self.pending_blobs.contains(&node.sha) {
                                 self.blob_request = Some((node.sha.clone(), entry.name.clone()));

@@ -141,6 +141,10 @@ impl App {
             }
             Action::LeaderReload => {
                 self.mode = Mode::Browse;
+                // Explicit reload is the retry path for failed blobs
+                // too (0023): clear the failure cache so the preview
+                // re-requests.
+                self.browser.retry_failed_blobs();
                 if let Some((owner, name)) = self.browser.repo_coords() {
                     // Conditional refetch: cheap when the ref ETag is
                     // still fresh (304), fresh tree when it moved.

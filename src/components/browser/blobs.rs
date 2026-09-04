@@ -92,10 +92,31 @@ impl Browser {
         }
     }
 
-    pub fn blob_failed(&mut self, _sha: &str, message: &str) {
-        // Stay marked pending: no auto-retry while the user keeps
-        // moving (avoids hammering a failing endpoint per keystroke).
-        self.preview.content =
-            crate::components::preview::PreviewContent::Text(format!("error: {message}"));
+    pub fn blob_failed(&mut self, sha: &str, message: &str) {
+        // Cache the failure: re-selecting the file re-shows the error
+        // (refresh_preview consults failed_blobs) instead of a
+        // "loading…" placeholder nothing will resolve. No auto-retry
+        // while the user keeps moving — explicit reload clears the
+        // failure map (the retry path).
+        self.pending_blobs.remove(sha);
+        self.failed_blobs
+            .insert(sha.to_string(), message.to_string());
+        // Stale replies must not clobber the preview: the user may
+        // have moved to another file while this fetch was failing.
+        if let Some((_, selected)) = self.selected_file()
+            && selected == sha
+        {
+            self.preview.content =
+                crate::components::preview::PreviewContent::Text(format!("error: {message}"));
+        }
+    }
+
+    /// Explicit reload (␣ r): failures clear AND the visible preview
+    /// re-requests immediately — the retry path for a transient
+    /// failure. (Clearing without refreshing left the error text on
+    /// screen until the next cursor move.)
+    pub fn retry_failed_blobs(&mut self) {
+        self.failed_blobs.clear();
+        self.refresh_preview();
     }
 }

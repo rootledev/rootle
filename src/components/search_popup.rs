@@ -226,7 +226,7 @@ impl SearchPopup {
 
     pub fn render(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
         let sem = &theme.semantic;
-        let popup = super::centered(area, 60, 60);
+        let popup = super::centered_clamped(area, 60, 60, 30, 8);
 
         // Clear first: reset cells beneath so nothing lingers (PLAN.md §9).
         frame.render_widget(Clear, popup);
@@ -250,10 +250,21 @@ impl SearchPopup {
         let inner = block.inner(popup);
         frame.render_widget(block, popup);
 
-        let rows = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Length(3), Constraint::Min(1)])
-            .split(inner);
+        // Below the popup floor (viewport tinier than 8 rows), the
+        // results box can't even draw its own borders — render the
+        // input alone rather than a guillotined box that leaks cells
+        // (0023 breaker, 40×10 and below).
+        let rows = if inner.height >= 6 {
+            Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Length(3), Constraint::Min(1)])
+                .split(inner)
+        } else {
+            Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Length(3), Constraint::Length(0)])
+                .split(inner)
+        };
 
         // Input field.
         let input_border = if self.focus == Focus::Input {
@@ -299,7 +310,9 @@ impl SearchPopup {
             "results".into()
         };
         self.results.focused = self.focus == Focus::Results;
-        self.results.render(frame, rows[1], theme);
+        if rows[1].height >= 2 {
+            self.results.render(frame, rows[1], theme);
+        }
     }
 }
 

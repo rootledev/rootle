@@ -4,7 +4,7 @@
 use super::GlobalSearch;
 use super::model::{Scope, SearchHit};
 use crate::components::pane::fit;
-use crate::components::{centered, scrollbar};
+use crate::components::{centered_clamped, scrollbar};
 use crate::keymap;
 use crate::mode::Mode;
 use crate::theme::Theme;
@@ -458,7 +458,7 @@ impl GlobalSearch {
         let sem = &theme.semantic;
         let items = self.scope_items();
         let height = items.len() as u16 + 2; // rows + border
-        let popup_area = centered(area, 40, 30);
+        let popup_area = centered_clamped(area, 40, 30, 24, 6);
         let popup = Rect {
             height: height.min(popup_area.height),
             ..popup_area

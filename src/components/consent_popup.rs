@@ -5,7 +5,7 @@
 //! honest degraded mode. The declaration stays visible either way.
 
 use crate::action::{Action, DeclarationState};
-use crate::components::centered;
+use crate::components::centered_clamped;
 use crate::provider::Declaration;
 use crate::theme::Theme;
 use ratatui::Frame;
@@ -86,7 +86,7 @@ impl ConsentPopup {
 
     pub fn render(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
         let sem = &theme.semantic;
-        let area = centered(area, 64, 50);
+        let area = centered_clamped(area, 64, 50, 30, 10);
         let mut lines = match &self.kind {
             ConsentKind::Health(issue) => health_lines(issue, sem),
             ConsentKind::Install(decl) => install_lines(decl, sem),

@@ -2230,3 +2230,190 @@ fn mock_hit_expands_from_its_body_without_a_fetch() {
         "body hits never show the placeholder:\n{screen}"
     );
 }
+
+/// plans/0023 breaker F1: a failed blob fetch re-shows the honest
+/// error on every re-select — never the "loading…" placeholder that
+/// nothing will resolve — and explicit reload (␣ r) is the retry.
+#[test]
+fn failed_blob_restates_error_on_reselect() {
+    fn file(path: &str, sha: &str) -> rootle::provider::TreeNode {
+        rootle::provider::TreeNode {
+            path: path.into(),
+            is_dir: false,
+            sha: sha.into(),
+            size: Some(9),
+        }
+    }
+    let mut app = app_with_orgs(&["ratatui"]);
+    app.handle_key(key(KeyCode::Esc));
+    app.handle_action(rootle::action::Action::OrgSelected("ratatui".into()));
+    app.handle_action(rootle::action::Action::OrgReposLoaded {
+        org: "ratatui".into(),
+        repos: vec!["ratatui".into()],
+    });
+    app.handle_action(rootle::action::Action::TreeLoaded {
+        owner: "ratatui".into(),
+        name: "ratatui".into(),
+        entries: vec![
+            file("a.bin", "aaaaaaa1111111"),
+            file("b.bin", "bbbbbbb2222222"),
+        ],
+        truncated: false,
+        branch: "main".into(),
+    });
+    // a.bin selected; its fetch fails.
+    app.handle_action(rootle::action::Action::BlobFailed {
+        sha: "aaaaaaa1111111".into(),
+        error: rootle::provider::ProviderError::other("binary file"),
+    });
+    let screen = render(&mut app, 80, 24).join("\n");
+    assert!(
+        screen.contains("error: binary file"),
+        "first failure:\n{screen}"
+    );
+
+    // Move away and back: the error must persist, not regress to
+    // "loading…" (the breaker's stuck-placeholder bug).
+    app.handle_key(key(KeyCode::Char('j'))); // b.bin
+    app.handle_key(key(KeyCode::Char('k'))); // a.bin again
+    let screen = render(&mut app, 80, 24).join("\n");
+    assert!(
+        screen.contains("error: binary file"),
+        "re-select:\n{screen}"
+    );
+    assert!(
+        !screen.contains("loading…"),
+        "no placeholder regression:\n{screen}"
+    );
+
+    // ␣ r clears the failure cache — the retry path re-requests and
+    // the placeholder is honest again (a fetch really is in flight).
+    app.handle_key(key(KeyCode::Char(' ')));
+    app.handle_key(key(KeyCode::Char('r')));
+    let screen = render(&mut app, 80, 24).join("\n");
+    assert!(screen.contains("loading…"), "reload retries:\n{screen}");
+}
+
+/// plans/0023 breaker F1b: a stale failure (user moved on while the
+/// fetch was dying) must not clobber the visible preview.
+#[test]
+fn stale_blob_failure_does_not_clobber_visible_preview() {
+    fn file(path: &str, sha: &str) -> rootle::provider::TreeNode {
+        rootle::provider::TreeNode {
+            path: path.into(),
+            is_dir: false,
+            sha: sha.into(),
+            size: Some(9),
+        }
+    }
+    let mut app = app_with_orgs(&["ratatui"]);
+    app.handle_key(key(KeyCode::Esc));
+    app.handle_action(rootle::action::Action::OrgSelected("ratatui".into()));
+    app.handle_action(rootle::action::Action::OrgReposLoaded {
+        org: "ratatui".into(),
+        repos: vec!["ratatui".into()],
+    });
+    app.handle_action(rootle::action::Action::TreeLoaded {
+        owner: "ratatui".into(),
+        name: "ratatui".into(),
+        entries: vec![
+            file("a.bin", "aaaaaaa1111111"),
+            file("b.bin", "bbbbbbb2222222"),
+        ],
+        truncated: false,
+        branch: "main".into(),
+    });
+    app.handle_key(key(KeyCode::Char('j'))); // b.bin before a.bin's reply
+    app.handle_action(rootle::action::Action::BlobFailed {
+        sha: "aaaaaaa1111111".into(),
+        error: rootle::provider::ProviderError::other("binary file"),
+    });
+    let screen = render(&mut app, 80, 24).join("\n");
+    assert!(screen.contains("b.bin"), "visible file:\n{screen}");
+    assert!(
+        !screen.contains("error: binary file"),
+        "stale failure clobbered the preview:\n{screen}"
+    );
+}
+
+/// plans/0023 breaker F3: the "blame…" transient clears when the
+/// blame lands — and only ever its own, never a newer status.
+#[test]
+fn blame_loaded_clears_only_its_own_transient() {
+    let mut app = browsing_app();
+    app.handle_key(key(KeyCode::Char('l'))); // into ratatui root
+    for _ in 0..3 {
+        app.handle_key(key(KeyCode::Char('j'))); // onto Cargo.toml
+    }
+    app.handle_action(rootle::action::Action::BlobLoaded {
+        sha: "abc1234def5678".into(),
+        name: "Cargo.toml".into(),
+        bytes: b"[package]\nname = \"ratatui\"\n".to_vec(),
+    });
+    app.handle_key(key(KeyCode::Char(' ')));
+    app.handle_key(key(KeyCode::Char('p')));
+    app.handle_key(key(KeyCode::Char('b')));
+    assert_eq!(app.snapshot()["status"], "blame…", "loading status set");
+
+    // The happy path: blame lands, its transient is gone.
+    let mut fresh = app;
+    fresh.handle_app_event(rootle::event::AppEvent::BlameLoaded {
+        path: "Cargo.toml".into(),
+        ranges: vec![],
+    });
+    assert_eq!(fresh.snapshot()["status"], serde_json::Value::Null);
+
+    // The stale-reply path: a newer status (the failure) must survive
+    // an out-of-order BlameLoaded.
+    let mut app = browsing_app();
+    app.handle_key(key(KeyCode::Char('l')));
+    for _ in 0..3 {
+        app.handle_key(key(KeyCode::Char('j')));
+    }
+    app.handle_action(rootle::action::Action::BlobLoaded {
+        sha: "abc1234def5678".into(),
+        name: "Cargo.toml".into(),
+        bytes: b"[package]\nname = \"ratatui\"\n".to_vec(),
+    });
+    app.handle_key(key(KeyCode::Char(' ')));
+    app.handle_key(key(KeyCode::Char('p')));
+    app.handle_key(key(KeyCode::Char('b')));
+    app.handle_app_event(rootle::event::AppEvent::BlameFailed {
+        path: "Cargo.toml".into(),
+        error: rootle::provider::ProviderError::other("boom"),
+    });
+    app.handle_app_event(rootle::event::AppEvent::BlameLoaded {
+        path: "Cargo.toml".into(),
+        ranges: vec![],
+    });
+    assert_eq!(app.snapshot()["status"], "boom", "newer status survives");
+}
+
+/// plans/0023 breaker F5: popups have a size floor — at 40×10 the
+/// search popup renders a complete results box inside its border; at
+/// 30×6 (below the floor) it renders the input alone rather than a
+/// guillotined box leaking cells.
+#[test]
+fn search_popup_respects_size_floor() {
+    let mut app = test_app(); // fresh state: launch popup open
+    let rows = render(&mut app, 40, 10);
+    let text = rows.join("\n");
+    assert!(text.contains("search offline"), "popup open:\n{text}");
+    // The results box closes (└) above the hint row, which rides the
+    // popup's own bottom border.
+    let hint_row = rows
+        .iter()
+        .position(|r| r.contains("tab focus"))
+        .expect("hint row present");
+    let closes_above = rows[..hint_row].iter().any(|r| r.contains('└'));
+    assert!(closes_above, "results box closes inside the popup:\n{text}");
+
+    let mut app = test_app();
+    let rows = render(&mut app, 30, 6);
+    let text = rows.join("\n");
+    assert!(
+        !text.contains("results"),
+        "below the floor: no results box at all:\n{text}"
+    );
+    assert!(text.contains("❯"), "input still renders:\n{text}");
+}

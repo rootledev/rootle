@@ -92,6 +92,9 @@ cheapest tier that exercises it (plans/0023):
    (default 100×30). This is also the review/stress surface for
    agents: pipe a script in, read frames out — no PTY, no timing
    heuristics, no ANSI.
+   State is real: reuse a HOME across runs and the second run starts
+   warm (recents, no launch popup) — scripts that need the launch
+   popup must use a fresh HOME (the round-1 breaker hit this).
 3. **PTY smoke** (`e2e/test_pty.py` — five tests, nothing else) — only
    for what a terminal proves: alternate-screen enter/leave, exit
    code, merged-ESC byte parsing, $EDITOR suspend/resume, resize
