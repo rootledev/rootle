@@ -203,22 +203,30 @@ class Tui:
     def wait_exit(self, timeout: float = 5.0) -> int:
         """Wait for the app to exit; return its exit code."""
         assert self._proc is not None, "Tui not started"
-        # Drain until EOF so _raw is complete at exit.
+        # Drain until EOF so _raw is complete at exit. macOS reports
+        # PTY EOF as b"" reads (linux raises EIO) — break on either or
+        # this loop never ends there (the 0023-rewrite macOS hang).
         deadline = time.monotonic() + timeout
         while self._proc.poll() is None and time.monotonic() < deadline:
             ready, _, _ = select.select([self._master], [], [], 0.05)
             if ready:
                 try:
-                    self._feed(os.read(self._master, 65536))
+                    chunk = os.read(self._master, 65536)
                 except OSError:
                     break
+                if not chunk:
+                    break
+                self._feed(chunk)
         returncode = self._proc.wait(timeout=max(0.1, deadline - time.monotonic()))
         while True:
             try:
                 ready, _, _ = select.select([self._master], [], [], 0.05)
                 if not ready:
                     break
-                self._feed(os.read(self._master, 65536))
+                chunk = os.read(self._master, 65536)
+                if not chunk:
+                    break
+                self._feed(chunk)
             except OSError:
                 break
         return returncode
