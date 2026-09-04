@@ -3,6 +3,15 @@
 User-visible changes per release. Protocol archaeology lives in
 `plans/`; this file is for "what's new for me".
 
+## [0.9.3] — 2026-09-04
+
+### Fixed
+
+- A background success no longer erases a fresh error: e.g.
+  `rootle owner/nope` showed its 404 for a blink until the unrelated
+  org warm-up landed and cleared the status line. Success now clears
+  only its own loading marker. (Breaker round 3, GitHub provider.)
+
 ## [0.9.2] — 2026-09-04
 
 ### Fixed
@@ -237,6 +246,7 @@ User-visible changes per release. Protocol archaeology lives in
 - Chrome: powerline modeline (Nerd Font opt-in), bat-style gutters,
   fzf prompts, `[ui] border` / `[ui] nerd_font`.
 
+[0.9.3]: https://github.com/rootledev/rootle/releases/tag/v0.9.3
 [0.9.2]: https://github.com/rootledev/rootle/releases/tag/v0.9.2
 [0.9.1]: https://github.com/rootledev/rootle/releases/tag/v0.9.1
 [0.9.0]: https://github.com/rootledev/rootle/releases/tag/v0.9.0
