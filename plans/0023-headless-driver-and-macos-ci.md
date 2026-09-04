@@ -1,13 +1,15 @@
 # 0023 — Headless driver, macOS behavioral CI, verified release
 
-Status: **M1–M4 done (2026-09-04)** — M1 `--headless` driver +
-headless e2e tier, M2 release smoke + provenance attestation, M3
-macOS behavioral CI, M4 docs/site changelog page; lands with this
-flip. M5 (release v0.9.0) follows on merge. — owner feedback: "strop's
-`--headless` script mode is amazing — it lets other agents/reviewers
-stress test the TUI; the e2e harness there might be better/simpler.
-gripsack has macOS e2e and verified releases. Borrow where we can."
-Research below; plan follows.
+Status: **done (2026-09-04)** — M1 `--headless` driver + headless e2e
+tier, M2 release headless smoke + provenance attestation, M3 macOS
+behavioral CI, M4 docs/site changelog, M5 released as v0.9.0 (#135,
+#136; attestation rootledev/rootle/attestations/45256396, tap CI green
+on ubuntu+macOS, site live at rootle.dev/changelog/#090). The first
+e2e-macos run caught three real defects, fixed in the same PR: XDG
+base dirs were ignored on macOS (new `src/paths.rs`), the e2e sandbox's
+network isolation was convention not enforcement (discard-port proxy
+in `hermetic_env`), and two PTY tests expected states a fast tick
+never draws.
 
 ## Problem
 
