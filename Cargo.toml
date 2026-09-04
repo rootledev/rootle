@@ -53,7 +53,7 @@ clap = { version = "4.6.6", features = ["derive"] }
 flate2 = "1.1.9"
 tar = "0.4.46"
 thiserror = "2.0.20"
-sha1 = "0.10"
+sha1 = "0.11"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread"] }
