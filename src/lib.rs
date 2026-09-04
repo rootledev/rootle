@@ -12,6 +12,7 @@ pub mod headless;
 pub mod highlight;
 pub mod keymap;
 pub mod mode;
+pub mod paths;
 pub mod provider;
 pub mod sanitize;
 pub mod state;

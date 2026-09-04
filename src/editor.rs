@@ -81,7 +81,7 @@ pub fn materialize(
         .and_then(|e| e.to_str())
         .filter(|e| e.chars().all(|c| c.is_ascii_alphanumeric()))
         .unwrap_or("");
-    let Some(root) = dirs::cache_dir().map(|d| d.join("rootle")) else {
+    let Some(root) = crate::paths::cache_dir().map(|d| d.join("rootle")) else {
         return Err(io::Error::new(io::ErrorKind::NotFound, "no cache dir"));
     };
     let name = if ext.is_empty() {
@@ -181,7 +181,7 @@ mod tests {
 
     #[test]
     fn materialize_writes_real_file() {
-        if dirs::cache_dir().is_none() {
+        if crate::paths::cache_dir().is_none() {
             return;
         }
         let path = materialize(

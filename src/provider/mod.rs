@@ -579,7 +579,7 @@ fn try_spawn_stdio(
     // every initialize (protocol v1.2, advisory) — one [cache] max_mb
     // knob governs every backend.
     let cache_bytes = config.cache.max_mb * 1024 * 1024;
-    let cache_dir = dirs::cache_dir().map(|d| {
+    let cache_dir = crate::paths::cache_dir().map(|d| {
         d.join("rootle")
             .join("providers")
             .join(cache_name.unwrap_or_else(|| name_from_command(&argv)))

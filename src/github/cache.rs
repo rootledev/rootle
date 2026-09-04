@@ -21,7 +21,7 @@ pub struct RefCache {
 /// (`~/.cache/rootle/providers/<name>`) — see doc/provider-protocol.md.
 #[cfg(test)]
 pub fn root() -> Option<PathBuf> {
-    dirs::cache_dir().map(|d| d.join("rootle").join("providers").join("github"))
+    crate::paths::cache_dir().map(|d| d.join("rootle").join("providers").join("github"))
 }
 
 /// One-time move from the pre-provider layout (~/.cache/rootle/{trees,
@@ -41,7 +41,7 @@ fn migrate_from_legacy(base: &Path) {
 
 /// Resolve the cache root, migrating the legacy layout once.
 fn root_or_migrate() -> Option<PathBuf> {
-    let base = dirs::cache_dir().map(|d| d.join("rootle"))?;
+    let base = crate::paths::cache_dir().map(|d| d.join("rootle"))?;
     migrate_from_legacy(&base);
     Some(base.join("providers").join("github"))
 }

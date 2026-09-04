@@ -169,7 +169,7 @@ impl Default for CacheConfig {
 
 impl Config {
     pub fn path() -> Option<PathBuf> {
-        dirs::config_dir().map(|d| d.join("rootle").join("config.toml"))
+        crate::paths::config_dir().map(|d| d.join("rootle").join("config.toml"))
     }
 
     /// Load config; missing or malformed → defaults (never fail startup).

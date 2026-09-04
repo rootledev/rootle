@@ -62,6 +62,15 @@ def hermetic_env(home: Path, extra: dict[str, str] | None = None) -> dict[str, s
         # 0018 M2: the update check's CI gate — keeps the test
         # hermetic (zero network, no notice).
         CI="true",
+        # Offline enforcement (gripsack's "network in e2e is a bug",
+        # plans/0023): the GitHub provider's reqwest honors the proxy
+        # env — point it at the discard port so an accidental network
+        # fetch fails fast and deterministically instead of racing the
+        # assertions (the macOS job caught the 403-timing race).
+        HTTP_PROXY="http://127.0.0.1:9",
+        HTTPS_PROXY="http://127.0.0.1:9",
+        http_proxy="http://127.0.0.1:9",
+        https_proxy="http://127.0.0.1:9",
     )
     env.pop("ROOTLE_CONFIG", None)
     env.update(extra or {})
