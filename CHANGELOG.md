@@ -3,6 +3,18 @@
 User-visible changes per release. Protocol archaeology lives in
 `plans/`; this file is for "what's new for me".
 
+## [0.9.1] — 2026-09-04
+
+### Fixed
+
+- A failed blob fetch (binary file, dead endpoint) no longer regresses
+  to a permanent "loading…" placeholder on re-select — the error is
+  cached and re-shown, and ␣ r retries. Stale failures no longer
+  clobber the file you moved to. (Found by the headless breaker.)
+- The "blame…" modeline transient clears when the blame lands.
+- Popups enforce a size floor: at tiny viewports the search popup no
+  longer guillotines its results box or leaks cells past the border.
+
 ## [0.9.0] — 2026-09-04
 
 ### Added
@@ -217,6 +229,7 @@ User-visible changes per release. Protocol archaeology lives in
 - Chrome: powerline modeline (Nerd Font opt-in), bat-style gutters,
   fzf prompts, `[ui] border` / `[ui] nerd_font`.
 
+[0.9.1]: https://github.com/rootledev/rootle/releases/tag/v0.9.1
 [0.9.0]: https://github.com/rootledev/rootle/releases/tag/v0.9.0
 [0.8.7]: https://github.com/rootledev/rootle/releases/tag/v0.8.7
 [0.8.6]: https://github.com/rootledev/rootle/releases/tag/v0.8.6
