@@ -27,9 +27,7 @@ pub struct State {
 
 impl State {
     pub fn path() -> Option<PathBuf> {
-        dirs::state_dir()
-            .or_else(dirs::data_dir)
-            .map(|d| d.join("rootle").join("state.json"))
+        crate::paths::state_dir().map(|d| d.join("rootle").join("state.json"))
     }
 
     pub fn load() -> Self {

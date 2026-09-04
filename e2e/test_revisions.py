@@ -54,7 +54,15 @@ def test_history_blame_and_open_at_commit(git_tui: Tui) -> None:
     tui = git_tui
     open_proj(tui)
     tui.send("l")  # into the tree; cursor on main.rs
+    # Gate on the blob before the leader: preview mode needs the pane
+    # populated.
+    tui.expect("fn main")
     tui.send(" ")
+    # Observe the leader layer before p: " " and "p" landing in one
+    # poll window process in a single tick — the PREVIEW frame is
+    # never drawn, and expect("PREVIEW") below can never see it (the
+    # macOS CI flake).
+    tui.expect("LEADER")
     tui.send("p")
     tui.expect("PREVIEW")
     tui.send("h")  # history lens
@@ -65,8 +73,13 @@ def test_history_blame_and_open_at_commit(git_tui: Tui) -> None:
     screen = tui.expect("yanked")
     assert "@ " in screen or "#L" not in screen  # sha-anchored, no line
     tui.key("ENTER")  # open at the commit
-    screen = tui.expect("initial main.rs · Tarek")  # the band's commit context
-    assert "PREVIEW" in screen
+    # Gate on the mode flip, not the band: the history lens already
+    # renders the picked commit's band/title (macOS CI caught the
+    # assert matching the lens frame while BlobAtLoaded was still in
+    # flight). PREVIEW only exists after the at-commit blob lands,
+    # and band/title/lang are set atomically with it.
+    screen = tui.expect("PREVIEW")
+    assert "initial main.rs · Tarek" in screen  # the band's commit context
     assert " @ " in screen  # commit marker in the title
     # The demo-caught regression: the at-commit view must still be
     # syntax-highlighted — the footer reads the language, not "text".

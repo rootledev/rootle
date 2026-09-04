@@ -8,14 +8,12 @@ use std::time::SystemTime;
 
 /// Where installed binaries live (XDG data).
 pub(super) fn store_root() -> Option<PathBuf> {
-    dirs::data_dir().map(|d| d.join("rootle").join("providers"))
+    crate::paths::data_dir().map(|d| d.join("rootle").join("providers"))
 }
 
 /// Where receipts live (XDG state).
 pub(super) fn state_root() -> Option<PathBuf> {
-    dirs::state_dir()
-        .or_else(dirs::data_dir)
-        .map(|d| d.join("rootle").join("providers"))
+    crate::paths::state_dir().map(|d| d.join("rootle").join("providers"))
 }
 
 impl Manager {

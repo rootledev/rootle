@@ -1,6 +1,7 @@
 //! CLI arguments (PLAN.md milestone 8) + the provider manager
 //! subcommand tree (plans/0010 M3).
 
+use crate::config::Config;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
@@ -35,6 +36,12 @@ pub struct Cli {
     /// With --update: report only, don't write.
     #[arg(long, requires = "update")]
     pub check: bool,
+
+    /// Scripted, deterministic driver (plans/0023 M1): keys in, cell
+    /// grid frames + state JSON out — no PTY, no raw mode. `-` reads
+    /// the script from stdin. Viewport: ROOTLE_HEADLESS_COLS/ROWS.
+    #[arg(long, value_name = "SCRIPT")]
+    pub headless: Option<PathBuf>,
 }
 
 /// Install a provider from a GitHub release, manage it locally, and
@@ -137,6 +144,17 @@ impl Cli {
         }
         Some((owner.to_string(), name.to_string(), ref_))
     }
+
+    /// The launch theme: --theme beats config; border/nerd-font/
+    /// separator ride along. Shared by the TUI and the headless
+    /// driver (plans/0023 M1).
+    pub fn resolve_theme(&self, config: &Config) -> crate::theme::Theme {
+        use crate::theme::{BorderShape, Theme};
+        Theme::load(self.theme.as_deref().unwrap_or(&config.theme.name))
+            .with_border(BorderShape::parse(&config.ui.border).unwrap_or_default())
+            .with_nerd_font(config.ui.nerd_font)
+            .with_separator(&config.ui.separator)
+    }
 }
 
 #[cfg(test)]
@@ -151,6 +169,7 @@ mod tests {
             provider: None,
             update: false,
             check: false,
+            headless: None,
         }
     }
 

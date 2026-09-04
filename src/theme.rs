@@ -251,7 +251,7 @@ impl Theme {
             .iter()
             .map(|(n, _, _)| n.to_string())
             .collect();
-        if let Some(dir) = dirs::config_dir().map(|d| d.join("rootle").join("themes"))
+        if let Some(dir) = crate::paths::config_dir().map(|d| d.join("rootle").join("themes"))
             && let Ok(entries) = std::fs::read_dir(dir)
         {
             for entry in entries.flatten() {
@@ -273,7 +273,7 @@ impl Theme {
     /// → silently keep defaults; theming must never crash the app).
     pub fn load(name: &str) -> Self {
         let mut theme = Self::embedded(name).unwrap_or_else(Self::catppuccin_mocha);
-        let Some(dir) = dirs::config_dir() else {
+        let Some(dir) = crate::paths::config_dir() else {
             return theme;
         };
         let path = dir

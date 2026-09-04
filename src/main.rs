@@ -12,7 +12,6 @@ use ratatui::{Terminal, backend::CrosstermBackend};
 use rootle::app::App;
 use rootle::cli::{Cli, ProviderCommand};
 use rootle::config::Config;
-use rootle::theme::{BorderShape, Theme};
 use std::io::{self, stdout};
 use std::time::Duration;
 
@@ -36,6 +35,12 @@ fn main() -> io::Result<()> {
             std::process::exit(1);
         }
         return Ok(());
+    }
+
+    // Headless driver (plans/0023 M1): scripted, deterministic —
+    // run-and-exit before any terminal setup, like the subcommands.
+    if cli.headless.is_some() {
+        return rootle::headless::run_cli(&cli);
     }
 
     // A full-screen TUI's colors are semantic (mode chips, dirs vs
@@ -92,10 +97,7 @@ fn run(
         Some(path) => Config::load_from(path),
         None => Config::load(),
     };
-    let theme = Theme::load(cli.theme.as_deref().unwrap_or(&config.theme.name))
-        .with_border(BorderShape::parse(&config.ui.border).unwrap_or_default())
-        .with_nerd_font(config.ui.nerd_font)
-        .with_separator(&config.ui.separator);
+    let theme = cli.resolve_theme(&config);
     let (tx, rx) = rootle::event::channel();
     let mut app = App::new(tx, config, theme);
     // `rootle owner/repo`: skip search, go straight to browsing.

@@ -122,10 +122,17 @@ config-managed installs.
 
 ```
 cargo test                          # unit + TestBackend render tests
-cd e2e && uv run pytest             # PTY end-to-end suite
+rootle --headless script.txt        # scripted driver: keys in, frames + state JSON out
+cd e2e && uv run pytest             # headless + PTY end-to-end suites
 docker compose run --build --rm test  # fmt + clippy -D warnings + cargo test
 docker compose run --build --rm e2e # same e2e suite in a container
 ```
+
+`--headless` (plans/0023) drives the real app without a terminal —
+`keys`/`settle`/`frame`/`state` script steps in, plain-text cell grids
+and state JSON out — the deterministic surface for tests, reviews, and
+agent-driven stress runs. See `src/headless.rs`'s module docs for the
+script language.
 
 CI runs the gate + e2e on every push; the `demo` workflow re-renders
 the demo GIFs above (one per palette) whenever the app or its tooling

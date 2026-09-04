@@ -44,6 +44,39 @@ KEYS: dict[str, bytes] = {
 }
 
 
+def hermetic_env(home: Path, extra: dict[str, str] | None = None) -> dict[str, str]:
+    """Session env that never touches real state: HOME/XDG point at a
+    temp dir, editor opens no-op, the update check stays off (CI).
+    Shared by the PTY driver and the headless runner (plans/0023 M1).
+    """
+    env = dict(os.environ)
+    env.update(
+        HOME=str(home),
+        XDG_CONFIG_HOME=str(home / "config"),
+        XDG_CACHE_HOME=str(home / "cache"),
+        XDG_STATE_HOME=str(home / "state"),
+        # Editor-open tests land on `true` — a no-op that returns
+        # instantly, exercising only the suspend/resume path.
+        VISUAL="true",
+        EDITOR="true",
+        # 0018 M2: the update check's CI gate — keeps the test
+        # hermetic (zero network, no notice).
+        CI="true",
+        # Offline enforcement (gripsack's "network in e2e is a bug",
+        # plans/0023): the GitHub provider's reqwest honors the proxy
+        # env — point it at the discard port so an accidental network
+        # fetch fails fast and deterministically instead of racing the
+        # assertions (the macOS job caught the 403-timing race).
+        HTTP_PROXY="http://127.0.0.1:9",
+        HTTPS_PROXY="http://127.0.0.1:9",
+        http_proxy="http://127.0.0.1:9",
+        https_proxy="http://127.0.0.1:9",
+    )
+    env.pop("ROOTLE_CONFIG", None)
+    env.update(extra or {})
+    return env
+
+
 def build() -> Path:
     """Build the debug binary once per test session.
 
@@ -90,23 +123,8 @@ class Tui:
         fcntl.ioctl(
             slave, termios.TIOCSWINSZ, struct.pack("HHHH", self.rows, self.cols, 0, 0)
         )
-        env = dict(os.environ)
         home = Path(self._home.name)
-        env.update(
-            HOME=str(home),
-            XDG_CONFIG_HOME=str(home / "config"),
-            XDG_CACHE_HOME=str(home / "cache"),
-            XDG_STATE_HOME=str(home / "state"),
-            # Editor-open tests land on `true` — a no-op that returns
-            # instantly, exercising only the suspend/resume path.
-            VISUAL="true",
-            EDITOR="true",
-            # 0018 M2: the update check's CI gate — keeps the PTY
-            # suite hermetic (zero network, no notice).
-            CI="true",
-        )
-        env.pop("ROOTLE_CONFIG", None)
-        env.update(self.env_extra)
+        env = hermetic_env(home, self.env_extra)
         self._proc = subprocess.Popen(
             [str(self.binary), *self.args],
             stdin=slave,

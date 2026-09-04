@@ -33,7 +33,8 @@ docker or `sudo`.
 | `src/components/` | every UI piece behind the Component contract |
 | `src/provider/` | the seam: `mod.rs` (trait), `stdio.rs` (external), `github.rs` |
 | `src/github/` | GitHub-only internals (REST client, wire models, disk cache) |
-| `e2e/` | uv+pytest PTY harness driving the real binary |
+| `src/headless.rs` | `--headless` scripted driver: keys in, frames/state JSON out (no PTY) |
+| `e2e/` | uv+pytest harness driving the real binary — headless scripts + PTY suite |
 | `tests/render.rs` | frame-level snapshots on ratatui's TestBackend |
 | `demos/` | demo tape + fixture (`demo_setup.sh`), vendored VHS fonts |
 | `skills/` | public skill: provider scaffolding (gate: forge-conformance) |
@@ -48,7 +49,7 @@ docker or `sudo`.
 - `doc/provider-protocol.md` — the stdio wire format (v1.3: `$/partial`
   progressive results + inactivity deadlines, reader tolerance,
   `$/cancelRequest`, `located`, `data.kind` errors).
-- `doc/development.md` — architecture + e2e harness details.
+- `doc/development.md` — architecture, testing tiers, e2e harness details.
 - `.agents/skills/rootle-pr/` — PR template + evidence contract
   (frames/screenshots, green matrix including the docker e2e gate).
 

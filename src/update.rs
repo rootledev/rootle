@@ -267,7 +267,7 @@ fn unix_now() -> u64 {
 }
 
 fn cache_path() -> Option<std::path::PathBuf> {
-    dirs::cache_dir().map(|d| d.join("rootle").join("update.json"))
+    crate::paths::cache_dir().map(|d| d.join("rootle").join("update.json"))
 }
 
 fn read_stamp(path: &Path) -> Option<Stamp> {
