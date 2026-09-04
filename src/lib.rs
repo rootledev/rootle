@@ -8,6 +8,7 @@ pub mod config;
 pub mod editor;
 pub mod event;
 pub mod github;
+pub mod headless;
 pub mod highlight;
 pub mod keymap;
 pub mod mode;

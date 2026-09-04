@@ -436,6 +436,30 @@ impl App {
         self.pending_clipboard.take()
     }
 
+    /// Headless state dump (plans/0023 M1): one JSON object per
+    /// `state` step — what a scripted reviewer needs to assert on
+    /// without parsing the frame.
+    pub fn snapshot(&self) -> serde_json::Value {
+        serde_json::json!({
+            "mode": self.effective_mode().chip(),
+            "context": self.browser.context(),
+            "ref": self.browser.current_ref(),
+            "provider": self.provider.name(),
+            "popup": self.popup.is_some(),
+            "search_view": self.search_view.is_some(),
+            "help": self.help.is_some(),
+            "command_line": self.command_line.is_some(),
+            "settings": self.settings.is_some(),
+            "wizard": self.wizard.is_some(),
+            "refs_popup": self.refs_popup.is_some(),
+            "consent": self.consent.is_some(),
+            "status": self.status,
+            "degraded": self.degraded,
+            "update_tag": self.update_tag,
+            "should_quit": self.should_quit,
+        })
+    }
+
     /// 0019 polish: the band's last-commit context for the file under
     /// preview — memo hit dresses immediately, a miss spawns the
     /// one-shot fetch (ambient; errors stay silent).
