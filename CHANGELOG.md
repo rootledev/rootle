@@ -3,6 +3,31 @@
 User-visible changes per release. Protocol archaeology lives in
 `plans/`; this file is for "what's new for me".
 
+## [0.9.0] — 2026-09-04
+
+### Added
+
+- `--headless SCRIPT` (plans/0023): a scripted, deterministic driver
+  for the TUI — `keys`/`settle`/`frame`/`state` steps in, cell-grid
+  frames and state JSON out. No terminal, no PTY, no timing
+  heuristics; the same input path the TUI uses. For tests, reviews,
+  and agent-driven stress runs (`-` reads the script from stdin,
+  `ROOTLE_HEADLESS_COLS/ROWS` size the viewport).
+- macOS behavioral CI: the full e2e suite (headless + PTY) now runs
+  natively on a macOS runner every push — not just release builds.
+- Verified releases: every release tarball now carries GitHub build
+  provenance, verifiable with
+  `gh attestation verify <tarball> -R rootledev/rootle`. The release
+  smoke also proves each shipped binary renders (headless), not just
+  links.
+
+### Fixed
+
+- XDG base dirs are honored on macOS too: config/state/cache/data
+  live at `~/.config|~/.local/state|~/.cache|~/.local/share` as the
+  docs promise — not `~/Library/…` (caught by the new macOS CI job;
+  settings write-back silently landed there before).
+
 ## [0.8.7] — 2026-08-29
 
 ### Added
@@ -192,6 +217,7 @@ User-visible changes per release. Protocol archaeology lives in
 - Chrome: powerline modeline (Nerd Font opt-in), bat-style gutters,
   fzf prompts, `[ui] border` / `[ui] nerd_font`.
 
+[0.9.0]: https://github.com/rootledev/rootle/releases/tag/v0.9.0
 [0.8.7]: https://github.com/rootledev/rootle/releases/tag/v0.8.7
 [0.8.6]: https://github.com/rootledev/rootle/releases/tag/v0.8.6
 [0.8.5]: https://github.com/rootledev/rootle/releases/tag/v0.8.5
