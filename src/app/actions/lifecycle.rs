@@ -11,6 +11,7 @@ use crate::components::consent_popup::ConsentPopup;
 use crate::components::keybinds_popup::KeybindsPopup;
 use crate::components::settings_popup::SettingsPopup;
 use crate::mode::Mode;
+use crate::provider::RepoId;
 use crate::theme::BorderShape;
 use crate::theme::Theme;
 
@@ -187,9 +188,14 @@ impl App {
                         crate::components::pane::EntryKind::Org => {
                             self.provider.org_url(&entry.name)
                         }
-                        _ => self
-                            .provider
-                            .web_url(&entry.name, "", "", None, None, false),
+                        _ => self.provider.web_url(
+                            &RepoId::from(entry.name.as_str()),
+                            "",
+                            None,
+                            None,
+                            None,
+                            false,
+                        ),
                     };
                     match url {
                         Ok(u) => {

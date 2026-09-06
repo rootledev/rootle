@@ -8,7 +8,7 @@ use crate::event::AppEvent;
 impl App {
     pub(crate) fn spawn_view_search(
         &self,
-        gen_id: u64,
+        gen_id: crate::provider::Generation,
         kind: SearchKind,
         query: String,
         scope: String,
@@ -62,7 +62,7 @@ impl App {
         });
     }
 
-    pub(crate) fn spawn_search(&self, gen_id: u64) {
+    pub(crate) fn spawn_search(&self, gen_id: crate::provider::Generation) {
         let Some(popup) = &self.popup else { return };
         let query = popup.input.value();
         let provider = self.provider.clone();
@@ -89,7 +89,7 @@ impl App {
     /// second visit of a hit is free.
     pub(crate) fn spawn_hit_context(
         &self,
-        gen_id: u64,
+        gen_id: crate::provider::Generation,
         hit: crate::components::global_search::SearchHit,
         query: String,
     ) {
@@ -101,7 +101,11 @@ impl App {
                 "hit ctx start gen={gen_id} {} sha={sha}",
                 hit.path
             ));
-            let event = match fetch_blob_capped(provider.as_ref(), &hit.repo, &sha) {
+            let event = match fetch_blob_capped(
+                provider.as_ref(),
+                &crate::provider::RepoId::from(hit.repo.as_str()),
+                &crate::provider::Sha::from(sha.as_str()),
+            ) {
                 Ok(bytes) => {
                     let needles: Vec<String> =
                         query.split_whitespace().map(str::to_string).collect();
@@ -145,7 +149,7 @@ impl App {
     /// exact (repo, sha), so expanding a located hit is free.
     pub(crate) fn spawn_hit_file(
         &self,
-        gen_id: u64,
+        gen_id: crate::provider::Generation,
         hit: crate::components::global_search::SearchHit,
     ) {
         let provider = self.provider.clone();
@@ -156,7 +160,11 @@ impl App {
                 "hit file start gen={gen_id} {} sha={sha}",
                 hit.path
             ));
-            let event = match fetch_blob_capped(provider.as_ref(), &hit.repo, &sha) {
+            let event = match fetch_blob_capped(
+                provider.as_ref(),
+                &crate::provider::RepoId::from(hit.repo.as_str()),
+                &crate::provider::Sha::from(sha.as_str()),
+            ) {
                 Ok(bytes) => {
                     trace(&format!(
                         "hit file ok gen={gen_id} {sha} {} bytes",

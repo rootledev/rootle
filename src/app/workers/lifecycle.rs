@@ -3,6 +3,7 @@
 
 use super::{App, trace};
 use crate::event::AppEvent;
+use crate::provider::{GitRef, RepoId};
 
 impl App {
     /// Expand org marks to their repos off the UI thread, then the
@@ -97,7 +98,7 @@ impl App {
             for repo in repos {
                 trace(&format!("clone start {repo}"));
                 let outcome = provider
-                    .clone_url(&repo)
+                    .clone_url(&RepoId::from(repo.clone()))
                     .map_err(|e| e.to_string())
                     .and_then(|url| {
                         // dest/org/repo — the org level avoids collisions.
@@ -156,7 +157,9 @@ impl App {
         let ref_ = self.browser.current_ref().map(str::to_string);
         std::thread::spawn(move || {
             trace(&format!("tree start {owner}/{name}"));
-            let event = match provider.fetch_tree(&format!("{owner}/{name}"), ref_.as_deref()) {
+            let repo_id = RepoId::from(format!("{owner}/{name}"));
+            let ref_at = ref_.as_deref().map(GitRef::from);
+            let event = match provider.fetch_tree(&repo_id, ref_at.as_ref()) {
                 Ok(tree) => {
                     trace(&format!(
                         "tree ok {owner}/{name} entries={} truncated={}",
@@ -187,21 +190,22 @@ impl App {
         let marks = self.browser.visual_marks();
         if !marks.is_empty() {
             for mark in marks {
-                let (title, name) = mark.split_once('/').unwrap_or(("", &mark));
-                match title {
-                    "orgs" => orgs.push(name.to_string()),
-                    _ if Some(title) == self.browser.selected_org().as_deref() => {
-                        if !repos.contains(&mark) {
-                            repos.push(mark.clone());
-                        }
-                    }
-                    _ => {
-                        if let Some((owner, repo)) = self.browser.repo_coords() {
-                            let full = format!("{owner}/{repo}");
-                            if !repos.contains(&full) {
-                                repos.push(full);
-                            }
-                        }
+                if mark.is_orgs() {
+                    orgs.push(mark.entry.clone());
+                } else {
+                    // A mark on the repos level names that repo (the
+                    // level's title IS the org); marks on tree panes
+                    // mean the repo being browsed.
+                    let full = if Some(mark.pane.as_str()) == self.browser.selected_org().as_deref()
+                    {
+                        format!("{}/{}", mark.pane, mark.entry)
+                    } else if let Some((owner, repo)) = self.browser.repo_coords() {
+                        format!("{owner}/{repo}")
+                    } else {
+                        continue;
+                    };
+                    if !repos.contains(&full) {
+                        repos.push(full);
                     }
                 }
             }

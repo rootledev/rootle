@@ -3,8 +3,8 @@
 //! revalidation all live inside it (PLAN.md §7/§8).
 
 use rootle_provider::{
-    BlameRange, Capabilities, CodeMatch, LogEntry, Provider, ProviderResult, RepoInfo, RepoRefs,
-    SearchItem, TreeNode, TreeResult,
+    BlameRange, Capabilities, CodeMatch, GitRef, LogEntry, Provider, ProviderResult, RepoId,
+    RepoInfo, RepoRefs, SearchItem, Sha, TreeNode, TreeResult,
 };
 pub mod cache;
 pub mod client;
@@ -36,9 +36,10 @@ impl GitHubProvider {
     }
 }
 
-fn split_repo(repo: &str) -> Result<(&str, &str), String> {
-    repo.split_once('/')
-        .ok_or_else(|| format!("bad repo id: {repo:?} (expected owner/name)"))
+fn split_repo(repo: &RepoId) -> Result<(&str, &str), String> {
+    repo.as_str()
+        .split_once('/')
+        .ok_or_else(|| format!("bad repo id: {repo} (expected owner/name)"))
 }
 
 impl From<&crate::types::TreeEntry> for TreeNode {
@@ -88,9 +89,11 @@ impl Provider for GitHubProvider {
         self.client.org_repos(org)
     }
 
-    fn fetch_tree(&self, repo: &str, ref_: Option<&str>) -> ProviderResult<TreeResult> {
+    fn fetch_tree(&self, repo: &RepoId, ref_: Option<&GitRef>) -> ProviderResult<TreeResult> {
         let (owner, name) = split_repo(repo)?;
-        let (tree, truncated, branch) = self.client.fetch_tree(owner, name, ref_)?;
+        let (tree, truncated, branch) =
+            self.client
+                .fetch_tree(owner, name, ref_.map(|r| r.as_str()))?;
         Ok(TreeResult {
             entries: tree.tree.iter().map(Into::into).collect(),
             truncated,
@@ -98,13 +101,13 @@ impl Provider for GitHubProvider {
         })
     }
 
-    fn fetch_blob(&self, repo: &str, sha: &str) -> ProviderResult<Vec<u8>> {
+    fn fetch_blob(&self, repo: &RepoId, sha: &Sha) -> ProviderResult<Vec<u8>> {
         let (owner, name) = split_repo(repo)?;
-        self.client.fetch_blob(owner, name, sha)
+        self.client.fetch_blob(owner, name, sha.as_str())
     }
 
     /// v1.5 (plans/0016 M1): branches + tags.
-    fn refs(&self, repo: &str) -> ProviderResult<RepoRefs> {
+    fn refs(&self, repo: &RepoId) -> ProviderResult<RepoRefs> {
         let (owner, name) = split_repo(repo)?;
         self.client.refs(owner, name)
     }
@@ -112,42 +115,51 @@ impl Provider for GitHubProvider {
     /// v1.5: commit log, newest first.
     fn log(
         &self,
-        repo: &str,
+        repo: &RepoId,
         path: Option<&str>,
-        ref_: Option<&str>,
+        ref_: Option<&GitRef>,
         limit: Option<usize>,
     ) -> ProviderResult<(Vec<LogEntry>, bool)> {
         let (owner, name) = split_repo(repo)?;
-        self.client.log(owner, name, path, ref_, limit)
+        self.client
+            .log(owner, name, path, ref_.map(|r| r.as_str()), limit)
     }
 
     /// v1.5: open-at-commit.
     fn blob_at(
         &self,
-        repo: &str,
+        repo: &RepoId,
         path: &str,
-        ref_: Option<&str>,
-    ) -> ProviderResult<(Vec<u8>, String)> {
+        ref_: Option<&GitRef>,
+    ) -> ProviderResult<(Vec<u8>, Sha)> {
         let (owner, name) = split_repo(repo)?;
-        self.client.blob_at(owner, name, path, ref_)
+        self.client
+            .blob_at(owner, name, path, ref_.map(|r| r.as_str()))
+            .map(|(bytes, sha)| (bytes, Sha::from(sha)))
     }
 
     /// v1.5: blame via GraphQL.
-    fn blame(&self, repo: &str, path: &str, ref_: Option<&str>) -> ProviderResult<Vec<BlameRange>> {
+    fn blame(
+        &self,
+        repo: &RepoId,
+        path: &str,
+        ref_: Option<&GitRef>,
+    ) -> ProviderResult<Vec<BlameRange>> {
         let (owner, name) = split_repo(repo)?;
-        self.client.blame(owner, name, path, ref_)
+        self.client
+            .blame(owner, name, path, ref_.map(|r| r.as_str()))
     }
 
-    fn clone_url(&self, repo: &str) -> ProviderResult<String> {
+    fn clone_url(&self, repo: &RepoId) -> ProviderResult<String> {
         split_repo(repo)?;
         Ok(format!("https://github.com/{repo}.git"))
     }
 
     fn web_url(
         &self,
-        repo: &str,
+        repo: &RepoId,
         path: &str,
-        branch: &str,
+        branch: Option<&GitRef>,
         line: Option<u32>,
         end: Option<u32>,
         is_file: bool,
@@ -158,10 +170,9 @@ impl Provider for GitHubProvider {
         }
         // Blob vs tree grammar; the branch is cheap to resolve — the
         // tree is disk-cached whenever the repo has been browsed.
-        let branch = if branch.is_empty() {
-            self.fetch_tree(repo, None).map(|t| t.branch)?
-        } else {
-            branch.to_string()
+        let branch = match branch {
+            None => self.fetch_tree(repo, None).map(|t| t.branch)?,
+            Some(b) => b.as_str().to_string(),
         };
         let kind = if is_file { "blob" } else { "tree" };
         // Range anchors (v1.5): `#L3-L7` when a selection's end rides
@@ -189,9 +200,9 @@ impl Provider for GitHubProvider {
         })
     }
 
-    fn source_tarball(&self, repo: &str) -> ProviderResult<Vec<u8>> {
+    fn source_tarball(&self, repo: &RepoId) -> ProviderResult<Vec<u8>> {
         split_repo(repo)?;
-        self.client.source_tarball(repo)
+        self.client.source_tarball(repo.as_str())
     }
 
     /// v1.3 progressive (plans/0011): stream `search/code` pages as
@@ -260,16 +271,23 @@ mod tests {
         let p = GitHubProvider::anonymous();
         // Repo root.
         assert_eq!(
-            p.web_url("ratatui/ratatui", "", "", None, None, false)
-                .unwrap(),
+            p.web_url(
+                &RepoId::from("ratatui/ratatui"),
+                "",
+                None,
+                None,
+                None,
+                false
+            )
+            .unwrap(),
             "https://github.com/ratatui/ratatui"
         );
         // File with a line: blob + fragment (known branch, no I/O).
         assert_eq!(
             p.web_url(
-                "ratatui/ratatui",
+                &RepoId::from("ratatui/ratatui"),
                 "src/lib.rs",
-                "main",
+                Some(&GitRef::from("main")),
                 Some(42),
                 None,
                 true
@@ -280,9 +298,9 @@ mod tests {
         // A visual range anchors `#L3-L7` (v1.5).
         assert_eq!(
             p.web_url(
-                "ratatui/ratatui",
+                &RepoId::from("ratatui/ratatui"),
                 "src/lib.rs",
-                "main",
+                Some(&GitRef::from("main")),
                 Some(3),
                 Some(7),
                 true
@@ -292,14 +310,28 @@ mod tests {
         );
         // File without a line: blob, no fragment.
         assert_eq!(
-            p.web_url("ratatui/ratatui", "src/lib.rs", "main", None, None, true)
-                .unwrap(),
+            p.web_url(
+                &RepoId::from("ratatui/ratatui"),
+                "src/lib.rs",
+                Some(&GitRef::from("main")),
+                None,
+                None,
+                true
+            )
+            .unwrap(),
             "https://github.com/ratatui/ratatui/blob/main/src/lib.rs"
         );
         // Directory: tree.
         assert_eq!(
-            p.web_url("ratatui/ratatui", "src", "master", None, None, false)
-                .unwrap(),
+            p.web_url(
+                &RepoId::from("ratatui/ratatui"),
+                "src",
+                Some(&GitRef::from("master")),
+                None,
+                None,
+                false
+            )
+            .unwrap(),
             "https://github.com/ratatui/ratatui/tree/master/src"
         );
         assert_eq!(p.org_url("ratatui").unwrap(), "https://github.com/ratatui");
@@ -309,9 +341,9 @@ mod tests {
     fn clone_url_grammar() {
         let p = GitHubProvider::anonymous();
         assert_eq!(
-            p.clone_url("ratatui/ratatui").unwrap(),
+            p.clone_url(&RepoId::from("ratatui/ratatui")).unwrap(),
             "https://github.com/ratatui/ratatui.git"
         );
-        assert!(p.clone_url("no-slash").is_err());
+        assert!(p.clone_url(&RepoId::from("no-slash")).is_err());
     }
 }

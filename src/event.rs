@@ -6,11 +6,11 @@ use crate::provider::{ProviderError, SearchItem};
 #[derive(Debug)]
 pub enum AppEvent {
     SearchResults {
-        gen_id: u64,
+        gen_id: crate::provider::Generation,
         items: Vec<SearchItem>,
     },
     SearchFailed {
-        gen_id: u64,
+        gen_id: crate::provider::Generation,
         error: ProviderError,
     },
     OrgReposLoaded {
@@ -45,7 +45,7 @@ pub enum AppEvent {
     /// Global search view results (plans/0002 §4): raw hits from the
     /// worker, styled on the UI thread.
     GlobalSearchResults {
-        gen_id: u64,
+        gen_id: crate::provider::Generation,
         hits: Vec<crate::components::global_search::RawHit>,
         clipped: bool,
         /// v1.3: index freshness ("2026-08-20T14:00:00Z") for indexed
@@ -60,17 +60,17 @@ pub enum AppEvent {
     /// Streamed batch (v1.3, plans/0011): raw hits as the provider
     /// emits them; styled on the UI thread, appended under `gen_id`.
     GlobalSearchDelta {
-        gen_id: u64,
+        gen_id: crate::provider::Generation,
         hits: Vec<crate::components::global_search::RawHit>,
     },
     GlobalSearchFailed {
-        gen_id: u64,
+        gen_id: crate::provider::Generation,
         error: ProviderError,
     },
     /// Lazy per-hit context (plans/0006 §1): blob fetched + located on
     /// a worker for the selected bare hit.
     HitContextLoaded {
-        gen_id: u64,
+        gen_id: crate::provider::Generation,
         repo: String,
         path: String,
         sha: String,
@@ -83,7 +83,7 @@ pub enum AppEvent {
     /// (plans/0008 §4): the hit flips to `unlocatable` instead of
     /// rendering stale forever.
     HitContextMissing {
-        gen_id: u64,
+        gen_id: crate::provider::Generation,
         sha: String,
     },
     /// Cursor-rest debounce fired (plans/0008 §3): rapid selection
@@ -98,21 +98,21 @@ pub enum AppEvent {
     /// surfaces a status line; other kinds stay quiet (bare path
     /// remains, retry on revisit).
     HitContextFailed {
-        gen_id: u64,
+        gen_id: crate::provider::Generation,
         sha: String,
         error: ProviderError,
     },
     /// Expanded file pane (plans/0012 M2): the hit's whole blob, raw
     /// bytes — the UI thread sanitizes + highlights at the boundary.
     HitFileLoaded {
-        gen_id: u64,
+        gen_id: crate::provider::Generation,
         repo: String,
         path: String,
         sha: String,
         bytes: Vec<u8>,
     },
     HitFileFailed {
-        gen_id: u64,
+        gen_id: crate::provider::Generation,
         sha: String,
         error: crate::provider::ProviderError,
     },

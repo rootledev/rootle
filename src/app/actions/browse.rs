@@ -6,6 +6,7 @@ use super::super::{App, provider_status, trace};
 use crate::action::Action;
 use crate::components::pane::EntryKind;
 use crate::mode::Mode;
+use crate::provider::{GitRef, RepoId};
 
 impl App {
     /// This domain's arms: `Some(action)` back when not ours, so the
@@ -13,7 +14,7 @@ impl App {
     pub(crate) fn try_browse(&mut self, action: Action) -> Option<Action> {
         let _consumed: bool = match action {
             Action::SearchSubmitted(_) => {
-                self.search_gen += 1;
+                self.search_gen.tick();
                 self.provider.advise_cancel(); // superseded in-flight work
                 self.status = Some(format!("searching {}…", self.modeline.forge));
                 if let Some(popup) = &mut self.popup {
@@ -198,7 +199,16 @@ impl App {
                 let url = if let Some(view) = &self.search_view {
                     view.yank_target().and_then(|t| {
                         self.provider
-                            .web_url(&t.repo, &t.path, &t.branch, t.line, t.end, true)
+                            .web_url(
+                                &RepoId::from(t.repo.as_str()),
+                                &t.path,
+                                (!t.branch.is_empty())
+                                    .then(|| GitRef::from(t.branch.as_str()))
+                                    .as_ref(),
+                                t.line,
+                                t.end,
+                                true,
+                            )
                             .ok()
                     })
                 } else if let Some((owner, repo)) = self.browser.repo_coords() {
@@ -208,7 +218,7 @@ impl App {
                         Some((file, _sha)) => (file, true),
                         None => (self.browser.dir_path(), false),
                     };
-                    let branch = self.browser.branch().unwrap_or("");
+                    let branch = self.browser.branch().map(GitRef::from);
                     // File yank anchors to the preview line cursor —
                     // or the visual range as `#L3-L7` (v1.5); dirs/orgs
                     // stay line-less.
@@ -219,9 +229,9 @@ impl App {
                     };
                     self.provider
                         .web_url(
-                            &format!("{owner}/{repo}"),
+                            &RepoId::from(format!("{owner}/{repo}")),
                             &path,
-                            branch,
+                            branch.as_ref(),
                             line,
                             end,
                             is_file,

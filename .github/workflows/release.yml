@@ -135,10 +135,19 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
-          pkg="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')"
-          test "v$pkg" = "$GITHUB_REF_NAME" || {
-            echo "::error::tag $GITHUB_REF_NAME != crate version v$pkg"; exit 1; }
-          cargo publish
+          # Workspace crates share one version (workspace.package);
+          # every one of them must match the tag or the release stops
+          # before the irreversible artifact.
+          versions="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[].version' | sort -u)"
+          test "$(printf '%s\n' "$versions" | wc -l)" -eq 1 || {
+            echo "::error::workspace crates carry differing versions"; exit 1; }
+          test "v$versions" = "$GITHUB_REF_NAME" || {
+            echo "::error::tag $GITHUB_REF_NAME != crate version v$versions"; exit 1; }
+          # Dependency order: provider first (everything path-depends
+          # on it), the app crate last (plans/0024 M6).
+          for crate in rootle-provider rootle-stdio rootle-github rootle-manager rootle; do
+            cargo publish -p "$crate"
+          done
 
       - name: Create GitHub release
         env:

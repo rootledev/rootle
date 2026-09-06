@@ -172,3 +172,24 @@ All truncation is by display width (`pane::fit`, `unicode_width`),
 never by byte or char count — CJK glyphs occupy two cells. Popups and
 the modeline compute padding from `UnicodeWidthStr::width` of rendered
 spans, so the layout survives wide characters.
+
+## Typed identity, no naked strings (plans/0025)
+
+Identity crosses a boundary only as its newtype from
+`rootle_provider::id`: `RepoId` (opaque `group/project`), `Sha`
+(content id), `GitRef` (resolvable revision). The `Provider` trait's
+signatures carry them; app code mints at the seam and lets the type
+system stop sha-vs-ref-vs-repo mixups. Async staleness is a
+`Generation` clock (`tick()` / `is_current()`), never a raw `u64`
+compared by `!=` — cross-counter comparisons must not compile.
+VISUAL marks are `MarkKey { pane, entry }`, never a
+`"<title>/<name>"` string convention. Migration is per-call-site
+cluster as waves touch them, not a big-bang rewrite.
+
+## File size ceiling
+
+~400 lines is healthy, ~800 is the ceiling — then split by concern
+into sibling submodules (the `settings_popup/{mod,render,sections}`
+and `global_search/` shapes). The exceptions are single-pattern
+artifacts (the keymap tables) where splitting would obscure the
+pattern.

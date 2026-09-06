@@ -12,7 +12,7 @@ impl App {
     pub fn handle_app_event(&mut self, event: AppEvent) {
         match event {
             AppEvent::SearchResults { gen_id, items } => {
-                if gen_id != self.search_gen {
+                if !self.search_gen.is_current(gen_id) {
                     return; // stale submission
                 }
                 self.clear_loading_status(&["searching"]);
@@ -21,7 +21,7 @@ impl App {
                 }
             }
             AppEvent::SearchFailed { gen_id, error } => {
-                if gen_id != self.search_gen {
+                if !self.search_gen.is_current(gen_id) {
                     return;
                 }
                 self.clear_loading_status(&["searching"]);
@@ -61,7 +61,7 @@ impl App {
                 self.handle_action(Action::TreeFailed { owner, name, error });
             }
             AppEvent::GlobalSearchDelta { gen_id, hits } => {
-                if gen_id != self.view_gen {
+                if !self.view_gen.is_current(gen_id) {
                     return; // stale batch — a newer submission owns the view
                 }
                 let Some(view) = &self.search_view else {
@@ -93,7 +93,7 @@ impl App {
                 client_filtered,
                 unfiltered,
             } => {
-                if gen_id != self.view_gen {
+                if !self.view_gen.is_current(gen_id) {
                     return; // stale submission
                 }
                 self.clear_loading_status(&["searching code"]);
@@ -126,7 +126,7 @@ impl App {
                 }
             }
             AppEvent::GlobalSearchFailed { gen_id, error } => {
-                if gen_id != self.view_gen {
+                if !self.view_gen.is_current(gen_id) {
                     return;
                 }
                 self.clear_loading_status(&["searching code"]);
@@ -146,13 +146,13 @@ impl App {
                 });
             }
             AppEvent::HitContextMissing { gen_id, sha } => {
-                if gen_id != self.view_gen {
+                if !self.view_gen.is_current(gen_id) {
                     return; // view moved on
                 }
                 self.handle_action(Action::HitContextMissing { sha });
             }
             AppEvent::HitContextFailed { gen_id, sha, error } => {
-                if gen_id != self.view_gen {
+                if !self.view_gen.is_current(gen_id) {
                     return;
                 }
                 self.handle_action(Action::HitContextFailed { sha, error });
@@ -167,7 +167,7 @@ impl App {
                 match_count,
                 query,
             } => {
-                if gen_id != self.view_gen {
+                if !self.view_gen.is_current(gen_id) {
                     return; // view moved on
                 }
                 if self.pending_context_sha.as_deref() == Some(sha.as_str()) {
@@ -206,7 +206,7 @@ impl App {
                 sha,
                 bytes,
             } => {
-                if gen_id != self.view_gen {
+                if !self.view_gen.is_current(gen_id) {
                     return; // view moved on — drop the stale blob
                 }
                 // 0019 polish: the expanded pane's band rides the same
@@ -276,7 +276,7 @@ impl App {
                 }
             }
             AppEvent::HitFileFailed { gen_id, sha, error } => {
-                if gen_id != self.view_gen {
+                if !self.view_gen.is_current(gen_id) {
                     return;
                 }
                 // Auth/throttle surface a status line; other kinds

@@ -29,10 +29,14 @@ docker or `sudo`.
 
 | Path | Contents |
 |---|---|
-| `src/app/` | event loop glue: dispatch, worker spawns (`workers.rs`) |
+| `src/app/` | event loop glue: dispatch (`actions/`), event routing, worker spawns (`workers/`) |
 | `src/components/` | every UI piece behind the Component contract |
-| `src/provider/` | the seam: `mod.rs` (trait), `stdio.rs` (external), `github.rs` |
-| `src/github/` | GitHub-only internals (REST client, wire models, disk cache) |
+| `src/provider/` | the app's composition root: `build()`, the consent/declaration types, config-writing lifecycle (`bookkeeping.rs`) |
+| `crates/provider/` | `rootle-provider`: the `Provider` trait, wire vocabulary, XDG paths — everything behind the seam |
+| `crates/stdio/` | `rootle-stdio`: the NDJSON-RPC stdio transport (see doc/provider-protocol.md) |
+| `crates/github/` | `rootle-github`: REST client, wire models, disk cache — the in-tree reference impl |
+| `crates/manager/` | `rootle-manager`: install/update/pin for provider binaries + the CLI ui grammar |
+| `src/selfupdate.rs` | `rootle update` self-updater (tarball swap, provider sweep) |
 | `src/headless.rs` | `--headless` scripted driver: keys in, frames/state JSON out (no PTY) |
 | `e2e/` | uv+pytest harness driving the real binary — headless scripts + PTY suite |
 | `tests/render.rs` | frame-level snapshots on ratatui's TestBackend |

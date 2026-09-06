@@ -7,6 +7,7 @@ use super::super::provider_status;
 use crate::action::Action;
 use crate::components::refs_popup::RefsPopup;
 use crate::mode::Mode;
+use crate::provider::{GitRef, RepoId};
 
 impl App {
     /// This domain's arms: `Some(action)` back when not ours, so the
@@ -148,9 +149,9 @@ impl App {
                 let target = self.browser.repo_coords().zip(self.browser.history_pick());
                 if let Some(((owner, name), (path, sha))) = target {
                     match self.provider.web_url(
-                        &format!("{owner}/{name}"),
+                        &RepoId::from(format!("{owner}/{name}")),
                         &path,
-                        &sha,
+                        Some(&GitRef::from(sha.as_str())),
                         None,
                         None,
                         true,

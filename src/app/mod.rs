@@ -22,6 +22,7 @@ use crate::event::AppTx;
 use crate::highlight::Highlighter;
 use crate::keymap;
 use crate::mode::Mode;
+use crate::provider::Generation;
 use crate::provider::{self, Provider};
 use crate::state::State;
 use crate::theme::Theme;
@@ -79,9 +80,9 @@ pub struct App {
     /// (restyle trigger on theme switch).
     highlight_syntax: crate::theme::Syntax,
     /// Generation counter on search submissions; stale results dropped.
-    search_gen: u64,
+    search_gen: Generation,
     /// Same for the global search view (find/grep workers).
-    view_gen: u64,
+    view_gen: Generation,
     /// sha of the lazy hit-context fetch in flight (plans/0006 §1) —
     /// dedupes repeat selections and names the cancel target.
     pending_context_sha: Option<String>,
@@ -254,8 +255,8 @@ impl App {
             // with; compared against the effective theme to trigger
             // restyle (settings live preview / commit).
             highlight_syntax: theme.syntax,
-            search_gen: 0,
-            view_gen: 0,
+            search_gen: Generation::default(),
+            view_gen: Generation::default(),
             pending_context_sha: None,
             context_debounce_gen: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
             status: None,

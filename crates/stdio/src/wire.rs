@@ -6,9 +6,9 @@
 use super::StdioProvider;
 use super::transport::{cancel_notification, de};
 use rootle_provider::{
-    BlameRange, Capabilities, CodeMatch, ErrorKind, LogEntry, Provider, ProviderError,
-    ProviderResult, RefInfo, RepoInfo, RepoRefs, SearchCodeResult, SearchItem, TreeNode,
-    TreeResult,
+    BlameRange, Capabilities, CodeMatch, ErrorKind, GitRef, LogEntry, Provider, ProviderError,
+    ProviderResult, RefInfo, RepoId, RepoInfo, RepoRefs, SearchCodeResult, SearchItem, Sha,
+    TreeNode, TreeResult,
 };
 use serde_json::json;
 use std::io::Write;
@@ -94,7 +94,7 @@ impl Provider for StdioProvider {
             .collect())
     }
 
-    fn fetch_tree(&self, repo: &str, ref_: Option<&str>) -> ProviderResult<TreeResult> {
+    fn fetch_tree(&self, repo: &RepoId, ref_: Option<&GitRef>) -> ProviderResult<TreeResult> {
         #[derive(serde::Deserialize)]
         struct R {
             #[serde(default)]
@@ -132,7 +132,7 @@ impl Provider for StdioProvider {
         })
     }
 
-    fn fetch_blob(&self, repo: &str, sha: &str) -> ProviderResult<Vec<u8>> {
+    fn fetch_blob(&self, repo: &RepoId, sha: &Sha) -> ProviderResult<Vec<u8>> {
         #[derive(serde::Deserialize)]
         struct R {
             bytes_b64: String,
@@ -146,9 +146,9 @@ impl Provider for StdioProvider {
 
     fn web_url(
         &self,
-        repo: &str,
+        repo: &RepoId,
         path: &str,
-        branch: &str,
+        branch: Option<&GitRef>,
         line: Option<u32>,
         end: Option<u32>,
         is_file: bool,
@@ -159,7 +159,7 @@ impl Provider for StdioProvider {
         }
         let r: R = de(self.request(
             "repo/web_url",
-            json!({ "repo": repo, "path": path, "branch": branch, "line": line, "end_line": end, "is_file": is_file }),
+            json!({ "repo": repo, "path": path, "branch": branch.map(GitRef::as_str).unwrap_or(""), "line": line, "end_line": end, "is_file": is_file }),
         )?)?;
         Ok(r.url)
     }
@@ -173,7 +173,7 @@ impl Provider for StdioProvider {
         Ok(r.url)
     }
 
-    fn clone_url(&self, repo: &str) -> ProviderResult<String> {
+    fn clone_url(&self, repo: &RepoId) -> ProviderResult<String> {
         #[derive(serde::Deserialize)]
         struct R {
             clone_url: String,
@@ -224,7 +224,7 @@ impl Provider for StdioProvider {
     }
 
     /// v1.5 (plans/0016 M1): branches + tags.
-    fn refs(&self, repo: &str) -> ProviderResult<RepoRefs> {
+    fn refs(&self, repo: &RepoId) -> ProviderResult<RepoRefs> {
         #[derive(serde::Deserialize)]
         struct R {
             #[serde(default)]
@@ -254,9 +254,9 @@ impl Provider for StdioProvider {
     /// v1.5: commit log, newest first.
     fn log(
         &self,
-        repo: &str,
+        repo: &RepoId,
         path: Option<&str>,
-        ref_: Option<&str>,
+        ref_: Option<&GitRef>,
         limit: Option<usize>,
     ) -> ProviderResult<(Vec<LogEntry>, bool)> {
         #[derive(serde::Deserialize)]
@@ -276,10 +276,10 @@ impl Provider for StdioProvider {
     /// v1.5: file bytes + content id at path@ref (open-at-commit).
     fn blob_at(
         &self,
-        repo: &str,
+        repo: &RepoId,
         path: &str,
-        ref_: Option<&str>,
-    ) -> ProviderResult<(Vec<u8>, String)> {
+        ref_: Option<&GitRef>,
+    ) -> ProviderResult<(Vec<u8>, Sha)> {
         #[derive(serde::Deserialize)]
         struct R {
             bytes_b64: String,
@@ -293,11 +293,16 @@ impl Provider for StdioProvider {
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(r.bytes_b64)
             .map_err(|e| ProviderError::new(ErrorKind::Provider, format!("bad base64: {e}")))?;
-        Ok((bytes, r.sha))
+        Ok((bytes, Sha::from(r.sha)))
     }
 
     /// v1.5: blame ranges.
-    fn blame(&self, repo: &str, path: &str, ref_: Option<&str>) -> ProviderResult<Vec<BlameRange>> {
+    fn blame(
+        &self,
+        repo: &RepoId,
+        path: &str,
+        ref_: Option<&GitRef>,
+    ) -> ProviderResult<Vec<BlameRange>> {
         #[derive(serde::Deserialize)]
         struct R {
             #[serde(default)]

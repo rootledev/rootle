@@ -242,23 +242,23 @@ pub fn offline() -> Arc<dyn Provider> {
         fn org_repos(&self, _: &str) -> ProviderResult<Vec<RepoInfo>> {
             Err("offline".into())
         }
-        fn fetch_tree(&self, _: &str, _: Option<&str>) -> ProviderResult<TreeResult> {
+        fn fetch_tree(&self, _: &RepoId, _: Option<&GitRef>) -> ProviderResult<TreeResult> {
             Err("offline".into())
         }
-        fn fetch_blob(&self, _: &str, _: &str) -> ProviderResult<Vec<u8>> {
+        fn fetch_blob(&self, _: &RepoId, _: &Sha) -> ProviderResult<Vec<u8>> {
             Err("offline".into())
         }
         fn search_code(&self, _: &str) -> ProviderResult<SearchCodeResult> {
             Err("offline".into())
         }
-        fn clone_url(&self, _: &str) -> ProviderResult<String> {
+        fn clone_url(&self, _: &RepoId) -> ProviderResult<String> {
             Err("offline".into())
         }
         fn web_url(
             &self,
+            _: &RepoId,
             _: &str,
-            _: &str,
-            _: &str,
+            _: Option<&GitRef>,
             _: Option<u32>,
             _: Option<u32>,
             _: bool,

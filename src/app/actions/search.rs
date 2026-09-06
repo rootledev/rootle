@@ -92,7 +92,7 @@ impl App {
                     self.state.search_extension = Some(view.extension_value());
                     self.state.save();
                 }
-                self.view_gen += 1;
+                self.view_gen.tick();
                 self.provider.advise_cancel(); // superseded in-flight work
                 self.pending_context_sha = None;
                 if let Some(view) = &mut self.search_view {

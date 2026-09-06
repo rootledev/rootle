@@ -53,10 +53,10 @@ pub struct Browser {
     pub filter_input: VimInput,
     /// `␣ /` find-in-file input, active in FIND mode (plans/0007 §3).
     pub find_input: VimInput,
-    /// VISUAL mode (plans/0004 §1): marked entries, keyed
-    /// `"<pane title>/<entry name>"` so marks survive cascades.
+    /// VISUAL mode (plans/0004 §1): marked entries, keyed by
+    /// [`MarkKey`] so marks survive cascades.
     visual: bool,
-    marks: std::collections::HashSet<String>,
+    marks: std::collections::HashSet<MarkKey>,
     /// plans/0016 M1a: the browsed revision (None = default branch).
     current_ref: Option<String>,
     /// plans/0016 M1b: the file-history lens over the preview pane.
@@ -222,7 +222,7 @@ impl Browser {
         let Some(entry) = pane.selected_entry() else {
             return;
         };
-        let key = format!("{}/{}", pane.title, entry.name);
+        let key = MarkKey::new(&pane.title, &entry.name);
         if !self.marks.remove(&key) {
             self.marks.insert(key);
         }
@@ -239,11 +239,11 @@ impl Browser {
     /// deleted org names; non-org marks are left untouched (reported
     /// by the caller).
     pub fn delete_marked_orgs(&mut self) -> Vec<String> {
-        let orgs_prefix = "orgs/";
         let deleted: Vec<String> = self
             .marks
             .iter()
-            .filter_map(|k| k.strip_prefix(orgs_prefix).map(str::to_string))
+            .filter(|k| k.is_orgs())
+            .map(|k| k.entry.clone())
             .collect();
         if deleted.is_empty() {
             return deleted;
@@ -251,9 +251,8 @@ impl Browser {
         self.levels[0]
             .entries
             .retain(|e| !deleted.contains(&e.name));
-        for org in &deleted {
-            self.marks.remove(&format!("{orgs_prefix}{org}"));
-        }
+        self.marks
+            .retain(|k| !(k.is_orgs() && deleted.contains(&k.entry)));
         // Selected org deleted → drop to the first remaining entry.
         if let Some(sel) = self.levels[0].selected_entry()
             && deleted.contains(&sel.name)
@@ -264,9 +263,9 @@ impl Browser {
         deleted
     }
 
-    /// Marked entries as `"<pane title>/<name>"` keys.
-    pub fn visual_marks(&self) -> Vec<String> {
-        let mut marks: Vec<String> = self.marks.iter().cloned().collect();
+    /// Marked entries, sorted for stable consumption (:clone, ␣d).
+    pub fn visual_marks(&self) -> Vec<MarkKey> {
+        let mut marks: Vec<MarkKey> = self.marks.iter().cloned().collect();
         marks.sort();
         marks
     }
@@ -351,11 +350,11 @@ impl Browser {
             pane.focused = i == self.focus;
             // Marks stay visible after leaving VISUAL (they drive
             // :clone / ␣d); ○ only while visual is active.
-            let prefix = format!("{}/", pane.title);
             let pane_marks: std::collections::HashSet<String> = self
                 .marks
                 .iter()
-                .filter_map(|k| k.strip_prefix(&prefix).map(str::to_string))
+                .filter(|k| k.pane == pane.title)
+                .map(|k| k.entry.clone())
                 .collect();
             pane.checkboxes = if self.visual || !pane_marks.is_empty() {
                 Some(pane_marks)
@@ -689,6 +688,33 @@ impl Browser {
         } else {
             self.preview.render(frame, cols[2], theme);
         }
+    }
+}
+
+/// A VISUAL mark's identity (plans/0025): the pane's title plus the
+/// entry's name — a two-field key instead of the old
+/// `"<title>/<name>"` string convention, so a title containing `/`
+/// can never alias two marks. Pane identity is the title because it
+/// is stable across cascade rebuilds (indices are not).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct MarkKey {
+    pub pane: String,
+    pub entry: String,
+}
+
+impl MarkKey {
+    fn new(pane: &str, entry: &str) -> Self {
+        MarkKey {
+            pane: pane.to_string(),
+            entry: entry.to_string(),
+        }
+    }
+
+    /// The orgs level's title — marks on it fan out to whole orgs.
+    const ORGS_PANE: &'static str = "orgs";
+
+    pub fn is_orgs(&self) -> bool {
+        self.pane == Self::ORGS_PANE
     }
 }
 

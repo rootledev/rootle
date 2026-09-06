@@ -86,7 +86,7 @@ fn tree_file_find(
     extension: &str,
     on_hits: &(dyn Fn(Vec<RawHit>) + Send + Sync),
 ) -> crate::provider::ProviderResult<SearchOutcome> {
-    let tree = provider.fetch_tree(repo_full, None)?;
+    let tree = provider.fetch_tree(&crate::provider::RepoId::from(repo_full), None)?;
     let branch = tree.branch;
     // v1.2 grammar (plans/0012 M1): quoted literals are one needle,
     // negation subtracts, language:/extension: filter by extension.
@@ -312,9 +312,11 @@ fn tarball_grep(
     g: &grammar::Grammar,
 ) -> Option<Vec<RawHit>> {
     const FILE_CAP: usize = 1 << 20; // matches the preview pane's blob cap
-    let tarball = provider.source_tarball(repo_full).ok()?;
+    let tarball = provider
+        .source_tarball(&crate::provider::RepoId::from(repo_full))
+        .ok()?;
     let branch = provider
-        .fetch_tree(repo_full, None)
+        .fetch_tree(&crate::provider::RepoId::from(repo_full), None)
         .map(|t| t.branch)
         .unwrap_or_default();
     let needles: Vec<String> = g.terms.iter().map(|t| t.to_lowercase()).collect();
@@ -413,7 +415,12 @@ pub(crate) fn locate_matches(
     sha: &str,
     needles: &[String],
 ) -> Option<LocatedPreview> {
-    let bytes = provider.fetch_blob(repo, sha).ok()?;
+    let bytes = provider
+        .fetch_blob(
+            &crate::provider::RepoId::from(repo),
+            &crate::provider::Sha::from(sha),
+        )
+        .ok()?;
     locate_in_blob(&bytes, needles)
 }
 
@@ -469,7 +476,10 @@ pub(crate) fn locate_in_blob(bytes: &[u8], needles: &[String]) -> Option<Located
 /// File-find preview: the file's first lines from its blob.
 fn add_blob_heads(provider: &dyn Provider, hits: &mut [RawHit]) {
     for hit in hits.iter_mut().take(PREVIEW_CAP) {
-        let Ok(bytes) = provider.fetch_blob(&hit.repo, &hit.sha) else {
+        let Ok(bytes) = provider.fetch_blob(
+            &crate::provider::RepoId::from(hit.repo.as_str()),
+            &crate::provider::Sha::from(hit.sha.as_str()),
+        ) else {
             continue;
         };
         if crate::sanitize::is_binary(&bytes) {
@@ -624,14 +634,22 @@ mod tests {
             fn org_repos(&self, _: &str) -> ProviderResult<Vec<crate::provider::RepoInfo>> {
                 Err("mock".into())
             }
-            fn fetch_tree(&self, _: &str, _: Option<&str>) -> ProviderResult<TreeResult> {
+            fn fetch_tree(
+                &self,
+                _: &crate::provider::RepoId,
+                _: Option<&crate::provider::GitRef>,
+            ) -> ProviderResult<TreeResult> {
                 Ok(TreeResult {
                     entries: Vec::new(),
                     truncated: false,
                     branch: "main".into(),
                 })
             }
-            fn fetch_blob(&self, _: &str, _: &str) -> ProviderResult<Vec<u8>> {
+            fn fetch_blob(
+                &self,
+                _: &crate::provider::RepoId,
+                _: &crate::provider::Sha,
+            ) -> ProviderResult<Vec<u8>> {
                 Err("mock".into())
             }
             fn search_code(&self, _: &str) -> ProviderResult<SearchCodeResult> {
@@ -642,14 +660,14 @@ mod tests {
                     index_as_of: None,
                 })
             }
-            fn clone_url(&self, _: &str) -> ProviderResult<String> {
+            fn clone_url(&self, _: &crate::provider::RepoId) -> ProviderResult<String> {
                 Err("mock".into())
             }
             fn web_url(
                 &self,
+                _: &crate::provider::RepoId,
                 _: &str,
-                _: &str,
-                _: &str,
+                _: Option<&crate::provider::GitRef>,
                 _: Option<u32>,
                 _: Option<u32>,
                 _: bool,
@@ -659,7 +677,7 @@ mod tests {
             fn org_url(&self, _: &str) -> ProviderResult<String> {
                 Err("mock".into())
             }
-            fn source_tarball(&self, _: &str) -> ProviderResult<Vec<u8>> {
+            fn source_tarball(&self, _: &crate::provider::RepoId) -> ProviderResult<Vec<u8>> {
                 Ok(self.0.clone())
             }
         }

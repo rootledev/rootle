@@ -18,6 +18,10 @@
 /// cap is this same number.
 pub const RENDER_BUDGET: usize = 500;
 
+pub mod id;
+
+pub use id::{Generation, GitRef, RepoId, Sha};
+
 /// One repo in an org listing (protocol v1.4): the name plus whatever
 /// metadata the backend reports. Everything past `name` is optional —
 /// a provider with only names sends the string form on the wire and
@@ -250,9 +254,9 @@ pub trait Provider: Send + Sync {
     fn org_repos(&self, org: &str) -> ProviderResult<Vec<RepoInfo>>;
     /// Full recursive tree of a repo — at `ref` (branch/tag/sha) when
     /// given (v1.5), else the default branch.
-    fn fetch_tree(&self, repo: &str, ref_: Option<&str>) -> ProviderResult<TreeResult>;
+    fn fetch_tree(&self, repo: &RepoId, ref_: Option<&GitRef>) -> ProviderResult<TreeResult>;
     /// Blob bytes by content id.
-    fn fetch_blob(&self, repo: &str, sha: &str) -> ProviderResult<Vec<u8>>;
+    fn fetch_blob(&self, repo: &RepoId, sha: &Sha) -> ProviderResult<Vec<u8>>;
 
     /// The repo's default-branch source as a gzip tarball — fuel for
     /// the local-grep fallback when a repo-scoped code search returns
@@ -260,13 +264,13 @@ pub trait Provider: Send + Sync {
     /// repos; the tree can't lie, the index can). Optional: the
     /// default refuses and the fallback is simply unavailable —
     /// external providers grow it when the wire protocol does.
-    fn source_tarball(&self, repo: &str) -> ProviderResult<Vec<u8>> {
+    fn source_tarball(&self, repo: &RepoId) -> ProviderResult<Vec<u8>> {
         let _ = repo;
         Err(ProviderError::other(
             "source tarball not supported by this provider",
         ))
     }
-    fn refs(&self, repo: &str) -> ProviderResult<RepoRefs> {
+    fn refs(&self, repo: &RepoId) -> ProviderResult<RepoRefs> {
         let _ = repo;
         Err(ProviderError::new(
             ErrorKind::Provider,
@@ -278,9 +282,9 @@ pub trait Provider: Send + Sync {
     /// (capability `log`).
     fn log(
         &self,
-        repo: &str,
+        repo: &RepoId,
         path: Option<&str>,
-        ref_: Option<&str>,
+        ref_: Option<&GitRef>,
         limit: Option<usize>,
     ) -> ProviderResult<(Vec<LogEntry>, bool)> {
         let _ = (repo, path, ref_, limit);
@@ -293,10 +297,10 @@ pub trait Provider: Send + Sync {
     /// open-at-commit call (capability `log`'s companion).
     fn blob_at(
         &self,
-        repo: &str,
+        repo: &RepoId,
         path: &str,
-        ref_: Option<&str>,
-    ) -> ProviderResult<(Vec<u8>, String)> {
+        ref_: Option<&GitRef>,
+    ) -> ProviderResult<(Vec<u8>, Sha)> {
         let _ = (repo, path, ref_);
         Err(ProviderError::new(
             ErrorKind::Provider,
@@ -305,7 +309,12 @@ pub trait Provider: Send + Sync {
     }
     /// v1.5: blame ranges, 1-based inclusive, coalesced (capability
     /// `blame`).
-    fn blame(&self, repo: &str, path: &str, ref_: Option<&str>) -> ProviderResult<Vec<BlameRange>> {
+    fn blame(
+        &self,
+        repo: &RepoId,
+        path: &str,
+        ref_: Option<&GitRef>,
+    ) -> ProviderResult<Vec<BlameRange>> {
         let _ = (repo, path, ref_);
         Err(ProviderError::new(
             ErrorKind::Provider,
@@ -365,16 +374,16 @@ pub trait Provider: Send + Sync {
     }
 
     /// URL `git clone` accepts for a repo (clone wizard, plans/0004).
-    fn clone_url(&self, repo: &str) -> ProviderResult<String>;
+    fn clone_url(&self, repo: &RepoId) -> ProviderResult<String>;
     /// Browser URL for yank (␣ y): repo root, or a path inside it.
     /// `is_file` picks the grammar (GitHub: blob vs tree); `line`
-    /// adds a fragment when Some. `branch` may be empty (the provider
-    /// resolves it).
+    /// adds a fragment when Some. `branch` is `None` for the default
+    /// branch (the provider resolves it).
     fn web_url(
         &self,
-        repo: &str,
+        repo: &RepoId,
         path: &str,
-        branch: &str,
+        branch: Option<&GitRef>,
         line: Option<u32>,
         end: Option<u32>,
         is_file: bool,

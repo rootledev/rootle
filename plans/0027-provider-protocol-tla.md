@@ -1,7 +1,18 @@
 # 0027 — Provider protocol, model-checked (TLA+)
 
-Status: **planned (2026-09-06)** — independent of 0024–0026; runs in
-parallel with them.
+Status: **shipped (2026-09-06)** — M1–M4 done: specs/
+ProviderProtocol.tla (+ kept mutant) with all seven named invariants
+each validated by a throwaway mutant; Dockerfile `model` target gates
+BOTH outcomes (base clean, mutant killed by CorrelationSafety);
+compose `model` + ci.yml step wired. Doc gaps settled: (a) ids are
+monotonic per session, never reused — late replies match no live
+slot; (b) retry bounds are per caller (one attempt), unbounded per
+session, ladder advancing only across successful rebuilds — as the
+code does. Standing rule added to doc/provider-protocol.md. Bridge
+tests in crates/stdio/src/tests.rs (5 fault classes), teeth proven by
+reader-misroute mutation. Gate teeth proven by re-breaking the mutant
+as a Die fault (killed via RestartFailClosed, not the grepped
+CorrelationSafety → build failed) and reverting.
 
 ## Problem
 

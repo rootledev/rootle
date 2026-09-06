@@ -110,7 +110,12 @@ pub fn prepare(
     let program = resolve_program(config).ok_or_else(|| {
         "no editor found — set [editor].program in config.toml or $EDITOR".to_string()
     })?;
-    let bytes = provider.fetch_blob(repo, sha).map_err(|e| e.to_string())?;
+    let bytes = provider
+        .fetch_blob(
+            &crate::provider::RepoId::from(repo),
+            &crate::provider::Sha::from(sha),
+        )
+        .map_err(|e| e.to_string())?;
     let (owner, name) = repo
         .split_once('/')
         .ok_or_else(|| format!("bad repo id: {repo:?}"))?;

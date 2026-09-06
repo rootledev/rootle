@@ -22,8 +22,8 @@ const BLOB_CAP: usize = 1024 * 1024;
 /// through this.
 fn fetch_blob_capped(
     provider: &dyn crate::provider::Provider,
-    repo: &str,
-    sha: &str,
+    repo: &crate::provider::RepoId,
+    sha: &crate::provider::Sha,
 ) -> ProviderResult<Vec<u8>> {
     let bytes = provider.fetch_blob(repo, sha)?;
     if bytes.len() > BLOB_CAP {

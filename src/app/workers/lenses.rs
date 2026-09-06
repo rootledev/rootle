@@ -3,6 +3,7 @@
 
 use super::{App, fetch_blob_capped, trace};
 use crate::event::AppEvent;
+use crate::provider::{GitRef, RepoId, Sha};
 
 impl App {
     /// 0019 polish: the preview band's last-commit fetch — one
@@ -15,8 +16,10 @@ impl App {
         let provider = self.provider.clone();
         let tx = self.tx.clone();
         std::thread::spawn(move || {
+            let repo_id = RepoId::from(repo.clone());
+            let ref_at = ref_.as_deref().map(GitRef::from);
             let entry = provider
-                .log(&repo, Some(&path), ref_.as_deref(), Some(1))
+                .log(&repo_id, Some(&path), ref_at.as_ref(), Some(1))
                 .ok()
                 .and_then(|(entries, _)| entries.into_iter().next());
             let _ = tx.send(AppEvent::LastCommitLoaded { repo, path, entry });
@@ -29,7 +32,7 @@ impl App {
         let provider = self.provider.clone();
         let tx = self.tx.clone();
         std::thread::spawn(move || {
-            let event = match provider.refs(&repo) {
+            let event = match provider.refs(&RepoId::from(repo.clone())) {
                 Ok(refs) => AppEvent::RefsLoaded { repo, refs },
                 Err(error) => AppEvent::RefsFailed { repo, error },
             };
@@ -44,7 +47,9 @@ impl App {
             // The lens' render budget, per the bounded-compute
             // contract: past it, `truncated` tells the user to narrow.
             let limit = Some(crate::provider::RENDER_BUDGET);
-            let event = match provider.log(&repo, Some(&path), ref_.as_deref(), limit) {
+            let repo_id = RepoId::from(repo);
+            let ref_at = ref_.as_deref().map(GitRef::from);
+            let event = match provider.log(&repo_id, Some(&path), ref_at.as_ref(), limit) {
                 Ok((entries, truncated)) => AppEvent::LogLoaded {
                     path,
                     entries,
@@ -60,7 +65,9 @@ impl App {
         let provider = self.provider.clone();
         let tx = self.tx.clone();
         std::thread::spawn(move || {
-            let event = match provider.blame(&repo, &path, ref_.as_deref()) {
+            let repo_id = RepoId::from(repo);
+            let ref_at = ref_.as_deref().map(GitRef::from);
+            let event = match provider.blame(&repo_id, &path, ref_at.as_ref()) {
                 Ok(ranges) => AppEvent::BlameLoaded { path, ranges },
                 Err(error) => AppEvent::BlameFailed { path, error },
             };
@@ -80,11 +87,15 @@ impl App {
         let provider = self.provider.clone();
         let tx = self.tx.clone();
         std::thread::spawn(move || {
-            let event = match provider.blob_at(&repo, &path, Some(&ref_)) {
+            let event = match provider.blob_at(
+                &RepoId::from(repo),
+                &path,
+                Some(&GitRef::from(ref_.as_str())),
+            ) {
                 Ok((bytes, sha)) => AppEvent::BlobAtLoaded {
                     path,
                     ref_,
-                    sha,
+                    sha: sha.as_str().to_string(),
                     bytes,
                     subject,
                     author,
@@ -104,8 +115,11 @@ impl App {
         let tx = self.tx.clone();
         std::thread::spawn(move || {
             trace(&format!("blob start {sha}"));
-            let event = match fetch_blob_capped(provider.as_ref(), &format!("{owner}/{repo}"), &sha)
-            {
+            let event = match fetch_blob_capped(
+                provider.as_ref(),
+                &RepoId::from(format!("{owner}/{repo}")),
+                &Sha::from(sha.as_str()),
+            ) {
                 Ok(bytes) => {
                     trace(&format!("blob ok {sha} {} bytes", bytes.len()));
                     AppEvent::BlobLoaded { sha, name, bytes }
