@@ -172,7 +172,7 @@ impl App {
         // 0017 M3 / 0018 M2: the 24h-cached update notice — never
         // offline, never blocking, silent on failure; CI, dumb
         // terminals, and piped stdout never check at all.
-        if !app.offline && app.config.update.check && crate::update::check_allowed() {
+        if !app.offline && app.config.update.check && crate::selfupdate::check_allowed() {
             app.spawn_update_check();
         }
         // Warm the repos level for the initially selected org.
@@ -539,7 +539,7 @@ impl App {
     /// binary once. The caller prints it after terminal restore.
     pub fn update_exit_note(&self) -> Option<String> {
         self.update_tag.as_ref()?;
-        crate::update::disk_newer_note()
+        crate::selfupdate::disk_newer_note()
     }
 
     /// Desired terminal cursor shape, if any text input is focused.
@@ -643,18 +643,7 @@ impl App {
 }
 /// Worker debug tracing: enabled via ROOTLE_TRACE=/path/log (kept minimal,
 /// no logging dependency; remove when the backend stabilizes).
-pub fn trace(msg: &str) {
-    if let Ok(path) = std::env::var("ROOTLE_TRACE") {
-        use std::io::Write;
-        if let Ok(mut f) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path)
-        {
-            let _ = writeln!(f, "{:?} {msg}", std::time::SystemTime::now());
-        }
-    }
-}
+pub use rootle_provider::trace;
 
 #[cfg(test)]
 mod tests {

@@ -20,18 +20,18 @@ impl Manager {
         if let Some(url) = &r.tarball {
             return self.install_tarball(r, url, force);
         }
-        self.install_inner(r, force, &crate::provider::ui::Ui::new(), None)
+        self.install_inner(r, force, &crate::ui::Ui::new(), None)
     }
 
     /// The release-install flow with the Ui swapped in — the
     /// `update_inner` pattern: `rootle update`'s sweep and the TUI's
     /// consent install (0019) drive the same verified flow, the
     /// latter through a silent recorder Ui.
-    pub(crate) fn install_inner(
+    pub fn install_inner(
         &self,
         r: &Ref,
         force: bool,
-        ui: &crate::provider::ui::Ui,
+        ui: &crate::ui::Ui,
         expect_sha: Option<&str>,
     ) -> Result<Receipt> {
         if let Some(existing) = self.receipt(&r.name)
@@ -44,7 +44,7 @@ impl Manager {
                 r.name, existing.tag
             )));
         }
-        let timer = crate::provider::ui::Timer::start();
+        let timer = crate::ui::Timer::start();
         let release = match &r.tag {
             Some(tag) => release_by_tag_at(&self.api, &r.repo, tag)?,
             None => latest_release_at(&self.api, &r.repo)?,
@@ -127,8 +127,8 @@ impl Manager {
                 r.name
             )));
         }
-        let timer = crate::provider::ui::Timer::start();
-        let ui = crate::provider::ui::Ui::new();
+        let timer = crate::ui::Timer::start();
+        let ui = crate::ui::Ui::new();
 
         let spinner = ui.spinner(&format!("Downloading {file}"));
         let tarball = download_bytes(url)?;
@@ -299,7 +299,7 @@ impl Manager {
     /// the command's app half. Outcome rows are returned for the
     /// caller to render; the release-install stages render through
     /// `ui`. `dry_run` reports staleness without swapping anything.
-    pub fn sweep(&self, dry_run: bool, ui: &crate::provider::ui::Ui) -> Vec<SweepOutcome> {
+    pub fn sweep(&self, dry_run: bool, ui: &crate::ui::Ui) -> Vec<SweepOutcome> {
         let mut out = Vec::new();
         for receipt in self.receipts() {
             if !tracks_releases(&receipt.source) {
@@ -557,7 +557,7 @@ mod tests {
             true,
         );
 
-        let (ui, _log) = crate::provider::ui::Ui::recorder();
+        let (ui, _log) = crate::ui::Ui::recorder();
         let outcomes = manager.sweep(false, &ui);
         // receipts() iterates sorted by name.
         assert!(matches!(&outcomes[0], SweepOutcome::Untracked { name, .. } if name == "artifact"));

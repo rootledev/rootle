@@ -27,18 +27,18 @@
 //! install/update/upgrade flows), `store` (local state on disk),
 //! `bookkeeping` (pin/remove/use/list).
 
-mod bookkeeping;
 mod install;
 mod refs;
 mod release;
 mod store;
+pub mod ui;
 
 pub use refs::Ref;
 
 /// The verified-download machinery, shared with `rootle update`
 /// (0017 M2) — same integrity model as provider installs.
-pub(crate) use release::latest_release_at;
-pub(crate) use release::{
+pub use release::latest_release_at;
+pub use release::{
     checksum_sidecar, download_bytes, extract_binary, latest_release, pick_asset, platform_target,
     verify_checksum,
 };
@@ -63,7 +63,7 @@ pub struct Receipt {
     pub latest_tag: Option<String>,
 }
 
-type Result<T, E = ManagerError> = std::result::Result<T, E>;
+pub type Result<T, E = ManagerError> = std::result::Result<T, E>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ManagerError {

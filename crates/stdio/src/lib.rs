@@ -24,8 +24,8 @@
 
 use self::process::{Process, StderrMode, spawn_process};
 use self::transport::{Shared, reader_loop};
-use super::{Capabilities, ProviderResult};
 use parking_lot::Mutex;
+use rootle_provider::{Capabilities, ProviderResult};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread::JoinHandle;
@@ -143,9 +143,9 @@ impl StdioProvider {
         provider.initialize_from(reply)
     }
 
-    /// Test-only variant: extra environment for the child process.
-    #[cfg(test)]
-    fn spawn_with_env(
+    /// Spawn with extra environment for the child process — the
+    /// test-binary re-exec seam (fakes pick their script by env).
+    pub fn spawn_with_env(
         command: &[String],
         timeout: Duration,
         env: &[(&str, &str)],

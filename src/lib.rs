@@ -1,3 +1,5 @@
+pub use rootle_provider::paths;
+
 pub mod action;
 pub mod app;
 pub mod cli;
@@ -7,14 +9,14 @@ pub mod components;
 pub mod config;
 pub mod editor;
 pub mod event;
-pub mod github;
+
 pub mod headless;
 pub mod highlight;
 pub mod keymap;
 pub mod mode;
-pub mod paths;
+
 pub mod provider;
 pub mod sanitize;
+pub mod selfupdate;
 pub mod state;
 pub mod theme;
-pub mod update;

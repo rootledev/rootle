@@ -4,8 +4,8 @@
 //! methods onto `exchange`.
 
 use super::StdioProvider;
-use crate::provider::{ErrorKind, ProviderError, ProviderResult};
 use parking_lot::{Condvar, Mutex};
+use rootle_provider::{ErrorKind, ProviderError, ProviderResult};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};

@@ -5,7 +5,7 @@
 //! rootle falls back to github.
 
 use super::StdioProvider;
-use crate::provider::{Capabilities, ErrorKind, ProviderError, ProviderResult};
+use rootle_provider::{Capabilities, ErrorKind, ProviderError, ProviderResult};
 use serde_json::{Value, json};
 
 impl StdioProvider {

@@ -1,0 +1,12 @@
+[package]
+name = "rootle-provider"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "rootle's backend seam: the Provider trait and wire vocabulary shared by the TUI and every adapter"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+dirs = "6"

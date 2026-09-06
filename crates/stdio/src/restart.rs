@@ -7,7 +7,7 @@
 use super::StdioProvider;
 use super::process::spawn_process;
 use super::transport::{Lifecycle, reader_loop};
-use crate::provider::{ErrorKind, ProviderError, ProviderResult};
+use rootle_provider::{ErrorKind, ProviderError, ProviderResult};
 use serde_json::Value;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;

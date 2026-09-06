@@ -1,11 +1,22 @@
-[package]
-name = "rootle"
+[workspace]
+members = ["crates/provider", "crates/stdio", "crates/github", "crates/manager"]
+resolver = "2"
+
+[workspace.package]
 version = "0.9.3"
 edition = "2024"
 rust-version = "1.88"
 license = "MIT"
-description = "Modal TUI for browsing remote source-control systems (GitHub in-tree, any forge via stdio providers) from the terminal"
 repository = "https://github.com/rootledev/rootle"
+
+[package]
+name = "rootle"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Modal TUI for browsing remote source-control systems (GitHub in-tree, any forge via stdio providers) from the terminal"
 readme = "README.md"
 keywords = ["tui", "github", "terminal", "git", "browser"]
 categories = ["command-line-utilities"]
@@ -15,10 +26,12 @@ categories = ["command-line-utilities"]
 exclude = [
     "/.agents",
     "/.github",
+    "/crates",
     "/demos",
     "/doc",
     "/e2e",
     "/plans",
+    "/specs",
     "/skills",
     "/Dockerfile",
     "/docker-compose.yml",
@@ -35,24 +48,23 @@ name = "rootle"
 path = "src/main.rs"
 
 [dependencies]
-parking_lot = "0.12"
+rootle-provider = { path = "crates/provider", version = "=0.9.3" }
+rootle-stdio = { path = "crates/stdio", version = "=0.9.3" }
+rootle-github = { path = "crates/github", version = "=0.9.3" }
+rootle-manager = { path = "crates/manager", version = "=0.9.3" }
 ratatui = { version = "0.30", features = [] }
 crossterm = "0.29"
 serde = { version = "1", features = ["derive"] }
-toml = "1.1"
-dirs = "6"
-unicode-width = "0.2"
 serde_json = "1.0.151"
-reqwest = { version = "0.13.4", default-features = false, features = ["blocking", "json", "rustls"] }
+toml = "1.1"
+unicode-width = "0.2"
 syntect = { version = "5.3.0", default-features = false, features = ["default-fancy", "default-syntaxes"] }
 base64 = "0.23.1"
 sha2 = "0.11"
 signal-hook = "0.4"
-filetime = "0.2.29"
 clap = { version = "4.6.6", features = ["derive"] }
 flate2 = "1.1.9"
 tar = "0.4.46"
-thiserror = "2.0.20"
 sha1 = "0.10"
 
 [dev-dependencies]

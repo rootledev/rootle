@@ -49,10 +49,10 @@ impl App {
     pub(crate) fn spawn_update_check(&self) {
         let tx = self.tx.clone();
         std::thread::spawn(move || {
-            if let Some(tag) = crate::update::latest_known()
-                && crate::update::is_newer(&tag)
+            if let Some(tag) = crate::selfupdate::latest_known()
+                && crate::selfupdate::is_newer(&tag)
             {
-                let toast = crate::update::take_toast(&tag);
+                let toast = crate::selfupdate::take_toast(&tag);
                 let _ = tx.send(AppEvent::UpdateAvailable { tag, toast });
             }
         });
@@ -64,14 +64,14 @@ impl App {
     pub(crate) fn spawn_declared_install(&self, decl: crate::provider::Declaration) {
         let tx = self.tx.clone();
         std::thread::spawn(move || {
-            let r = crate::provider::manager::Ref {
+            let r = rootle_manager::Ref {
                 repo: decl.repo.clone(),
                 name: decl.name.clone(),
                 tag: decl.tag.clone(),
                 tarball: None,
             };
-            let event = match crate::provider::manager::Manager::new().and_then(|m| {
-                let (ui, _log) = crate::provider::ui::Ui::recorder();
+            let event = match rootle_manager::Manager::new().and_then(|m| {
+                let (ui, _log) = rootle_manager::ui::Ui::recorder();
                 m.install_inner(&r, true, &ui, decl.sha.as_deref())
             }) {
                 Ok(_) => crate::event::AppEvent::DeclarationInstalled {

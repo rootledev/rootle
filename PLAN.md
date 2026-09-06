@@ -46,6 +46,17 @@ per-release notes are on the GitHub releases page:
 - [0016-product-direction](plans/0016-product-direction.md) — the
   current direction: revision awareness (refs, history, blame), the
   preview submode, what rootle will NOT become.
+- [0024-crate-split](plans/0024-crate-split.md) — the workspace:
+  provider/stdio/github/manager crates, app crate, publish order.
+- [0025-typed-identity](plans/0025-typed-identity.md) — RepoId/Sha/
+  GitRef/Generation newtypes; no naked identity strings.
+- [0026-unified-components](plans/0026-unified-components.md) — one
+  ListView for every list; keymap tables become dispatch.
+- [0027-provider-protocol-tla](plans/0027-provider-protocol-tla.md)
+  — the transport lifecycle model-checked (TLC + kept mutant).
+- [0028-commit-viewer](plans/0028-commit-viewer.md) — repo/commit
+  (v1.6), rootle-diff, the commit-detail → file-delta dive chain.
+
 
 Source comments referencing `plans/0005` mean this file.
 

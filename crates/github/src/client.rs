@@ -2,7 +2,7 @@
 //! via Arc (reqwest::blocking::Client is Sync).
 
 use super::types::{OrgRepoItem, RepoMeta, SearchReposResponse, SearchUsersResponse, TreeResponse};
-use crate::provider::{ErrorKind, ProviderError, ProviderResult, SearchItem};
+use rootle_provider::{ErrorKind, ProviderError, ProviderResult, SearchItem};
 use std::process::Command;
 
 const API: &str = "https://api.github.com";
@@ -13,7 +13,7 @@ pub struct Client {
     /// Session cache for the commits-walk blame (upstream removed the
     /// GraphQL field; the walk is bounded but not free).
     blame_cache: std::sync::Mutex<
-        std::collections::HashMap<(String, String, String), Vec<crate::provider::BlameRange>>,
+        std::collections::HashMap<(String, String, String), Vec<rootle_provider::BlameRange>>,
     >,
 }
 
@@ -76,7 +76,7 @@ impl Client {
     /// Branches (first 100) + tags (first 100); the repo's default
     /// branch is marked. Refs past the cap are out of scope for a
     /// switcher.
-    pub fn refs(&self, owner: &str, repo: &str) -> ProviderResult<crate::provider::RepoRefs> {
+    pub fn refs(&self, owner: &str, repo: &str) -> ProviderResult<rootle_provider::RepoRefs> {
         #[derive(serde::Deserialize)]
         struct BranchItem {
             name: String,
@@ -98,10 +98,10 @@ impl Client {
         let tags: Vec<TagRef> = self.get(&format!(
             "{API}/repos/{owner}/{repo}/git/refs/tags?per_page=100"
         ))?;
-        Ok(crate::provider::RepoRefs {
+        Ok(rootle_provider::RepoRefs {
             branches: branches
                 .into_iter()
-                .map(|b| crate::provider::RefInfo {
+                .map(|b| rootle_provider::RefInfo {
                     is_default: b.name == meta.default_branch,
                     name: b.name,
                     sha: b.commit.sha,
@@ -109,7 +109,7 @@ impl Client {
                 .collect(),
             tags: tags
                 .into_iter()
-                .map(|t| crate::provider::RefInfo {
+                .map(|t| rootle_provider::RefInfo {
                     name: t.name.trim_start_matches("refs/tags/").to_string(),
                     sha: t.object.sha,
                     is_default: false,
@@ -128,7 +128,7 @@ impl Client {
         path: Option<&str>,
         ref_: Option<&str>,
         limit: Option<usize>,
-    ) -> ProviderResult<(Vec<crate::provider::LogEntry>, bool)> {
+    ) -> ProviderResult<(Vec<rootle_provider::LogEntry>, bool)> {
         #[derive(serde::Deserialize)]
         struct CommitItem {
             sha: String,
@@ -158,7 +158,7 @@ impl Client {
         Ok((
             items
                 .into_iter()
-                .map(|c| crate::provider::LogEntry {
+                .map(|c| rootle_provider::LogEntry {
                     sha: c.sha,
                     subject: c.commit.message.lines().next().unwrap_or("").to_string(),
                     author: c.commit.author.name,
@@ -214,7 +214,7 @@ impl Client {
         repo: &str,
         path: &str,
         ref_: Option<&str>,
-    ) -> ProviderResult<Vec<crate::provider::BlameRange>> {
+    ) -> ProviderResult<Vec<rootle_provider::BlameRange>> {
         const COMMITS: usize = 10;
         let ref_ = ref_.unwrap_or("HEAD");
         let key = (
@@ -312,7 +312,7 @@ impl Client {
         }
 
         // Coalesce into runs.
-        let mut ranges: Vec<crate::provider::BlameRange> = Vec::new();
+        let mut ranges: Vec<rootle_provider::BlameRange> = Vec::new();
         let mut i = 0usize;
         while i < lines.len() {
             let Some(ci) = lines[i] else {
@@ -324,7 +324,7 @@ impl Client {
                 i += 1;
             }
             let c = &commits[ci];
-            ranges.push(crate::provider::BlameRange {
+            ranges.push(rootle_provider::BlameRange {
                 start_line: start as u32,
                 end_line: i as u32,
                 sha: c.sha.clone(),
@@ -368,12 +368,12 @@ impl Client {
         Ok(out)
     }
 
-    pub fn org_repos(&self, org: &str) -> ProviderResult<Vec<crate::provider::RepoInfo>> {
+    pub fn org_repos(&self, org: &str) -> ProviderResult<Vec<rootle_provider::RepoInfo>> {
         let repos: Vec<OrgRepoItem> =
             self.get(&format!("{API}/orgs/{org}/repos?per_page=100&sort=updated"))?;
         Ok(repos
             .into_iter()
-            .map(|r| crate::provider::RepoInfo {
+            .map(|r| rootle_provider::RepoInfo {
                 name: r.name,
                 description: r.description,
                 private: r.private,
@@ -488,11 +488,11 @@ impl Client {
         let cached_branch = super::cache::cached_branch(owner, repo);
         let branch = match &cached_branch {
             Some(b) => {
-                crate::app::trace(&format!("tree branch cached {owner}/{repo} {b}"));
+                rootle_provider::trace(&format!("tree branch cached {owner}/{repo} {b}"));
                 b.clone()
             }
             None => {
-                crate::app::trace(&format!("tree branch meta-fetch {owner}/{repo}"));
+                rootle_provider::trace(&format!("tree branch meta-fetch {owner}/{repo}"));
                 let meta: RepoMeta = self.get(&format!("{API}/repos/{owner}/{repo}"))?;
                 meta.default_branch
             }
@@ -537,7 +537,7 @@ impl Client {
                         // unconditionally — the cache is only an
                         // optimization, and this re-stores the tree
                         // and ref, healing both.
-                        crate::app::trace(&format!(
+                        rootle_provider::trace(&format!(
                             "304 but tree {sha} missing from cache; refetching"
                         ));
                         let Conditional::Fresh { body, etag } =

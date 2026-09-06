@@ -8,12 +8,12 @@ use std::time::SystemTime;
 
 /// Where installed binaries live (XDG data).
 pub(super) fn store_root() -> Option<PathBuf> {
-    crate::paths::data_dir().map(|d| d.join("rootle").join("providers"))
+    rootle_provider::paths::data_dir().map(|d| d.join("rootle").join("providers"))
 }
 
 /// Where receipts live (XDG state).
 pub(super) fn state_root() -> Option<PathBuf> {
-    crate::paths::state_dir().map(|d| d.join("rootle").join("providers"))
+    rootle_provider::paths::state_dir().map(|d| d.join("rootle").join("providers"))
 }
 
 impl Manager {
@@ -25,7 +25,7 @@ impl Manager {
         self.store.join(name).join(tag)
     }
 
-    pub(super) fn current_link(&self, name: &str) -> PathBuf {
+    pub fn current_link(&self, name: &str) -> PathBuf {
         self.store.join(name).join("current")
     }
 
@@ -69,6 +69,39 @@ impl Manager {
             toml::to_string_pretty(receipt).map_err(|e| ManagerError::User(e.to_string()))?;
         std::fs::write(&tmp, text)?;
         std::fs::rename(&tmp, &path).map_err(ManagerError::Io)?;
+        Ok(())
+    }
+
+    /// Pin an installed provider to its current (or given) tag —
+    /// `update` leaves pinned receipts alone.
+    pub fn pin(&self, name: &str, tag: Option<String>) -> Result<()> {
+        let mut receipt = self
+            .receipt(name)
+            .ok_or_else(|| ManagerError::User(format!("{name} is not installed")))?;
+        if let Some(tag) = tag {
+            receipt.tag = tag;
+        }
+        receipt.pinned = true;
+        self.write_receipt(&receipt)
+    }
+
+    pub fn unpin(&self, name: &str) -> Result<()> {
+        let mut receipt = self
+            .receipt(name)
+            .ok_or_else(|| ManagerError::User(format!("{name} is not installed")))?;
+        receipt.pinned = false;
+        self.write_receipt(&receipt)
+    }
+
+    pub fn remove(&self, name: &str) -> Result<()> {
+        let path = self.receipt_path(name);
+        if !path.exists() {
+            return Err(ManagerError::User(format!("{name} is not installed")));
+        }
+        let dir = self.store.join(name);
+        let _ = std::fs::remove_dir_all(dir);
+        std::fs::remove_file(path)?;
+        println!("{name} removed");
         Ok(())
     }
 

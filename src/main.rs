@@ -30,7 +30,7 @@ fn main() -> io::Result<()> {
     // app half then the provider sweep, all output owned by the flow
     // (stages on stderr, outcome lines on stdout).
     if cli.update {
-        if let Err(e) = rootle::update::update(cli.check) {
+        if let Err(e) = rootle::selfupdate::update(cli.check) {
             eprintln!("update: {e}");
             std::process::exit(1);
         }
@@ -218,7 +218,7 @@ fn run_editor(
 
 /// Dispatch the provider subcommand tree (plans/0010 M3).
 fn run_provider(cmd: &ProviderCommand) {
-    use rootle::provider::manager::{Manager, Ref};
+    use rootle_manager::{Manager, Ref};
 
     let manager = match Manager::new() {
         Ok(m) => m,
@@ -228,7 +228,7 @@ fn run_provider(cmd: &ProviderCommand) {
         }
     };
 
-    let result: std::result::Result<(), rootle::provider::manager::ManagerError> = match cmd {
+    let result: std::result::Result<(), rootle_manager::ManagerError> = match cmd {
         ProviderCommand::Install {
             ref_,
             pin,
@@ -256,7 +256,7 @@ fn run_provider(cmd: &ProviderCommand) {
             }
         }
         ProviderCommand::List { json } => {
-            let installed = manager.list();
+            let installed = rootle::provider::bookkeeping::list_installed(&manager);
             if *json {
                 let rows: Vec<serde_json::Value> = installed
                     .iter()
@@ -272,7 +272,7 @@ fn run_provider(cmd: &ProviderCommand) {
                     .collect();
                 println!("{}", serde_json::to_string_pretty(&rows).unwrap());
             } else {
-                let ui = rootle::provider::ui::Ui::new();
+                let ui = rootle_manager::ui::Ui::new();
                 if installed.is_empty() {
                     ui.empty_hint();
                     return;
@@ -320,7 +320,9 @@ fn run_provider(cmd: &ProviderCommand) {
         ProviderCommand::Pin { name, tag } => manager.pin(name, tag.clone()),
         ProviderCommand::Unpin { name } => manager.unpin(name),
         ProviderCommand::Remove { name } => manager.remove(name),
-        ProviderCommand::Use { name, extra } => manager.activate(name, extra),
+        ProviderCommand::Use { name, extra } => {
+            rootle::provider::bookkeeping::activate(&manager, name, extra)
+        }
     };
 
     if let Err(e) = result {

@@ -10,7 +10,7 @@
 //! check; M3: a quit-time line when the on-disk binary got newer
 //! under us.
 
-use crate::provider::manager as mgr;
+use rootle_manager as mgr;
 use std::io::IsTerminal;
 use std::path::Path;
 
@@ -77,7 +77,7 @@ pub fn update(check_only: bool) -> Result<(), String> {
     let api =
         std::env::var("ROOTLE_UPDATE_API").unwrap_or_else(|_| "https://api.github.com".to_string());
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let ui = crate::provider::ui::Ui::new();
+    let ui = rootle_manager::ui::Ui::new();
     if let Some(line) = update_inner(&api, check_only, &exe, channel(), &ui)? {
         println!("{line}");
     }
@@ -90,7 +90,7 @@ fn update_inner(
     check_only: bool,
     exe: &std::path::Path,
     channel: Channel,
-    ui: &crate::provider::ui::Ui,
+    ui: &rootle_manager::ui::Ui,
 ) -> Result<Option<String>, String> {
     let current = env!("CARGO_PKG_VERSION");
     let release =
@@ -124,7 +124,7 @@ fn update_inner(
     }
 
     // 0018 M1: the manager's stage grammar, step for step.
-    let timer = crate::provider::ui::Timer::start();
+    let timer = rootle_manager::ui::Timer::start();
     ui.heading("Updating rootle");
     ui.done("Resolved", &tag);
     let target = mgr::platform_target();
@@ -175,7 +175,7 @@ fn update_inner(
 /// releases-tracked provider refreshed and upgraded, failures
 /// isolated per provider. No receipts on this machine (or no data
 /// dir at all): the section is skipped silently.
-fn sweep_providers(check_only: bool, ui: &crate::provider::ui::Ui) -> Result<(), String> {
+fn sweep_providers(check_only: bool, ui: &rootle_manager::ui::Ui) -> Result<(), String> {
     let manager = match mgr::Manager::new() {
         Ok(m) => m,
         Err(_) => return Ok(()),
@@ -183,7 +183,7 @@ fn sweep_providers(check_only: bool, ui: &crate::provider::ui::Ui) -> Result<(),
     if manager.receipts().is_empty() {
         return Ok(());
     }
-    let timer = crate::provider::ui::Timer::start();
+    let timer = rootle_manager::ui::Timer::start();
     ui.heading("Updating providers");
     let outcomes = manager.sweep(check_only, ui);
     render_sweep(&outcomes, ui, timer.elapsed());
@@ -206,7 +206,7 @@ fn sweep_providers(check_only: bool, ui: &crate::provider::ui::Ui) -> Result<(),
 /// through the same Ui.
 fn render_sweep(
     outcomes: &[mgr::SweepOutcome],
-    ui: &crate::provider::ui::Ui,
+    ui: &rootle_manager::ui::Ui,
     elapsed: std::time::Duration,
 ) {
     let (mut upgraded, mut current, mut pinned, mut untracked, mut failed) =
@@ -473,7 +473,7 @@ mod tests {
         use wiremock::matchers::{method, path};
         use wiremock::{Mock, MockServer, ResponseTemplate};
 
-        let target = crate::provider::manager::platform_target();
+        let target = rootle_manager::platform_target();
         let file = format!("rootle-9.9.9-{target}.tar.gz");
         let payload = b"#!/bin/sh\necho new rootle\n";
 
@@ -540,7 +540,7 @@ mod tests {
         let exe = dir.join("rootle");
         std::fs::write(&exe, b"#!/bin/sh\necho old\n").unwrap();
 
-        let (ui, log) = crate::provider::ui::Ui::recorder();
+        let (ui, log) = rootle_manager::ui::Ui::recorder();
         let out = update_inner(&base, false, &exe, Channel::Tarball, &ui).expect("update");
         assert_eq!(out, None, "the Ui already said it all");
         assert_eq!(std::fs::read(&exe).unwrap(), payload, "swapped in place");
@@ -575,7 +575,7 @@ mod tests {
         assert_eq!(lines.len(), expect.len() + 2, "no stray lines: {lines:?}");
 
         // A payload that doesn't match the served sidecar refuses.
-        let err = crate::provider::manager::verify_checksum(
+        let err = rootle_manager::verify_checksum(
             b"not the tarball",
             &format!("{base}/dl/{file}.sha256"),
         )
@@ -586,7 +586,7 @@ mod tests {
         // --check writes nothing and renders nothing.
         let exe3 = dir.join("rootle3");
         std::fs::write(&exe3, b"#!/bin/sh\necho old\n").unwrap();
-        let (ui3, log3) = crate::provider::ui::Ui::recorder();
+        let (ui3, log3) = rootle_manager::ui::Ui::recorder();
         let line = update_inner(&base, true, &exe3, Channel::Tarball, &ui3).expect("check");
         assert!(
             line.as_deref().unwrap_or_default().contains("available"),
@@ -602,7 +602,7 @@ mod tests {
     /// blocks install_inner already rendered).
     #[test]
     fn sweep_rows_render_honestly() {
-        let (ui, log) = crate::provider::ui::Ui::recorder();
+        let (ui, log) = rootle_manager::ui::Ui::recorder();
         render_sweep(
             &[
                 mgr::SweepOutcome::Upgraded {

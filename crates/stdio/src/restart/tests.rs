@@ -3,9 +3,9 @@
 //! state-machine ones drive `rebuild`/`RebuildGuard` directly so the
 //! timing is deterministic.
 
-use crate::provider::stdio::tests::fake;
-use crate::provider::stdio::transport::Lifecycle;
-use crate::provider::{ErrorKind, Provider};
+use crate::tests::fake;
+use crate::transport::Lifecycle;
+use rootle_provider::{ErrorKind, Provider};
 use serde_json::json;
 use std::sync::Arc;
 use std::time::Duration;
@@ -94,7 +94,7 @@ fn failed_rebuild_fails_waiters_without_resleeping() {
         let p = Arc::clone(&provider);
         std::thread::spawn(move || {
             std::thread::sleep(Duration::from_millis(300));
-            let err = crate::provider::ProviderError::new(ErrorKind::Provider, "handshake boom");
+            let err = rootle_provider::ProviderError::new(ErrorKind::Provider, "handshake boom");
             p.finish_rebuild(1, Err(&err));
         })
     };

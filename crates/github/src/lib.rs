@@ -2,11 +2,15 @@
 //! REST `Client` — auth resolution, sha-keyed disk cache, ETag
 //! revalidation all live inside it (PLAN.md §7/§8).
 
-use super::{
+use rootle_provider::{
     BlameRange, Capabilities, CodeMatch, LogEntry, Provider, ProviderResult, RepoInfo, RepoRefs,
     SearchItem, TreeNode, TreeResult,
 };
-use crate::github::Client;
+pub mod cache;
+pub mod client;
+pub mod types;
+
+use crate::client::Client;
 
 pub struct GitHubProvider {
     client: Client,
@@ -17,7 +21,7 @@ impl GitHubProvider {
         // Self-hardening: orphan sweep + LRU eviction of the content
         // store, off-thread — the TUI never knows this exists.
         let max_bytes = max_mb * 1024 * 1024;
-        std::thread::spawn(move || crate::github::cache::harden(max_bytes));
+        std::thread::spawn(move || crate::cache::harden(max_bytes));
         GitHubProvider {
             client: Client::new(),
         }
@@ -37,8 +41,8 @@ fn split_repo(repo: &str) -> Result<(&str, &str), String> {
         .ok_or_else(|| format!("bad repo id: {repo:?} (expected owner/name)"))
 }
 
-impl From<&crate::github::types::TreeEntry> for TreeNode {
-    fn from(e: &crate::github::types::TreeEntry) -> Self {
+impl From<&crate::types::TreeEntry> for TreeNode {
+    fn from(e: &crate::types::TreeEntry) -> Self {
         TreeNode {
             path: e.path.clone(),
             is_dir: e.kind == "tree",
@@ -176,9 +180,9 @@ impl Provider for GitHubProvider {
         Ok(format!("https://github.com/{org}"))
     }
 
-    fn search_code(&self, q: &str) -> ProviderResult<super::SearchCodeResult> {
+    fn search_code(&self, q: &str) -> ProviderResult<rootle_provider::SearchCodeResult> {
         let (items, truncated) = self.client.search_code(q)?;
-        Ok(super::SearchCodeResult {
+        Ok(rootle_provider::SearchCodeResult {
             hits: items.iter().map(CodeMatch::from).collect(),
             truncated,
             index_as_of: None,
@@ -198,7 +202,7 @@ impl Provider for GitHubProvider {
         &self,
         q: &str,
         on_hits: &(dyn Fn(&[CodeMatch]) + Send + Sync),
-    ) -> ProviderResult<super::SearchCodeResult> {
+    ) -> ProviderResult<rootle_provider::SearchCodeResult> {
         const PAGES: u32 = 3;
         const PER_PAGE: usize = 100;
         let mut fetched = 0usize;
@@ -214,7 +218,7 @@ impl Provider for GitHubProvider {
                 break;
             }
         }
-        Ok(super::SearchCodeResult {
+        Ok(rootle_provider::SearchCodeResult {
             hits: Vec::new(),
             truncated: (total as usize) > fetched,
             // GitHub's index freshness isn't exposed — no badge.
@@ -223,8 +227,8 @@ impl Provider for GitHubProvider {
     }
 }
 
-impl From<&crate::github::types::CodeItem> for CodeMatch {
-    fn from(item: &crate::github::types::CodeItem) -> Self {
+impl From<&crate::types::CodeItem> for CodeMatch {
+    fn from(item: &crate::types::CodeItem) -> Self {
         CodeMatch {
             repo: item.repository.full_name.clone(),
             path: item.path.clone(),

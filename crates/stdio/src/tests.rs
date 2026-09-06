@@ -5,7 +5,7 @@
 //! per ROOTLE_FAKE_PROVIDER's script until killed.
 
 use super::StdioProvider;
-use crate::provider::{ErrorKind, Provider, ProviderError};
+use rootle_provider::{ErrorKind, Provider, ProviderError};
 use serde_json::json;
 use std::io::{BufRead, Write};
 use std::sync::Arc;
@@ -198,7 +198,7 @@ fn fake_provider_child() {
             "check-limit" if method == "search/code" => {
                 let req: serde_json::Value = serde_json::from_str(&line).unwrap();
                 let got =
-                    req["params"]["limit"].as_u64() == Some(crate::provider::RENDER_BUDGET as u64);
+                    req["params"]["limit"].as_u64() == Some(rootle_provider::RENDER_BUDGET as u64);
                 writeln!(
                     stdout,
                     r#"{{"jsonrpc":"2.0","id":{id},"result":{{"items":[],"truncated":{got}}}}}"#
@@ -221,7 +221,7 @@ fn initialize_carries_the_cache_budget_and_records_usage() {
     let exe = std::env::current_exe().expect("test binary path");
     let argv = vec![
         exe.to_string_lossy().into_owned(),
-        "provider::stdio::tests::fake_provider_child".to_string(),
+        "tests::fake_provider_child".to_string(),
         "--exact".to_string(),
         "--nocapture".to_string(),
     ];
@@ -244,7 +244,7 @@ pub(super) fn fake(mode: &str, timeout: Duration) -> StdioProvider {
     let exe = std::env::current_exe().expect("test binary path");
     let argv = vec![
         exe.to_string_lossy().into_owned(),
-        "provider::stdio::tests::fake_provider_child".to_string(),
+        "tests::fake_provider_child".to_string(),
         "--exact".to_string(),
         "--nocapture".to_string(),
     ];
@@ -317,7 +317,7 @@ fn org_repos_accepts_the_v14_union() {
     let provider = fake("rich-repos", Duration::from_secs(2));
     let repos = provider.org_repos("o").expect("org/repos succeeds");
     assert_eq!(repos.len(), 2);
-    assert_eq!(repos[0], crate::provider::RepoInfo::bare("plain"));
+    assert_eq!(repos[0], rootle_provider::RepoInfo::bare("plain"));
     let meta = &repos[1];
     assert_eq!(meta.name, "meta");
     assert_eq!(meta.description.as_deref(), Some("d"));
@@ -372,7 +372,7 @@ fn streaming_search_delivers_ordered_batches_then_metadata() {
     let provider = fake("stream-search", Duration::from_secs(5));
     let batches = std::sync::Mutex::new(Vec::new());
     let result = provider
-        .search_code_progressive("hit", &|items: &[crate::provider::CodeMatch]| {
+        .search_code_progressive("hit", &|items: &[rootle_provider::CodeMatch]| {
             batches.lock().unwrap().push(
                 items
                     .iter()
@@ -425,28 +425,6 @@ fn partials_reset_the_inactivity_deadline() {
         })
         .expect("stream should outlive the deadline via resets");
     assert_eq!(batches.load(std::sync::atomic::Ordering::Relaxed), 3);
-}
-
-/// The full backend seam over a streaming child: `run_view_search`
-/// must pump every `$/partial` batch through its sink before the
-/// metadata final (catches plumbing loss between provider and view).
-#[test]
-fn backend_streams_fake_provider_batches_through_the_sink() {
-    let provider = fake("stream-search", Duration::from_secs(5));
-    let batches = std::sync::atomic::AtomicUsize::new(0);
-    let outcome = crate::components::global_search::run_view_search(
-        &provider,
-        crate::components::global_search::SearchKind::Grep,
-        "hit",
-        "global",
-        "",
-        &|_hits: Vec<crate::components::global_search::RawHit>| {
-            batches.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        },
-    )
-    .expect("streamed search succeeds");
-    assert_eq!(batches.load(std::sync::atomic::Ordering::Relaxed), 2);
-    assert!(outcome.clipped); // the fake replies truncated: true
 }
 
 /// S2, now load-bearing: two requests in flight at once, replies

@@ -5,7 +5,7 @@
 
 use super::StdioProvider;
 use super::transport::{cancel_notification, de};
-use crate::provider::{
+use rootle_provider::{
     BlameRange, Capabilities, CodeMatch, ErrorKind, LogEntry, Provider, ProviderError,
     ProviderResult, RefInfo, RepoInfo, RepoRefs, SearchCodeResult, SearchItem, TreeNode,
     TreeResult,
@@ -185,7 +185,7 @@ impl Provider for StdioProvider {
     fn search_code(&self, q: &str) -> ProviderResult<SearchCodeResult> {
         let r: CodeReply = de(self.request(
             "search/code",
-            json!({ "q": q, "limit": crate::provider::RENDER_BUDGET }),
+            json!({ "q": q, "limit": rootle_provider::RENDER_BUDGET }),
         )?)?;
         Ok(SearchCodeResult {
             hits: code_matches(&r.items),
@@ -213,7 +213,7 @@ impl Provider for StdioProvider {
         };
         let reply: CodeReply = de(self.exchange_with_partials(
             "search/code",
-            json!({ "q": q, "partial": true, "limit": crate::provider::RENDER_BUDGET }),
+            json!({ "q": q, "partial": true, "limit": rootle_provider::RENDER_BUDGET }),
             &sink,
         )?)?;
         Ok(SearchCodeResult {

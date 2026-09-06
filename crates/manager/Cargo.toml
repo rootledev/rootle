@@ -1,0 +1,23 @@
+[package]
+name = "rootle-manager"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Install, update, pin, and sweep rootle's stdio provider binaries (krew-model atomicity)"
+
+[dependencies]
+reqwest = { version = "0.13.4", default-features = false, features = ["blocking", "json", "rustls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1.0.151"
+rootle-provider = { path = "../provider", version = "=0.9.3" }
+toml = "1.1"
+thiserror = "2.0.20"
+flate2 = "1.1.9"
+tar = "0.4.46"
+sha2 = "0.11"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread"] }
+wiremock = "0.6"

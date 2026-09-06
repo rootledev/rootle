@@ -4,7 +4,7 @@
 //! Drop, so the child dies with the app (protocol v1.2 restart
 //! obligations).
 
-use crate::provider::{ProviderError, ProviderResult};
+use rootle_provider::{ProviderError, ProviderResult};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 
 /// Child stderr policy (plans/0008 §4).
