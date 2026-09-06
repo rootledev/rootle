@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/provider", "crates/stdio", "crates/github", "crates/manager"]
+members = ["crates/provider", "crates/stdio", "crates/github", "crates/manager", "crates/diff"]
 resolver = "2"
 
 [workspace.package]
@@ -52,6 +52,7 @@ rootle-provider = { path = "crates/provider", version = "=0.9.3" }
 rootle-stdio = { path = "crates/stdio", version = "=0.9.3" }
 rootle-github = { path = "crates/github", version = "=0.9.3" }
 rootle-manager = { path = "crates/manager", version = "=0.9.3" }
+rootle-diff = { path = "crates/diff", version = "=0.9.3" }
 ratatui = { version = "0.30", features = [] }
 crossterm = "0.29"
 serde = { version = "1", features = ["derive"] }

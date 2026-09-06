@@ -1,6 +1,6 @@
 # 0025 — Typed identity: no naked strings, no bare counters
 
-Status: **planned (2026-09-06)** — executes after 0024 (types land in
+Status: **done (2026-09-06)** — commit 4a970eb. Result-struct fields (LogEntry.sha etc.) deliberately wait for the 0028 wave that touches their consumers, per this plan's own migration clause.
 the new crates).
 
 ## Problem

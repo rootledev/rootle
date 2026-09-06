@@ -4,9 +4,11 @@
 pub mod browser;
 pub mod clone_wizard;
 pub mod command_line;
+pub mod commit;
 pub mod consent_popup;
 pub mod global_search;
 pub mod keybinds_popup;
+pub mod list_view;
 pub mod modeline;
 pub mod pane;
 pub mod preview;

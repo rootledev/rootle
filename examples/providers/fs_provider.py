@@ -300,6 +300,111 @@ def git_blame(root: str, repo: str, path: str, ref: str | None) -> dict:
                     )
     return {"ranges": ranges}
 
+# --- v1.6 commit detail (plans/0028 M1): one commit, inspectable ------
+
+
+def git_commit(root: str, repo: str, sha: str) -> dict:
+    """One commit's detail: `git show -s` carries the metadata
+    (\x00-separated like git_log), `git diff-tree -p -M --root`
+    carries the patches (--root diffs a root commit against the
+    empty tree; -M detects renames)."""
+    base = repo_dir(root, repo)
+    if not is_git_repo(base):
+        raise ValueError(f"{repo} is not a git worktree")
+    try:
+        meta = git_bytes(
+            base, "show", "-s", "--format=%H%x00%an%x00%aI%x00%P%x00%B", sha
+        ).decode("utf-8", "replace")
+    except subprocess.CalledProcessError as e:
+        raise ValueError(e.stderr.strip() or "unknown commit") from None
+    commit_sha, _, rest = meta.partition("\x00")
+    author, _, rest = rest.partition("\x00")
+    date, _, rest = rest.partition("\x00")
+    parents, _, message = rest.partition("\x00")
+    try:
+        # Raw bytes, decoded here: text=True would fold the CRLF
+        # bytes patch text must keep.
+        diff = git_bytes(base, "diff-tree", "-p", "-M", "--root", sha).decode(
+            "utf-8", "replace"
+        )
+    except subprocess.CalledProcessError as e:
+        raise ValueError(e.stderr.strip() or "git diff-tree failed") from None
+    return {
+        "sha": commit_sha,
+        "author": author,
+        "date": date,
+        # %B keeps git's trailing newline; the wire message is the
+        # message, not its terminator.
+        "message": message.rstrip("\n"),
+        "parents": parents.split(),
+        "files": commit_files(diff),
+    }
+
+
+def commit_files(diff: str) -> list[dict]:
+    """Split a `diff-tree -p` body into v1.6 file entries: one block
+    per `diff --git` line. Lines split on "\n" only, so CRLF bytes
+    survive in patch text. The leading commit-sha line of diff-tree
+    output belongs to no block and drops out."""
+    files: list[dict] = []
+    block: list[str] = []
+    lines = diff.split("\n")
+    if lines and lines[-1] == "":
+        lines.pop()  # artifact of the final newline, not a context row
+    for line in lines:
+        if line.startswith("diff --git "):
+            if block:
+                files.append(commit_file(block))
+            block = [line[len("diff --git "):]]
+        elif block:
+            block.append(line)
+    if block:
+        files.append(commit_file(block))
+    return files
+
+
+def commit_file(block: list[str]) -> dict:
+    """One diff block -> {path, status, additions, deletions, patch?,
+    previous_path?}: status from the header lines (new file / deleted
+    file / rename from), patch = the block's hunks (a binary file
+    carries no @@ and gets no patch), counts derived from the hunks."""
+    import re
+
+    head = block[0]
+    # Paths come prefixed a/ and b/ (quoted only when they carry
+    # specials — the same tolerance walk_tree_at has).
+    if head.startswith('"'):
+        new = re.findall(r'"([^"]+)"', head)[-1][2:]
+    else:
+        new = head.split(" b/", 1)[-1]
+    status = "modified"
+    previous = None
+    hunks: list[str] | None = None
+    added = deleted = 0
+    for line in block[1:]:
+        if hunks is not None:
+            hunks.append(line)
+            if line.startswith("+"):
+                added += 1
+            elif line.startswith("-"):
+                deleted += 1
+        elif line.startswith("@@"):
+            hunks = [line]
+        elif line.startswith("new file mode"):
+            status = "added"
+        elif line.startswith("deleted file mode"):
+            status = "removed"
+        elif line.startswith("rename from "):
+            status = "renamed"
+            previous = line[len("rename from "):]
+    entry = {"path": new, "status": status, "additions": added, "deletions": deleted}
+    if hunks is not None:
+        entry["patch"] = "\n".join(hunks)
+    if previous is not None:
+        entry["previous_path"] = previous
+    return entry
+
+
 
 LANG_EXTS = {
     "rust": ["rs"], "python": ["py", "pyi"], "javascript": ["js", "jsx", "mjs"],
@@ -498,8 +603,8 @@ def handle(root: str, method: str, params: dict) -> dict:
         caps = {"orgs": True, "code_search": True}
         if any_worktree(root):
             # v1.5: revision methods are git-backed when the served
-            # repos are worktrees.
-            caps |= {"refs": True, "log": True, "blame": True}
+            # repos are worktrees; v1.6 adds commit detail.
+            caps |= {"refs": True, "log": True, "blame": True, "commit": True}
         return {
             "protocol": 1,
             "name": "fs",
@@ -544,6 +649,8 @@ def handle(root: str, method: str, params: dict) -> dict:
         return git_blob_at(root, params["repo"], params["path"], params.get("ref"))
     if method == "repo/blame":
         return git_blame(root, params["repo"], params["path"], params.get("ref"))
+    if method == "repo/commit":
+        return git_commit(root, params["repo"], params["sha"])
     if method == "repo/clone_url":
         # Cloning a local dir: the filesystem path IS the remote.
         return {"clone_url": repo_dir(root, params["repo"])}

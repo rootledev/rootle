@@ -48,14 +48,18 @@ per-release notes are on the GitHub releases page:
   preview submode, what rootle will NOT become.
 - [0024-crate-split](plans/0024-crate-split.md) — the workspace:
   provider/stdio/github/manager crates, app crate, publish order.
+  **Shipped.**
 - [0025-typed-identity](plans/0025-typed-identity.md) — RepoId/Sha/
-  GitRef/Generation newtypes; no naked identity strings.
+  GitRef/Generation newtypes; no naked identity strings. **Shipped.**
 - [0026-unified-components](plans/0026-unified-components.md) — one
-  ListView for every list; keymap tables become dispatch.
+  ListView for every list; keymap tables become dispatch. **Engine
+  shipped; surface migrations queued (roadmap).**
 - [0027-provider-protocol-tla](plans/0027-provider-protocol-tla.md)
   — the transport lifecycle model-checked (TLC + kept mutant).
+  **Shipped.**
 - [0028-commit-viewer](plans/0028-commit-viewer.md) — repo/commit
   (v1.6), rootle-diff, the commit-detail → file-delta dive chain.
+  **Shipped.**
 
 
 Source comments referencing `plans/0005` mean this file.

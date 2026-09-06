@@ -69,6 +69,16 @@ pub enum Action {
     HistoryDown,
     HistoryOpen,
     HistoryClose,
+    // Commit viewer (plans/0028): detail → file-delta dive chain.
+    CommitDive,
+    CommitUp,
+    CommitDown,
+    CommitOpen,
+    CommitClose,
+    CommitStepNext,
+    CommitStepPrev,
+    CommitYank,
+    CommitFilterBegin,
 
     // Declared-provider lifecycle (plans/0019 M2): the consent popup
     // asks, the app spawns the verified install, the events land.

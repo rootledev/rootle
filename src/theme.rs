@@ -91,6 +91,19 @@ pub struct Semantic {
 
     /// Background of a grep match inside a preview line (fg = crust).
     pub search_match: Color,
+
+    /// Diff rows (plans/0028): quiet full-row tints carry the
+    /// add/del signal; the `_strong` pair is the intra-line emphasis
+    /// (delta's two-tier idea); `diff_band` sits under structural
+    /// rows (stats, hunk headers). Defaults follow strop's tuned
+    /// Mocha values.
+    pub diff_add_fg: Color,
+    pub diff_del_fg: Color,
+    pub diff_add_bg: Color,
+    pub diff_del_bg: Color,
+    pub diff_add_strong: Color,
+    pub diff_del_strong: Color,
+    pub diff_band: Color,
 }
 
 /// Syntax-highlight roles, consumed by `highlight.rs` to build the
@@ -185,6 +198,13 @@ impl Theme {
                 badge_org: Color::from_u32(0xfab387),  // peach
 
                 search_match: Color::from_u32(0xf9e2af), // yellow
+                diff_add_fg: Color::from_u32(0xa9c47c),
+                diff_del_fg: Color::from_u32(0xe8677a),
+                diff_add_bg: Color::from_u32(0x1b2620),
+                diff_del_bg: Color::from_u32(0x2a1d20),
+                diff_add_strong: Color::from_u32(0x273a30),
+                diff_del_strong: Color::from_u32(0x402a2e),
+                diff_band: Color::from_u32(0x22242e),
             },
             border: BorderShape::default(),
             nerd_font: false,
@@ -353,6 +373,13 @@ fn set_role(sem: &mut Semantic, role: &str, color: Color) {
         "badge_repo" => sem.badge_repo = color,
         "badge_org" => sem.badge_org = color,
         "search_match" => sem.search_match = color,
+        "diff_add_fg" => sem.diff_add_fg = color,
+        "diff_del_fg" => sem.diff_del_fg = color,
+        "diff_add_bg" => sem.diff_add_bg = color,
+        "diff_del_bg" => sem.diff_del_bg = color,
+        "diff_add_strong" => sem.diff_add_strong = color,
+        "diff_del_strong" => sem.diff_del_strong = color,
+        "diff_band" => sem.diff_band = color,
         _ => {} // unknown role: ignored, not an error
     }
 }

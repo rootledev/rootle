@@ -48,8 +48,17 @@ pub fn hints(mode: Mode) -> &'static [(&'static str, &'static str)] {
         Mode::History => &[
             ("j/k", "commit"),
             ("enter", "file at commit"),
+            ("d", "commit detail"),
             ("y", "yank at commit"),
             ("/", "filter"),
+            ("esc", "back"),
+        ],
+        Mode::Commit => &[
+            ("j/k", "move"),
+            ("enter", "file delta"),
+            ("]f/[f", "next/prev file"),
+            ("Y", "yank commit url"),
+            ("/", "filter files"),
             ("esc", "back"),
         ],
         Mode::Preview => &[
@@ -101,9 +110,27 @@ pub fn history(code: KeyCode) -> Action {
         KeyCode::Char('j') | KeyCode::Down => Action::HistoryDown,
         KeyCode::Char('k') | KeyCode::Up => Action::HistoryUp,
         KeyCode::Enter => Action::HistoryOpen,
+        KeyCode::Char('d') => Action::CommitDive,
         KeyCode::Char('y') => Action::HistoryYank,
         KeyCode::Char('/') => Action::HistoryFilterBegin,
         KeyCode::Esc => Action::HistoryClose,
+        _ => Action::Noop,
+    }
+}
+
+/// The commit viewer (plans/0028): detail list + file deltas. The
+/// same mode serves both surfaces — an open delta changes what
+/// j/k/enter mean, the table stays the dispatch source.
+pub fn commit(code: KeyCode) -> Action {
+    match code {
+        KeyCode::Char('j') | KeyCode::Down => Action::CommitDown,
+        KeyCode::Char('k') | KeyCode::Up => Action::CommitUp,
+        KeyCode::Enter => Action::CommitOpen,
+        KeyCode::Char(']') => Action::CommitStepNext,
+        KeyCode::Char('[') => Action::CommitStepPrev,
+        KeyCode::Char('Y') => Action::CommitYank,
+        KeyCode::Char('/') => Action::CommitFilterBegin,
+        KeyCode::Esc | KeyCode::Char('q') => Action::CommitClose,
         _ => Action::Noop,
     }
 }

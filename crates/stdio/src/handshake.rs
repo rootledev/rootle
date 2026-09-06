@@ -62,6 +62,7 @@ impl StdioProvider {
                 refs: caps.get("refs").and_then(Value::as_bool).unwrap_or(false),
                 log: caps.get("log").and_then(Value::as_bool).unwrap_or(false),
                 blame: caps.get("blame").and_then(Value::as_bool).unwrap_or(false),
+                commit: caps.get("commit").and_then(Value::as_bool).unwrap_or(false),
             };
         }
         if let Some(bytes) = reply.pointer("/cache/bytes").and_then(Value::as_u64) {

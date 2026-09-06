@@ -2138,6 +2138,7 @@ dependencies = [
  "crossterm",
  "flate2",
  "ratatui",
+ "rootle-diff",
  "rootle-github",
  "rootle-manager",
  "rootle-provider",
@@ -2154,6 +2155,10 @@ dependencies = [
  "unicode-width",
  "wiremock",
 ]
+
+[[package]]
+name = "rootle-diff"
+version = "0.9.3"
 
 [[package]]
 name = "rootle-github"

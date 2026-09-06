@@ -64,6 +64,9 @@ pub struct Browser {
     history: Option<History>,
     /// plans/0016 M1c: blame ranges for the previewed file.
     blame: Option<BlameState>,
+    /// plans/0028: the commit viewer over the preview pane, entered
+    /// from the history lens (`d`).
+    commit: Option<crate::components::commit::CommitView>,
     /// Viewing a file at a commit (history Enter): the restore point
     /// is the present-day blob — (path, sha) — re-rendered from the
     /// in-memory cache on the way back.
@@ -105,6 +108,7 @@ impl Browser {
             marks: std::collections::HashSet::new(),
             current_ref: None,
             history: None,
+            commit: None,
             blame: None,
             at_commit: None,
         };
@@ -151,6 +155,7 @@ impl Browser {
     pub fn set_current_ref(&mut self, name: Option<String>) {
         self.current_ref = name;
         self.history = None;
+        self.commit = None;
         self.blame = None;
         self.preview.set_blame(None);
         self.at_commit = None;
@@ -190,6 +195,44 @@ impl Browser {
 
     pub fn close_history(&mut self) {
         self.history = None;
+    }
+
+    /// plans/0028: open the commit viewer at a sha (history `d`).
+    pub fn open_commit(&mut self, sha: &str) {
+        self.commit = Some(crate::components::commit::CommitView::open(sha));
+    }
+
+    pub fn commit_loaded(&mut self, sha: &str, detail: crate::provider::CommitDetail) {
+        if let Some(view) = &mut self.commit {
+            view.loaded(sha, detail);
+        }
+    }
+
+    pub fn commit_failed(&mut self, sha: &str, error: String) {
+        if let Some(view) = &mut self.commit {
+            view.failed(sha, error);
+        }
+    }
+
+    pub fn commit(&mut self) -> Option<&mut crate::components::commit::CommitView> {
+        self.commit.as_mut()
+    }
+
+    pub fn commit_ref(&self) -> Option<&crate::components::commit::CommitView> {
+        self.commit.as_ref()
+    }
+
+    /// The viewer's sha, for the yank permalink.
+    pub fn commit_sha(&self) -> Option<String> {
+        self.commit.as_ref().map(|v| v.sha.clone())
+    }
+
+    pub fn history_is_open(&self) -> bool {
+        self.history.is_some()
+    }
+
+    pub fn close_commit(&mut self) {
+        self.commit = None;
     }
 
     /// Entering open-at-commit: save the present-day blob's identity
@@ -651,7 +694,11 @@ impl Browser {
         // — or the history lens over it — takes the whole content row;
         // the miller columns are untouched underneath, Esc restores.
         if zoomed {
-            if self.history.is_some() {
+            if self.commit.is_some() {
+                if let Some(view) = self.commit.as_mut() {
+                    view.render(frame, area, theme);
+                }
+            } else if self.history.is_some() {
                 self.render_history(frame, area, theme);
             } else {
                 self.preview.render(frame, area, theme);
@@ -683,7 +730,11 @@ impl Browser {
         // plans/0016 M1b: the history lens swaps the preview's content
         // (same rect, same border idiom) — the preview is untouched
         // underneath and Esc restores it.
-        if self.history.is_some() {
+        if self.commit.is_some() {
+            if let Some(view) = self.commit.as_mut() {
+                view.render(frame, cols[2], theme);
+            }
+        } else if self.history.is_some() {
             self.render_history(frame, cols[2], theme);
         } else {
             self.preview.render(frame, cols[2], theme);

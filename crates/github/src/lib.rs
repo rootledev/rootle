@@ -3,8 +3,8 @@
 //! revalidation all live inside it (PLAN.md §7/§8).
 
 use rootle_provider::{
-    BlameRange, Capabilities, CodeMatch, GitRef, LogEntry, Provider, ProviderResult, RepoId,
-    RepoInfo, RepoRefs, SearchItem, Sha, TreeNode, TreeResult,
+    BlameRange, Capabilities, CodeMatch, CommitDetail, CommitFile, FileStatus, GitRef, LogEntry,
+    Provider, ProviderResult, RepoId, RepoInfo, RepoRefs, SearchItem, Sha, TreeNode, TreeResult,
 };
 pub mod cache;
 pub mod client;
@@ -67,10 +67,11 @@ impl Provider for GitHubProvider {
             orgs: true,
             code_search: true,
             file_search: true,
-            // v1.5: branches/tags, commits, and GraphQL blame.
+            // v1.5: branches/tags, log, blame. v1.6: commit detail.
             refs: true,
             log: true,
             blame: true,
+            commit: true,
         }
     }
 
@@ -148,6 +149,12 @@ impl Provider for GitHubProvider {
         let (owner, name) = split_repo(repo)?;
         self.client
             .blame(owner, name, path, ref_.map(|r| r.as_str()))
+    }
+
+    /// v1.6 (plans/0028): one commit's detail.
+    fn commit(&self, repo: &RepoId, sha: &Sha) -> ProviderResult<CommitDetail> {
+        let (owner, name) = split_repo(repo)?;
+        Ok(self.client.commit(owner, name, sha.as_str())?.into())
     }
 
     fn clone_url(&self, repo: &RepoId) -> ProviderResult<String> {
@@ -262,6 +269,52 @@ impl From<&crate::types::CodeItem> for CodeMatch {
     }
 }
 
+impl From<crate::types::CommitResponse> for CommitDetail {
+    fn from(c: crate::types::CommitResponse) -> Self {
+        CommitDetail {
+            sha: c.sha,
+            author: c
+                .commit
+                .author
+                .as_ref()
+                .and_then(|a| a.name.clone())
+                .unwrap_or_default(),
+            date: c
+                .commit
+                .author
+                .as_ref()
+                .and_then(|a| a.date.clone())
+                .unwrap_or_default(),
+            message: c.commit.message,
+            parents: c.parents.into_iter().map(|p| p.sha).collect(),
+            files: c
+                .files
+                .into_iter()
+                .map(|f| CommitFile {
+                    path: f.filename,
+                    status: file_status(f.status.as_deref()),
+                    additions: f.additions,
+                    deletions: f.deletions,
+                    patch: f.patch,
+                    previous_path: f.previous_filename,
+                })
+                .collect(),
+        }
+    }
+}
+
+/// Wire `status` (lowercase) → `FileStatus`. GitHub also emits
+/// "changed"/"unchanged"; anything the seam doesn't name degrades to
+/// `Modified` (the v1.6 reader-tolerance rule).
+fn file_status(s: Option<&str>) -> FileStatus {
+    match s {
+        Some("added") => FileStatus::Added,
+        Some("removed") => FileStatus::Removed,
+        Some("renamed") => FileStatus::Renamed,
+        _ => FileStatus::Modified,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -345,5 +398,40 @@ mod tests {
             "https://github.com/ratatui/ratatui.git"
         );
         assert!(p.clone_url(&RepoId::from("no-slash")).is_err());
+    }
+
+    /// The v1.6 commit mapping: statuses degrade, renames carry
+    /// their old path, absent counts stay `None`.
+    #[test]
+    fn commit_detail_maps_from_wire() {
+        let json = r#"{
+            "sha": "6dcb09b5",
+            "commit": {
+                "message": "Fix the race\n\nBody line.",
+                "author": {"name": "octocat", "date": "2026-09-06T10:00:00Z"}
+            },
+            "parents": [{"sha": "aaa111"}, {"sha": "bbb222"}],
+            "files": [
+                {"filename": "src/lib.rs", "status": "modified", "additions": 2,
+                 "deletions": 1, "patch": "@@ -1 +1,2 @@\n-old\n+new\n+line"},
+                {"filename": "src/moved.rs", "status": "renamed",
+                 "previous_filename": "src/orig.rs", "additions": 1, "deletions": 1},
+                {"filename": "img/logo.png", "status": "changed", "additions": 3, "deletions": 0}
+            ]
+        }"#;
+        let wire: crate::types::CommitResponse = serde_json::from_str(json).unwrap();
+        let d = CommitDetail::from(wire);
+        assert_eq!(d.sha, "6dcb09b5");
+        assert_eq!(d.author, "octocat");
+        assert_eq!(d.date, "2026-09-06T10:00:00Z");
+        assert_eq!(d.message, "Fix the race\n\nBody line.");
+        assert_eq!(d.parents, ["aaa111", "bbb222"]);
+        assert_eq!(d.files[0].status, FileStatus::Modified);
+        assert_eq!(d.files[1].status, FileStatus::Renamed);
+        assert_eq!(d.files[1].previous_path.as_deref(), Some("src/orig.rs"));
+        // "changed" is not one of the seam's four → modified.
+        assert_eq!(d.files[2].status, FileStatus::Modified);
+        assert_eq!(d.files[2].patch, None);
+        assert_eq!(d.line_stats(), (6, 2));
     }
 }

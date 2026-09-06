@@ -1,6 +1,6 @@
 # 0028 — The commit viewer
 
-Status: **planned (2026-09-06)** — executes after 0024–0026; consumes
+Status: **done (2026-09-06)** — v1.6 repo/commit (github/stdio/fs + doc), rootle-diff (typed hunks + the strop emphasis port), the CommitDetail→Diff dive chain with ]f/[f stepping and the Esc ladder, 7 theme diff roles, snapshot surface fields, render + headless e2e tests. ListView migration of older surfaces deferred to 0026's follow-up. Demo-tape beat deferred to the M5 demo rework (roadmap).
 the ListView (0026) and typed identity (0025). Supersedes 0016 M1b's
 "v1 has no diffs" deferral — the owner called it back (2026-09-06):
 inspecting a commit is browsing depth, not git-frontend (the 0016

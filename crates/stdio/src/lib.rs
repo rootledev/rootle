@@ -169,6 +169,7 @@ impl StdioProvider {
             name: "stdio".into(),
             icon: None,
             capabilities: Capabilities {
+                commit: false,
                 orgs: true,
                 code_search: true,
                 file_search: true,

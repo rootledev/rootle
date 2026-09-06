@@ -355,6 +355,17 @@ impl App {
                 }
             }
             Mode::Preview => self.browser.preview_key(key),
+            Mode::Commit => {
+                // An active `/` session owns the keys until commit.
+                if let Some(view) = self.browser.commit()
+                    && view.filtering()
+                {
+                    view.filter_key(key);
+                    Action::Noop
+                } else {
+                    keymap::commit(key.code)
+                }
+            }
             _ => Action::Noop,
         }
     }
@@ -458,6 +469,21 @@ impl App {
             "degraded": self.degraded,
             "update_tag": self.update_tag,
             "should_quit": self.should_quit,
+            "surface": self.commit_surface(),
+        })
+    }
+
+    /// The commit viewer's surface state, for headless scripts
+    /// (plans/0028 M3): null when no viewer, else the open surface
+    /// kind + position.
+    fn commit_surface(&self) -> serde_json::Value {
+        let Some(view) = self.browser.commit_ref() else {
+            return serde_json::Value::Null;
+        };
+        serde_json::json!({
+            "sha": view.sha_short(),
+            "delta": view.open_file(),
+            "files": view.file_count(),
         })
     }
 
@@ -592,7 +618,7 @@ impl App {
         } else {
             // The preview submode (␣ p) and its lenses zoom the pane to
             // the full row; FIND raised from it keeps the zoom.
-            let zoomed = matches!(self.mode, Mode::Preview | Mode::History)
+            let zoomed = matches!(self.mode, Mode::Preview | Mode::History | Mode::Commit)
                 || (self.mode == Mode::Find && self.find_return == Some(Mode::Preview));
             self.browser.preview.focused = zoomed;
             self.browser.render(frame, rows[0], &theme, zoomed);

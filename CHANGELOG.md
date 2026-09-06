@@ -3,6 +3,34 @@
 User-visible changes per release. Protocol archaeology lives in
 `plans/`; this file is for "what's new for me".
 
+## Unreleased
+
+### The strop wave (plans/0024–0028)
+
+- **The workspace split** — `rootle-provider` (the seam: trait, wire
+  vocabulary, XDG paths), `rootle-stdio` (the NDJSON-RPC transport),
+  `rootle-github` (REST + disk cache), `rootle-manager` (provider
+  binary installs), `rootle-diff` (typed diffs). Compile-time
+  boundaries where there was convention; releases publish the set in
+  dependency order.
+- **Typed identity** — `RepoId`/`Sha`/`GitRef` on every Provider
+  signature, a `Generation` staleness clock replacing raw counter
+  compares, `MarkKey` replacing the `"<pane>/<entry>"` string
+  convention. House style gains the type-discipline and file-ceiling
+  sections.
+- **The provider protocol is model-checked** — `specs/
+  ProviderProtocol.tla` (TLC, 61k states) with seven named invariants
+  and a *gated* kept mutant; the model gate runs in CI beside test
+  and e2e. Two prose gaps settled from the code: late replies die by
+  monotonic id non-reuse; rebuild retries are per-caller.
+- **The commit viewer** (protocol v1.6 `repo/commit`) — from the
+  history lens, `d` inspects the commit itself: full message,
+  changed files with `/` filtering, per-file unified deltas with
+  old/new line gutters, origin-tinted rows, intra-line emphasis,
+  `]f`/`[f` file stepping, and the Esc ladder back to history.
+  Blame `Enter` still composes. Everything read-only, per the 0016
+  boundary.
+
 ## [0.9.3] — 2026-09-04
 
 ### Fixed

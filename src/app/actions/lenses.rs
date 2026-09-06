@@ -191,6 +191,102 @@ impl App {
                 }
                 true
             }
+            // -- commit viewer (plans/0028) --------------------------------
+            Action::CommitDive => {
+                if !self.provider.capabilities().commit {
+                    self.status = Some("provider has no commit detail".into());
+                } else if let Some(((owner, name), (_path, sha))) =
+                    self.browser.repo_coords().zip(self.browser.history_pick())
+                {
+                    self.browser.open_commit(&sha);
+                    self.spawn_commit(format!("{owner}/{name}"), sha);
+                    self.mode = Mode::Commit;
+                }
+                true
+            }
+            Action::CommitUp => {
+                if let Some(view) = self.browser.commit() {
+                    if view.delta_open() {
+                        view.move_delta(-1);
+                    } else {
+                        view.move_selection(-1);
+                    }
+                }
+                true
+            }
+            Action::CommitDown => {
+                if let Some(view) = self.browser.commit() {
+                    if view.delta_open() {
+                        view.move_delta(1);
+                    } else {
+                        view.move_selection(1);
+                    }
+                }
+                true
+            }
+            Action::CommitOpen => {
+                if let Some(view) = self.browser.commit() {
+                    view.open_delta();
+                }
+                true
+            }
+            Action::CommitStepNext => {
+                if let Some(view) = self.browser.commit() {
+                    view.step_file(1);
+                }
+                true
+            }
+            Action::CommitStepPrev => {
+                if let Some(view) = self.browser.commit() {
+                    view.step_file(-1);
+                }
+                true
+            }
+            Action::CommitYank => {
+                // The commit's permalink: URL anchored at the sha.
+                if let Some(((owner, name), sha)) =
+                    self.browser.repo_coords().zip(self.browser.commit_sha())
+                {
+                    match self.provider.web_url(
+                        &RepoId::from(format!("{owner}/{name}")),
+                        "",
+                        Some(&GitRef::from(sha.as_str())),
+                        None,
+                        None,
+                        false,
+                    ) {
+                        Ok(u) => {
+                            self.pending_clipboard = Some(u.clone());
+                            self.status = Some(format!("yanked {u}"));
+                        }
+                        Err(e) => self.status = Some(provider_status(&e)),
+                    }
+                }
+                true
+            }
+            Action::CommitFilterBegin => {
+                if let Some(view) = self.browser.commit() {
+                    view.begin_filter();
+                }
+                true
+            }
+            Action::CommitClose => {
+                // The unwind ladder: delta → detail → filter → history.
+                let close = self
+                    .browser
+                    .commit()
+                    .map(|view| view.escape())
+                    .unwrap_or(true);
+                if close {
+                    self.browser.close_commit();
+                    self.mode = if self.browser.history_is_open() {
+                        Mode::History
+                    } else {
+                        self.history_return.take().unwrap_or(Mode::Browse)
+                    };
+                }
+                true
+            }
             Action::HistoryClose => {
                 // The wizard ladder: a committed filter clears first,
                 // the next Esc closes.

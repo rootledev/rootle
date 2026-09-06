@@ -346,6 +346,18 @@ impl Client {
         Ok(ranges)
     }
 
+    /// v1.6 (plans/0028 M1): one commit's detail — message, parents,
+    /// changed files with their unified hunks. The wire model is
+    /// `types::CommitResponse`; the seam mapping lives in lib.rs.
+    pub fn commit(
+        &self,
+        owner: &str,
+        repo: &str,
+        sha: &str,
+    ) -> ProviderResult<super::types::CommitResponse> {
+        self.get(&format!("{API}/repos/{owner}/{repo}/commits/{sha}"))
+    }
+
     /// Repo search + org search, merged: orgs first, then repos.
     /// Returns provider-level items (the trait boundary type).
     pub fn search(&self, query: &str) -> ProviderResult<Vec<SearchItem>> {

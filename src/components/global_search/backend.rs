@@ -620,6 +620,7 @@ mod tests {
             }
             fn capabilities(&self) -> Capabilities {
                 Capabilities {
+                    commit: false,
                     orgs: false,
                     code_search: true,
                     file_search: true,

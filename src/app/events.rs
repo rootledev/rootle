@@ -341,6 +341,27 @@ impl App {
             AppEvent::LogFailed { path: _, error } => {
                 self.status = Some(provider_status(&error));
             }
+            AppEvent::CommitLoaded { sha, detail } => {
+                // Sanitize at the boundary (house rule): message and
+                // patch text are network strings headed for the
+                // screen; paths are single-line names.
+                match detail {
+                    Ok(mut detail) => {
+                        detail.message = crate::sanitize::sanitize(detail.message.as_bytes());
+                        detail.author = crate::sanitize::sanitize_inline(&detail.author);
+                        for file in &mut detail.files {
+                            file.path = crate::sanitize::sanitize_inline(&file.path);
+                            if let Some(patch) = &mut file.patch {
+                                *patch = crate::sanitize::sanitize(patch.as_bytes());
+                            }
+                        }
+                        self.browser.commit_loaded(&sha, detail);
+                    }
+                    Err(error) => {
+                        self.browser.commit_failed(&sha, provider_status(&error));
+                    }
+                }
+            }
             AppEvent::BlameLoaded { path, ranges } => {
                 if let Some(view) = &mut self.search_view
                     && view.blame_loading_for(&path)

@@ -150,6 +150,11 @@ pub enum AppEvent {
         error: ProviderError,
     },
     /// Blame ranges for the blame lens.
+    /// plans/0028: commit detail for the open viewer (sha-identity).
+    CommitLoaded {
+        sha: String,
+        detail: Result<crate::provider::CommitDetail, crate::provider::ProviderError>,
+    },
     BlameLoaded {
         path: String,
         ranges: Vec<crate::provider::BlameRange>,

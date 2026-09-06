@@ -26,6 +26,26 @@ impl App {
         });
     }
 
+    /// plans/0028: commit detail fetch — the viewer identity-checks
+    /// the landing by sha.
+    pub(crate) fn spawn_commit(&self, repo: String, sha: String) {
+        let provider = self.provider.clone();
+        let tx = self.tx.clone();
+        std::thread::spawn(move || {
+            let event = match provider.commit(&RepoId::from(repo), &Sha::from(sha.clone())) {
+                Ok(detail) => AppEvent::CommitLoaded {
+                    sha,
+                    detail: Ok(detail),
+                },
+                Err(error) => AppEvent::CommitLoaded {
+                    sha,
+                    detail: Err(error),
+                },
+            };
+            let _ = tx.send(event);
+        });
+    }
+
     /// Revision fetches (v1.5, plans/0016 M1): one worker per lens;
     /// landings are identity-checked by the UI.
     pub(crate) fn spawn_refs(&self, repo: String) {

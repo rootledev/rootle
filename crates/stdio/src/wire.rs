@@ -6,9 +6,9 @@
 use super::StdioProvider;
 use super::transport::{cancel_notification, de};
 use rootle_provider::{
-    BlameRange, Capabilities, CodeMatch, ErrorKind, GitRef, LogEntry, Provider, ProviderError,
-    ProviderResult, RefInfo, RepoId, RepoInfo, RepoRefs, SearchCodeResult, SearchItem, Sha,
-    TreeNode, TreeResult,
+    BlameRange, Capabilities, CodeMatch, CommitDetail, ErrorKind, GitRef, LogEntry, Provider,
+    ProviderError, ProviderResult, RefInfo, RepoId, RepoInfo, RepoRefs, SearchCodeResult,
+    SearchItem, Sha, TreeNode, TreeResult,
 };
 use serde_json::json;
 use std::io::Write;
@@ -315,6 +315,13 @@ impl Provider for StdioProvider {
         Ok(r.ranges)
     }
 
+    /// v1.6 (plans/0028): one commit's detail — the reply
+    /// deserializes straight into the seam type (it already carries
+    /// the wire defaults).
+    fn commit(&self, repo: &RepoId, sha: &Sha) -> ProviderResult<CommitDetail> {
+        de(self.request("repo/commit", json!({ "repo": repo, "sha": sha }))?)
+    }
+
     /// v1.1 advisory cancel: name a request currently in flight, if
     /// any. Best-effort — a racing cancel for an id that just
     /// completed is ignored by the provider by contract.
@@ -419,5 +426,30 @@ mod tests {
         assert!(absent.located);
         let stale: Item = serde_json::from_str(r#"{"located":false}"#).unwrap();
         assert!(!stale.located);
+    }
+
+    /// The v1.6 `repo/commit` reply deserializes straight into the
+    /// seam type: absent optionals (parents, counts, patch,
+    /// previous_path) default; unknown statuses stay legal wire.
+    #[test]
+    fn commit_reply_deserializes_straight_into_detail() {
+        let reply = r#"{
+            "sha": "6dcb09b5",
+            "author": "octocat",
+            "date": "2026-09-06T10:00:00Z",
+            "message": "Fix the race",
+            "files": [
+                {"path": "src/lib.rs", "status": "modified", "additions": 2,
+                 "deletions": 1, "patch": "@@ -1 +1 @@\n-old\n+new"}
+            ]
+        }"#;
+        use super::CommitDetail;
+
+        let d: CommitDetail = serde_json::from_str(reply).unwrap();
+        assert_eq!(d.parents, Vec::<String>::new());
+        assert_eq!(d.files[0].patch.as_deref(), Some("@@ -1 +1 @@\n-old\n+new"));
+        assert_eq!(d.files[0].previous_path, None);
+        assert_eq!(d.files[0].status, rootle_provider::FileStatus::Modified);
+        assert_eq!(d.line_stats(), (2, 1));
     }
 }

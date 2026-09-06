@@ -1,4 +1,4 @@
-# The rootle provider protocol, v1.5
+# The rootle provider protocol, v1.6
 
 rootle talks to source-control backends through one seam (`trait
 Provider`, `src/provider/mod.rs`). The built-in `github` provider is
@@ -101,9 +101,10 @@ from names — a provider that declares none renders text-only.
 `capabilities` is optional and defaults to
 everything enabled; the UI degrades on `false`. Known keys: `orgs`,
 `code_search`, `file_search` (v1.3 — absent inherits `code_search`),
-and the v1.5 revision trio `refs`, `log`, `blame` (all default false —
-absent means default-branch-only, since many backends can't answer
-them; a backend that can, says so).
+and the revision capabilities — the v1.5 trio `refs`, `log`, `blame`
+plus v1.6's `commit` (all default false — absent means
+default-branch-only, since many backends can't answer them; a
+backend that can, says so).
 
 **Cache budget (advisory, v1.2):** `cache_bytes` is the user's
 `[cache] max_mb` budget in bytes and `cache_dir` is this provider's
@@ -131,6 +132,7 @@ Optional/missing fields noted per method; everything else is required.
 | `repo/refs` | `{"repo"}` | `{"branches":[…], "tags":[…]}` |
 | `repo/log` | `{"repo","path"?,"ref"?,"limit"?}` | `{"items":[…], "truncated"?}` |
 | `repo/blame` | `{"repo","path","ref"?}` | `{"ranges":[…]}` |
+| `repo/commit` | `{"repo","sha"}` | `{"sha","author","date","message","parents"?,"files":[…]}` |
 | `repo/clone_url` | `{"repo"}` | `{"clone_url":"…"}` |
 | `repo/web_url` | `{"repo","path","branch","line","end_line"?}` | `{"url":"…"}` |
 | `org/url` | `{"org"}` | `{"url":"…"}` |
@@ -181,6 +183,17 @@ Details:
   blame API — `false` there is the honest answer). All three date
   fields feed the UI's history/blame lenses verbatim; rootle never
   re-derives authorship.
+- **Commit detail (v1.6, plans/0028):** `repo/commit` →
+  `{"sha","author","date","message","parents"?,"files":[…]}` — the
+  full commit message (subject + body), `date` ISO-8601, `parents`
+  the parent shas when the backend reports them. Each file:
+  `{"path","status","additions"?,"deletions"?,"patch"?,"previous_path"?}`
+  — `patch` is the file's unified hunks (hunk headers + body, **no
+  file headers**) and is absent for binary files; `status` is
+  lowercase `added` | `removed` | `modified` | `renamed` (renamed
+  carries `previous_path`); the counts are optional (absent when the
+  backend can't count). Capability `commit`, default false — same
+  honest-chip family as the v1.5 trio.
 - `repo/web_url` — build the browser URL for a repo root (`path` empty),
   a path (tree/blob grammar is the provider's), appending a line
   fragment when `line` is a number (`line` is JSON `null` when absent;

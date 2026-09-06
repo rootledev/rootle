@@ -81,6 +81,52 @@ pub struct MatchRange {
     pub text: String,
 }
 
+/// GET /repos/{o}/{r}/commits/{sha} (v1.6, plans/0028): the commit
+/// viewer's detail. `status` stays raw — GitHub also emits
+/// "changed"/"unchanged", which the provider seam degrades to
+/// `modified`.
+#[derive(Debug, Deserialize)]
+pub struct CommitResponse {
+    pub sha: String,
+    pub commit: CommitMeta,
+    #[serde(default)]
+    pub parents: Vec<CommitParent>,
+    #[serde(default)]
+    pub files: Vec<CommitFileItem>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CommitMeta {
+    pub message: String,
+    pub author: Option<CommitAuthor>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CommitAuthor {
+    pub name: Option<String>,
+    pub date: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CommitParent {
+    pub sha: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CommitFileItem {
+    pub filename: String,
+    #[serde(default)]
+    pub status: Option<String>,
+    /// Absent when GitHub truncates very large diffs.
+    #[serde(default)]
+    pub additions: Option<u32>,
+    #[serde(default)]
+    pub deletions: Option<u32>,
+    pub patch: Option<String>,
+    #[serde(default)]
+    pub previous_filename: Option<String>,
+}
+
 /// GET /repos/{o}/{r}/git/trees/{branch}?recursive=1
 #[derive(Debug, Clone, Deserialize, serde::Serialize)]
 pub struct TreeResponse {
@@ -132,5 +178,49 @@ mod tests {
         assert_eq!(parsed.tree.len(), 2);
         assert_eq!(parsed.tree[0].kind, "tree");
         assert_eq!(parsed.tree[1].size, Some(42));
+    }
+
+    #[test]
+    fn parses_commit_payload() {
+        let json = r#"{
+            "sha": "6dcb09b5",
+            "commit": {
+                "message": "Fix the race\n\nBody line.",
+                "author": {"name": "octocat", "date": "2026-09-06T10:00:00Z"}
+            },
+            "parents": [{"sha": "aaa111"}, {"sha": "bbb222"}],
+            "files": [
+                {"filename": "src/lib.rs", "status": "modified", "additions": 2,
+                 "deletions": 1, "patch": "@@ -1 +1,2 @@\n-old\n+new\n+line"},
+                {"filename": "src/old.rs", "status": "removed", "additions": 0, "deletions": 9},
+                {"filename": "src/moved.rs", "status": "renamed", "previous_filename": "src/orig.rs",
+                 "additions": 1, "deletions": 1},
+                {"filename": "img/logo.png", "status": "changed", "additions": 3, "deletions": 0}
+            ]
+        }"#;
+        let parsed: CommitResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.commit.message, "Fix the race\n\nBody line.");
+        assert_eq!(
+            (
+                parsed.commit.author.as_ref().unwrap().name.as_deref(),
+                parsed.commit.author.as_ref().unwrap().date.as_deref()
+            ),
+            (Some("octocat"), Some("2026-09-06T10:00:00Z"))
+        );
+        assert_eq!(parsed.parents.len(), 2);
+        assert_eq!(parsed.parents[1].sha, "bbb222");
+        assert_eq!(
+            parsed.files[0].patch.as_deref(),
+            Some("@@ -1 +1,2 @@\n-old\n+new\n+line")
+        );
+        assert_eq!(parsed.files[1].deletions, Some(9));
+        assert_eq!(
+            parsed.files[2].previous_filename.as_deref(),
+            Some("src/orig.rs")
+        );
+        // Binary/no-patch files: patch absent, status stays raw wire
+        // ("changed" is not one of the seam's four).
+        assert_eq!(parsed.files[3].patch, None);
+        assert_eq!(parsed.files[3].status.as_deref(), Some("changed"));
     }
 }

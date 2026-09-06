@@ -19,6 +19,9 @@ pub enum Mode {
     /// The preview pane owns the keyboard (plans/0016 M1): line
     /// cursor, find-in-file, history, blame.
     Preview,
+    /// The commit viewer (plans/0028): commit detail + file deltas
+    /// over the preview pane, entered from the history lens.
+    Commit,
 }
 
 impl Mode {
@@ -33,6 +36,7 @@ impl Mode {
             Mode::Visual => "VISUAL",
             Mode::History => "HISTORY",
             Mode::Preview => "PREVIEW",
+            Mode::Commit => "COMMIT",
         }
     }
 }
