@@ -27,7 +27,11 @@ else as an NDJSON-RPC stdio child](architecture.svg)
   (`[provider] timeout_ms`, default 30s): a reply that never comes
   fails that one call with a `timeout`-kinded error — the transport
   and the child stay usable, and the late reply is discarded when it
-  finally arrives.
+  finally arrives. It can match nothing: request ids come from a
+  monotonic per-session counter and are **never reused** — not after
+  a timeout, not across a restart — so a late reply (or a duplicate,
+  or one for an unknown id) finds no live slot and the reader drops
+  it (specs/ProviderProtocol.tla, `NoIdReuse` + `CorrelationSafety`).
 - **Progressive results (v1.3):** a request whose params carry
   `"partial": true` opts into `$/partial` notifications — see
   [Progressive results](#progressive-results-v13). For such requests
@@ -43,6 +47,13 @@ else as an NDJSON-RPC stdio child](architecture.svg)
   requests, and the status line notes the restart. Concurrency: at
   most one caller waits out a given rebuild attempt; others either
   ride the validated result or fail fast with the attempt's error.
+  Retry bounds are per caller, not per session: the caller that paid
+  for a failed attempt returns its error — nobody chains into a
+  second sleep — and retries continue for as long as fresh requests
+  arrive (the ladder 1s → 2s → 5s → 30s cap advances only when a
+  rebuild succeeded and the child later died again; a failing streak
+  retries its current rung). This is the `RestartFailClosed` /
+  `TimeoutLiveness` shape in specs/ProviderProtocol.tla.
   `timeout_ms` is a per-round-trip read deadline, not an end-to-end
   bound — a request that triggers a rebuild can additionally wait one
   backoff interval plus one handshake round trip before its own
@@ -417,3 +428,20 @@ ETag (`index/refs/<org>/<repo>/<branch>` — a `304` is free), atomic
 tmp+rename writes, LRU eviction by mtime at startup, orphan sweep
 (trees not referenced by any ref, blobs not referenced by any live
 tree). If your backend can produce the same shape, copy it.
+
+## Model checking (standing rule)
+
+The concurrency core of this protocol — transport routing, the
+inactivity deadline, advisory cancellation, child death and rebuild —
+is model-checked in [specs/ProviderProtocol.tla](../specs/ProviderProtocol.tla)
+(plans/0027): bounded-exhaustive TLC over named invariants
+(`CorrelationSafety`, `UniqueTerminal`, `PartialOrder`,
+`TimeoutLiveness`, `RestartFailClosed`, `CancelAdvisory`, `NoIdReuse`),
+plus a kept mutant that the gate must watch fail
+(`specs/ProviderProtocol_Mutant.tla`).
+
+**Any semantic change to transport, cancellation, streaming, or
+restart updates specs/ and re-runs TLC in the same PR**
+(`docker compose run --build --rm model` — CI runs it too). The spec
+proves the protocol design; the wire-level tests in
+`crates/stdio/src/tests.rs` hold the implementation to it.

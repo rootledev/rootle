@@ -10,14 +10,15 @@ RUN apk add --no-cache musl-dev \
     && rustup component add clippy rustfmt
 WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
 COPY src ./src
 COPY tests ./tests
 COPY examples ./examples
 
 FROM builder AS test
-RUN cargo fmt --check \
-    && cargo clippy --locked --all-targets -- -D warnings \
-    && cargo test --locked
+RUN cargo fmt --all --check \
+    && cargo clippy --locked --workspace --all-targets -- -D warnings \
+    && cargo test --locked --workspace
 
 # Stripped static release binary.
 FROM builder AS release
@@ -45,3 +46,31 @@ COPY e2e ./e2e
 ENV ROOTLE_E2E_IN_DOCKER=1
 WORKDIR /app/e2e
 CMD ["uv", "run", "--locked", "--no-sync", "pytest"]
+
+# The provider protocol model check (plans/0027): TLC over
+# specs/ProviderProtocol.tla — and, unlike strop's gate, over the kept
+# mutant too, so the invariants cannot rot: the base spec must check
+# clean AND the mutant must FAIL with CorrelationSafety. The image
+# existing IS the gate — a spec regression fails the build.
+FROM eclipse-temurin:21-jre AS model
+ARG TLA_TOOLS_SHA256=b658b4e504fdf0b721caf7066320f6b6fe5805f4dd2f717d0e47baba4097205e
+ADD --checksum=sha256:${TLA_TOOLS_SHA256} https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar /tla/tla2tools.jar
+WORKDIR /work
+COPY specs ./specs
+# Base: bounded-exhaustive check must come back clean.
+RUN java -jar /tla/tla2tools.jar -cleanup -config specs/cfg/provider-protocol.cfg specs/ProviderProtocol.tla > /tmp/base.log 2>&1 \
+    && grep -q "Model checking completed. No error" /tmp/base.log \
+    || { echo "TLC failed for ProviderProtocol (base)"; cat /tmp/base.log; exit 1; }; \
+    echo "ProviderProtocol: clean"
+# Mutant: must FAIL, and by name — a zero exit means the invariant lost
+# its teeth; a nonzero exit without CorrelationSafety means the fault
+# moved and the pairing must be re-examined.
+RUN java -jar /tla/tla2tools.jar -cleanup -config specs/cfg/provider-protocol-mutant.cfg specs/ProviderProtocol_Mutant.tla > /tmp/mutant.log 2>&1; \
+    code=$?; \
+    if [ "$code" -eq 0 ]; then \
+        echo "KEPT MUTANT PASSED TLC — CorrelationSafety lost its teeth"; \
+        cat /tmp/mutant.log; exit 1; \
+    fi; \
+    grep -q "CorrelationSafety" /tmp/mutant.log \
+    || { echo "mutant failed (exit $code) but not via CorrelationSafety"; cat /tmp/mutant.log; exit 1; }; \
+    echo "ProviderProtocol_Mutant: killed by CorrelationSafety"

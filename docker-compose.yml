@@ -13,6 +13,16 @@ services:
     # exists, the gate passed. The command is just a confirmation.
     command: 'echo "gate passed: fmt + clippy -D warnings + cargo test"'
 
+  # TLC model check of the provider protocol (plans/0027): base spec
+  # clean AND the kept mutant killed, both at image-build time.
+  model:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: model
+    # TLC runs at image-build time; the image existing IS the gate.
+    command: 'echo "gate passed: provider protocol model checks clean, kept mutant killed (TLC)"'
+
   build:
     build:
       context: .

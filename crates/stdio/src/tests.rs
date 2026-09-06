@@ -206,6 +206,77 @@ fn fake_provider_child() {
                 .unwrap();
                 stdout.flush().unwrap();
             }
+            // 0027 fault injection: the TLA model's fault classes as
+            // wire events (specs/ProviderProtocol.tla invariants).
+            "double-final" if id == 2 => {
+                // UniqueTerminal/CorrelationSafety: two finals for one
+                // id — the second must be dropped, never applied
+                for which in 1..=2 {
+                    writeln!(
+                        stdout,
+                        r#"{{"jsonrpc":"2.0","id":{id},"result":{{"which":{which}}}}}"#
+                    )
+                    .unwrap();
+                    stdout.flush().unwrap();
+                }
+            }
+            // PartialOrder: a $/partial AFTER the reply — out of
+            // order, must be dropped (the slot died with the reply)
+            "partial-after-final" if method == "search/code" => {
+                writeln!(
+                    stdout,
+                    r#"{{"jsonrpc":"2.0","id":{id},"result":{{"items":[],"truncated":false}}}}"#
+                )
+                .unwrap();
+                stdout.flush().unwrap();
+                writeln!(
+                    stdout,
+                    r#"{{"jsonrpc":"2.0","method":"$/partial","params":{{"id":{id},"items":[{{"repo":"o/r","path":"late.rs","sha":"s","matches":["hit"]}}]}}}}"#
+                )
+                .unwrap();
+                stdout.flush().unwrap();
+            }
+            // CorrelationSafety: a reply for an id that was never
+            // allocated — ignored, never fatal, before the real answer
+            "unknown-id" => {
+                writeln!(
+                    stdout,
+                    r#"{{"jsonrpc":"2.0","id":999,"result":{{"phantom":true}}}}"#
+                )
+                .unwrap();
+                stdout.flush().unwrap();
+                writeln!(
+                    stdout,
+                    r#"{{"jsonrpc":"2.0","id":{id},"result":{{"real":true}}}}"#
+                )
+                .unwrap();
+                stdout.flush().unwrap();
+            }
+            // NoIdReuse: hang id 2, answer it only alongside id 3 —
+            // by then the client timed out; the late reply must be
+            // dropped and can never satisfy the fresh id-3 slot
+            "late-then-next" if id == 2 => {}
+            "late-then-next" => {
+                writeln!(
+                    stdout,
+                    r#"{{"jsonrpc":"2.0","id":2,"result":{{"late":true}}}}"#
+                )
+                .unwrap();
+                stdout.flush().unwrap();
+                writeln!(
+                    stdout,
+                    r#"{{"jsonrpc":"2.0","id":{id},"result":{{"fresh":true}}}}"#
+                )
+                .unwrap();
+                stdout.flush().unwrap();
+            }
+            // RestartFailClosed: id 2 stays in flight, id 3's arrival
+            // kills the child — EOF must fail BOTH callers at once
+            "hang-2-die-3" => {
+                if id == 3 {
+                    std::process::exit(0);
+                }
+            }
             _ => {
                 writeln!(stdout, r#"{{"jsonrpc":"2.0","id":{id},"result":{{}}}}"#).unwrap();
                 stdout.flush().unwrap();
@@ -475,4 +546,131 @@ fn concurrent_requests_route_out_of_order_replies() {
         vec!["B", "A"],
         "id-routed slots must deliver the fast reply (B) before the delayed one (A)"
     );
+}
+
+// -- 0027 bridge tests: every fault class the TLA model names, as a
+// -- wire event against the real transport ------------------------------
+
+/// UniqueTerminal/CorrelationSafety: a duplicate final for an already
+/// answered id is dropped — the caller keeps the FIRST result, the
+/// second is never applied, and the transport stays usable.
+#[test]
+fn duplicate_final_reply_is_dropped_not_applied() {
+    let provider = fake("double-final", Duration::from_secs(5));
+    let first = provider
+        .request("repo/tree", json!({ "repo": "o/r" }))
+        .expect("the first final must complete the request");
+    assert_eq!(first["which"], 1, "the first reply wins");
+    // The duplicate landed after the slot was removed; the follow-up
+    // request proves the reader survived it.
+    let next = provider
+        .request("org/repos", json!({ "org": "o" }))
+        .expect("a duplicate final must not wedge the reader");
+    assert!(
+        next.get("which").is_none(),
+        "id 3 answers via the default arm"
+    );
+}
+
+/// PartialOrder: a `$/partial` arriving after the reply is out of
+/// order and must be dropped — the sink never sees it, and a second
+/// streaming round trip (which forces the reader past the stray line)
+/// still succeeds.
+#[test]
+fn partial_after_final_reply_is_dropped() {
+    let provider = fake("partial-after-final", Duration::from_secs(5));
+    let seen = std::sync::atomic::AtomicUsize::new(0);
+    let count = || seen.load(std::sync::atomic::Ordering::Relaxed);
+    for _ in 0..2 {
+        provider
+            .search_code_progressive("hit", &|_| {
+                seen.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            })
+            .expect("the reply must complete the request");
+    }
+    assert_eq!(
+        count(),
+        0,
+        "no $/partial may be routed after its id's final reply"
+    );
+}
+
+/// CorrelationSafety: a reply for an id that was never allocated is
+/// ignored — the reader stays alive to deliver the real answer that
+/// follows it on the same pipe.
+#[test]
+fn reply_for_unknown_id_is_ignored() {
+    let provider = fake("unknown-id", Duration::from_secs(5));
+    let result = provider
+        .request("repo/tree", json!({ "repo": "o/r" }))
+        .expect("the phantom reply must not stop the reader");
+    assert_eq!(result["real"], true, "the real reply wins");
+    provider
+        .request("org/repos", json!({ "org": "o" }))
+        .expect("transport stays usable after phantom replies");
+}
+
+/// NoIdReuse: id 2 times out; its reply arrives late, together with
+/// id 3's request, and must be discarded — ids are monotonic and never
+/// reused, so the late reply can never satisfy the fresh slot. Only a
+/// transport that reuses ids would return `late: true` here.
+#[test]
+fn late_reply_after_timeout_is_discarded_not_rerouted() {
+    let provider = fake("late-then-next", Duration::from_millis(300));
+    let err = provider
+        .request("repo/tree", json!({ "repo": "o/r" }))
+        .expect_err("the hung id 2 must time out");
+    assert_eq!(err.kind, ErrorKind::Timeout);
+    let next = provider
+        .request("org/repos", json!({ "org": "o" }))
+        .expect("the transport recovers, and the late reply is dropped");
+    assert_eq!(
+        next["fresh"], true,
+        "id 3's slot must get id 3's reply — never the late id 2 one"
+    );
+}
+
+/// RestartFailClosed: EOF fails EVERY in-flight request at once, not
+/// just the one that raced the death — both callers fail fast with
+/// the closed-pipe error, well before their deadlines.
+#[test]
+fn eof_fails_every_in_flight_request_at_once() {
+    let provider = Arc::new(fake("hang-2-die-3", Duration::from_secs(30)));
+    let (tx, rx) = std::sync::mpsc::channel::<ProviderError>();
+    let a = {
+        let provider = Arc::clone(&provider);
+        let tx = tx.clone();
+        std::thread::spawn(move || {
+            tx.send(provider.request("a/hung", json!({})).unwrap_err())
+                .unwrap();
+        })
+    };
+    // Gate B on A actually waiting — ids are assigned in arrival
+    while provider
+        .current_id
+        .load(std::sync::atomic::Ordering::Acquire)
+        == 0
+    {
+        std::thread::yield_now();
+    }
+    let b = {
+        let provider = Arc::clone(&provider);
+        let tx = tx.clone();
+        std::thread::spawn(move || {
+            let err = provider.request("b/killer", json!({})).unwrap_err();
+            tx.send(err).unwrap();
+        })
+    };
+    drop(tx);
+    a.join().expect("A panics");
+    b.join().expect("B panics");
+    let failures: Vec<ProviderError> = rx.iter().collect();
+    assert_eq!(failures.len(), 2, "both in-flight requests must fail");
+    for err in failures {
+        assert_eq!(
+            err,
+            ProviderError::new(ErrorKind::Provider, "provider closed its output"),
+            "EOF must fail-close every in-flight slot"
+        );
+    }
 }
