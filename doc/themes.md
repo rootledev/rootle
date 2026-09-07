@@ -69,20 +69,20 @@ from its palette's published spec.
 
 ## Syntax roles
 
-`[syntax]` drives code highlighting in the preview pane. The syntect
-scope mapping lives in `src/highlight.rs`; the roles:
+`[syntax]` drives code highlighting in the preview pane. The Tree-sitter
+capture mapping lives in `crates/rootle/src/highlight/styles.rs`; the roles:
 
 | Role | Default | Used for |
 |---|---|---|
 | `keyword` | `#cba6f7` | keywords, storage modifiers |
-| `string` | `#a6e3a1` | string literals, fenced code |
+| `string` | `#a6e3a1` | string literals, uninjected fenced code |
 | `comment` | `#6c7086` | comments |
 | `function` | `#89b4fa` | function names and calls |
 | `type` | `#f9e2af` | type/struct/enum names |
 | `constant` | `#fab387` | numbers, language constants, bold markup |
 | `tag` | `#f38ba8` | markup tags, headings |
 | `namespace` | `#94e2d5` | namespaces, paths |
-| `invalid` | `#f38ba8` | illegal/invalid scopes |
+| `invalid` | `#f38ba8` | error/invalid captures |
 
 Theme switches restyle already-fetched files instantly — blobs are
 cached as raw text and re-highlighted under the new palette, no

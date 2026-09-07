@@ -1,82 +1,36 @@
-//! syntect highlighting mapped onto the active palette (PLAN.md §11).
-//! Pure-Rust fancy-regex backend (musl-static friendly). The syntect
-//! theme is built from the `Theme`'s syntax roles, so it follows
-//! theme switches (embedded palettes and `themes/<name>.toml` alike).
+//! Tree-sitter highlighting mapped onto the active palette (PLAN.md §11).
+//!
+//! Grammars are statically linked: every parser and highlight query
+//! compiles into the binary (`tree-sitter-*` grammar crates,
+//! musl-static friendly — no runtime downloads, no `dlopen`).
+//! Supported languages: Rust, Python, JavaScript/JSX, TypeScript,
+//! TSX, Go, C, C++, Java, C#, Ruby, PHP, Bash, Lua, JSON, TOML,
+//! YAML, HTML, CSS and Markdown — fenced code blocks inject the
+//! fenced language, and markdown prose gets its own inline parser
+//! (tree-sitter-md's split grammars).
+//!
+//! Capture colors come from the `Theme`'s syntax roles, so highlighting
+//! follows theme switches (embedded palettes and `themes/<name>.toml`
+//! alike). Compiling a grammar's queries is the expensive half; the
+//! registry caches configurations for the process lifetime and a theme
+//! switch only swaps the color table.
 
-use ratatui::style::{Color as RColor, Modifier, Style as RStyle};
-use ratatui::text::{Line, Span};
-use syntect::easy::HighlightLines;
-use syntect::highlighting::{
-    Color as SColor, FontStyle, ScopeSelectors, StyleModifier, Theme as STheme, ThemeItem,
-    ThemeSettings,
-};
-use syntect::parsing::SyntaxSet;
+mod queries;
+mod registry;
+mod render;
+mod styles;
+#[cfg(test)]
+mod tests;
+
+use std::cell::RefCell;
+
+use ratatui::text::Line;
 
 use crate::theme::Theme;
 
 pub struct Highlighter {
-    syntaxes: SyntaxSet,
-    theme: STheme,
-}
-
-/// ratatui → syntect color. Roles are always `Rgb` (from_u32); any
-/// other variant degrades to white rather than panicking.
-fn scolor(c: RColor) -> SColor {
-    match c {
-        RColor::Rgb(r, g, b) => SColor { r, g, b, a: 255 },
-        _ => SColor {
-            r: 255,
-            g: 255,
-            b: 255,
-            a: 255,
-        },
-    }
-}
-
-/// Build a syntect theme from the app theme's syntax roles. Span
-/// backgrounds stay unset — the terminal/pane background shows through.
-fn syntect_theme(theme: &Theme) -> STheme {
-    let syn = &theme.syntax;
-    let text = scolor(theme.semantic.text);
-
-    let rule = |scope: &str, fg: RColor| ThemeItem {
-        scope: scope.parse::<ScopeSelectors>().expect("scope selector"),
-        style: StyleModifier {
-            foreground: Some(scolor(fg)),
-            background: None,
-            font_style: None,
-        },
-    };
-
-    STheme {
-        name: Some("rootle-palette".into()),
-        author: Some("rootle".into()),
-        settings: ThemeSettings {
-            foreground: Some(text),
-            ..Default::default()
-        },
-        scopes: vec![
-            rule("keyword, storage", syn.keyword),
-            rule("string, string.quoted", syn.string),
-            rule("comment, punctuation.definition.comment", syn.comment),
-            rule(
-                "entity.name.function, support.function, meta.function-call",
-                syn.function,
-            ),
-            rule(
-                "entity.name.type, support.type, entity.name.struct, entity.name.enum",
-                syn.type_,
-            ),
-            rule("constant.numeric, constant.language", syn.constant),
-            rule("entity.name.tag, markup.heading", syn.tag),
-            rule("variable.parameter, variable.other", theme.semantic.text),
-            rule("entity.name.namespace, meta.path", syn.namespace),
-            rule("markup.bold, punctuation.definition.bold", syn.constant),
-            rule("markup.italic", syn.keyword),
-            rule("markup.raw, markup.fenced_code", syn.string),
-            rule("invalid, invalid.illegal", syn.invalid),
-        ],
-    }
+    styles: styles::StyleTable,
+    parser: RefCell<tree_sitter_highlight::Highlighter>,
 }
 
 impl Default for Highlighter {
@@ -86,127 +40,58 @@ impl Default for Highlighter {
 }
 
 impl Highlighter {
-    /// The syntect theme is derived from the app theme; rebuild the
-    /// highlighter when the effective theme changes.
+    /// Build a highlighter for the effective theme. Grammar
+    /// configurations compile lazily on first use, cached
+    /// process-wide.
     pub fn new(theme: &Theme) -> Self {
         Highlighter {
-            syntaxes: SyntaxSet::load_defaults_newlines(),
-            theme: syntect_theme(theme),
+            styles: styles::StyleTable::new(theme),
+            parser: RefCell::new(tree_sitter_highlight::Highlighter::new()),
         }
     }
 
-    /// Swap the color table without reloading the syntax set (theme
-    /// switch; the expensive half — the syntax dump — is untouched).
+    /// Swap the color table without touching the cached grammar
+    /// configurations (theme switch; the expensive half — query
+    /// compilation — is never repeated).
     pub fn set_theme(&mut self, theme: &Theme) {
-        self.theme = syntect_theme(theme);
+        self.styles = styles::StyleTable::new(theme);
     }
 
     /// Language label for the preview footer ("rust", "markdown", …).
     /// Unknown extensions fall back to "text".
     pub fn language(&self, filename: &str) -> String {
-        self.syntaxes
-            .find_syntax_for_file(filename)
-            .ok()
-            .flatten()
-            .map(|s| s.name.to_lowercase())
+        registry::detect(filename)
+            .map(|lang| registry::label(lang).to_owned())
             .unwrap_or_else(|| "text".into())
     }
 
     /// Highlight `text` as the syntax for `filename`'s extension.
-    /// Unknown extensions render as plain text (no panic, no highlight).
-    /// Tabs expand to four spaces per span — raw `\t` jumps to terminal
-    /// stops and breaks column alignment (the plain-text preview path
-    /// expands the same way).
+    /// The whole buffer is parsed at once, so multiline constructs
+    /// (doc comments, block strings, heredocs) keep their context.
+    /// Unknown extensions render as plain text (no panic, no
+    /// highlight). Tabs expand to four spaces per span — raw `\t`
+    /// jumps to terminal stops and breaks column alignment (the
+    /// plain-text preview path expands the same way).
     pub fn highlight(&self, filename: &str, text: &str) -> Vec<Line<'static>> {
-        let syntax = self
-            .syntaxes
-            .find_syntax_for_file(filename)
-            .ok()
-            .flatten()
-            .unwrap_or_else(|| self.syntaxes.find_syntax_plain_text());
+        let Some(lang) = registry::detect(filename) else {
+            return render::plain(text, &self.styles);
+        };
+        // A compile failure (grammar/query mismatch) degrades to
+        // plain text rather than panicking on the UI thread; the
+        // registry test pins that this never happens.
+        let Some(config) = registry::config(lang) else {
+            return render::plain(text, &self.styles);
+        };
 
-        let mut highlighter = HighlightLines::new(syntax, &self.theme);
-        text.lines()
-            .map(|line| {
-                let regions = match highlighter.highlight_line(line, &self.syntaxes) {
-                    Ok(r) => r,
-                    Err(_) => {
-                        return Line::from(Span::raw(line.replace('\t', "    ")));
-                    }
-                };
-                Line::from(
-                    regions
-                        .into_iter()
-                        .map(|(style, text)| {
-                            let fg = style.foreground;
-                            let mut rstyle =
-                                RStyle::default().fg(ratatui::style::Color::Rgb(fg.r, fg.g, fg.b));
-                            if style.font_style.contains(FontStyle::BOLD) {
-                                rstyle = rstyle.add_modifier(Modifier::BOLD);
-                            }
-                            Span::styled(text.replace('\t', "    "), rstyle)
-                        })
-                        .collect::<Vec<_>>(),
-                )
-            })
-            .collect()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn rust_keywords_get_mauve() {
-        let h = Highlighter::default();
-        let lines = h.highlight("lib.rs", "fn main() {}\n");
-        assert_eq!(lines.len(), 1);
-        // "fn" should be colored (mocha mauve 203,166,247), not default text.
-        let first = &lines[0].spans[0];
-        assert_eq!(
-            first.style.fg,
-            Some(ratatui::style::Color::Rgb(203, 166, 247)),
-            "fn keyword should be mauve, got {:?}",
-            first.style.fg
-        );
-    }
-
-    #[test]
-    fn theme_switch_recolors_keywords() {
-        let dracula = Highlighter::new(&Theme::embedded("dracula").unwrap());
-        let lines = dracula.highlight("lib.rs", "fn main() {}\n");
-        // dracula keyword = pink (255,121,198) — not mocha mauve.
-        assert_eq!(
-            lines[0].spans[0].style.fg,
-            Some(ratatui::style::Color::Rgb(255, 121, 198)),
-            "fn keyword should follow the dracula palette, got {:?}",
-            lines[0].spans[0].style.fg
-        );
-    }
-
-    #[test]
-    fn tabs_expand_inside_spans() {
-        let h = Highlighter::default();
-        let lines = h.highlight("main.rs", "\tfn x() {}\n");
-        let joined: String = lines[0].spans.iter().map(|s| s.content.as_ref()).collect();
-        assert_eq!(joined, "    fn x() {}");
-        assert!(!joined.contains('\t'));
-    }
-
-    #[test]
-    fn language_label_follows_extension() {
-        let h = Highlighter::default();
-        assert_eq!(h.language("lib.rs"), "rust");
-        // The default syntax set ships no TOML grammar — plain text.
-        assert_eq!(h.language("Cargo.toml"), "text");
-        assert_eq!(h.language("data.xyz123"), "text");
-    }
-
-    #[test]
-    fn unknown_extension_renders_plain() {
-        let h = Highlighter::default();
-        let lines = h.highlight("data.xyz123", "just text\n");
-        assert_eq!(lines.len(), 1);
+        let mut highlighter = self.parser.borrow_mut();
+        let events = highlighter.highlight(config, text.as_bytes(), None, |name| {
+            registry::lang_for_injection(name).and_then(registry::config)
+        });
+        match events {
+            // `map_while` stops at the first error; `render::styled`
+            // fills any uncovered remainder with the default style.
+            Ok(events) => render::styled(text, events.map_while(Result::ok), &self.styles),
+            Err(_) => render::plain(text, &self.styles),
+        }
     }
 }

@@ -35,7 +35,7 @@ small stdio script.
 ## What it does
 
 - **Browse** orgs → repos → trees → files in three miller columns with
-  a live syntax-highlighted preview — no clone required.
+  a live Tree-sitter syntax-highlighted preview — no clone required.
 - **Revise** — `␣ b` switches branches/tags (`rootle owner/repo@ref`
   from the CLI); `␣ p h` file history with open-at-commit; `␣ p b`
   blame run-margins; yanks from history anchor to the commit sha.
@@ -136,8 +136,10 @@ docker compose run --build --rm model # bounded TLA+ properties + four kept faul
 `--headless` (plans/0023) drives the real app without a terminal —
 `keys`/`settle`/`frame`/`state` script steps in, plain-text cell grids
 and state JSON out — the deterministic surface for tests, reviews, and
-agent-driven stress runs. See `crates/rootle/src/headless.rs`'s module docs for the
-script language.
+agent-driven stress runs. Use `settle [ms]` before sampling after navigation;
+it waits for outstanding workers and their follow-ups, failing the run on
+timeout (default 10000ms). `rootle --help` documents every directive;
+see `crates/rootle/src/headless.rs` for the driver.
 
 Development builds support opt-in session diagnostics:
 `rootle --log` selects a new private log under the XDG state directory;

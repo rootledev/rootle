@@ -1,5 +1,4 @@
 //! Preview column: sanitized text for files, child listing for dirs.
-//! Syntax highlighting lands in milestone 5; text is already sanitized.
 //! Find-in-file (`␣ /`) lives in `find.rs`.
 
 mod render;
@@ -28,7 +27,7 @@ pub enum PreviewContent {
     #[default]
     Empty,
     Text(String),
-    /// Syntax-highlighted lines (syntect → palette colors).
+    /// Syntax-highlighted lines (Tree-sitter captures → palette colors).
     Highlighted(Vec<Line<'static>>),
     DirSummary(Vec<Entry>),
     Binary {

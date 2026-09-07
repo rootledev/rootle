@@ -167,8 +167,9 @@ where it enters UI state (`app/actions/`, `app/events.rs`): binary
 detection (NUL or >10% control bytes in the first 8 KiB → binary
 placeholder), lossy UTF-8, and control-strip that removes ESC so file
 content can't inject terminal sequences. Single-line names use
-`sanitize_inline`. Highlighting (syntect) happens once at the same
-boundary, on the UI thread.
+`sanitize_inline`. Tree-sitter highlighting happens once at the same
+boundary, on the UI thread. Grammar configurations are compiled lazily
+and cached; parser state is reused and rendering never reparses a file.
 
 ## Width-correct truncation
 

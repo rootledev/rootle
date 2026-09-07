@@ -36,6 +36,13 @@ Data flow rules (violations get caught in review):
 - **Provider calls run off the UI thread.**
 - **Styling happens at the boundary** — raw search hits and blobs are
   highlighted once in `App` (`finish_hits`, blob path), not per frame.
+- **Tree-sitter grammars are statically linked.** `highlight/registry.rs`
+  detects filenames without local filesystem reads, `queries.rs` composes
+  upstream queries and injections, `styles.rs` maps captures to palette
+  roles, and `render.rs` streams events into owned terminal lines.
+  Compiled queries are cached per language; parser state survives calls
+  and theme changes. Alpine `build-base` compiles the grammar C/C++ sources;
+  release gates reject ELF `NEEDED` dependencies, including static PIE.
 - **Everything network/file-sourced passes `sanitize.rs`** before it
   reaches render state.
 - **Shared list mechanics** live in `components/list_view`: item
@@ -97,13 +104,19 @@ cheapest tier that exercises it (plans/0023):
    binary, real provider subprocesses, real input path
    (`App::handle_key`); only the terminal byte layer is skipped.
    Script language: `keys <text>` (`<esc> <cr> <bs> <tab> <space>`
-   `<up|down|left|right>` tokens), `settle` (drain workers to
-   quiescence), `wait <ms>`, `frame` (cell-grid dump), `state` (JSON:
+   `<up|down|left|right>` tokens), `settle [ms]` (wait for all tracked
+   workers and queued follow-ups; default 10000ms), `wait <ms>`,
+   `frame` (cell-grid dump), `state` (JSON:
    mode/overlays/context/status/yanks/editor_jobs). `-` reads the
    script from stdin; viewport via `ROOTLE_HEADLESS_COLS/ROWS`
    (default 100×30). This is also the review/stress surface for
    agents: pipe a script in, read frames out — no PTY, no timing
    heuristics, no ANSI.
+   Startup uses the same tracked wait with a 10-second bound. After
+   navigation, put `settle` before `frame`/`state`; channel silence
+   alone is not completion. A deadline or malformed settle timeout
+   fails the run rather than sampling a half-loaded surface. Provider
+   errors still complete their work: inspect the resulting status.
    State is real: reuse a HOME across runs and the second run starts
    warm (recents, no launch popup) — scripts that need the launch
    popup must use a fresh HOME (the round-1 breaker hit this).

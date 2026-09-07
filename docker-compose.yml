@@ -52,6 +52,9 @@ services:
         PKG="rootle-$$VERSION-$$TARGET"
         cargo build --release --locked \
         && strip target/release/rootle \
+        && readelf -d target/release/rootle > /tmp/rootle-dynamic \
+        && ! grep -q '(NEEDED)' /tmp/rootle-dynamic \
+        && file target/release/rootle | grep -qE "static-pie linked|statically linked" \
         && staging="$$(mktemp -d)" \
         && mkdir -p "$$staging/$$PKG" \
         && install -m755 target/release/rootle "$$staging/$$PKG/rootle" \

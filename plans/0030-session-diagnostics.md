@@ -1,6 +1,6 @@
 # 0030 — Diagnostic session traces
 
-Status: **implemented and verified (2026-09-07), unreleased**.
+Status: **implemented and verified (2026-09-07), shipping in v0.11.0**.
 Private bounded diagnostics cover both drivers and the provider/CLI paths.
 This is recording, not deterministic replay of remote services.
 

@@ -42,7 +42,9 @@ impl App {
                 })
             });
         });
+        let ticket = self.outstanding.track();
         std::thread::spawn(move || {
+            let _ticket = ticket;
             rootle_trace::in_operation(op, || {
                 let started = rootle_trace::enabled().then(Instant::now);
                 let repo_id = RepoId::from(repo.clone());
@@ -99,7 +101,9 @@ impl App {
                 })
             });
         });
+        let ticket = self.outstanding.track();
         std::thread::spawn(move || {
+            let _ticket = ticket;
             rootle_trace::in_operation(op, || {
                 let started = rootle_trace::enabled().then(Instant::now);
                 let detail = provider.commit(&request.repository, &request.revision);
@@ -142,7 +146,9 @@ impl App {
                 || json!({"job": "refs", "repo": repo}),
             );
         });
+        let ticket = self.outstanding.track();
         std::thread::spawn(move || {
+            let _ticket = ticket;
             rootle_trace::in_operation(op, || {
                 let started = rootle_trace::enabled().then(Instant::now);
                 let event = match provider.refs(&RepoId::from(repo.clone())) {
@@ -196,7 +202,9 @@ impl App {
                 })
             });
         });
+        let ticket = self.outstanding.track();
         std::thread::spawn(move || {
+            let _ticket = ticket;
             rootle_trace::in_operation(op, || {
                 let started = rootle_trace::enabled().then(Instant::now);
                 // The lens' render budget, per the bounded-compute
@@ -259,7 +267,9 @@ impl App {
                 })
             });
         });
+        let ticket = self.outstanding.track();
         std::thread::spawn(move || {
+            let _ticket = ticket;
             rootle_trace::in_operation(op, || {
                 let started = rootle_trace::enabled().then(Instant::now);
                 let repo_id = RepoId::from(repo);
@@ -322,7 +332,9 @@ impl App {
                 })
             });
         });
+        let ticket = self.outstanding.track();
         std::thread::spawn(move || {
+            let _ticket = ticket;
             rootle_trace::in_operation(op, || {
                 let started = rootle_trace::enabled().then(Instant::now);
                 let event = match provider.blob_at(
@@ -392,7 +404,9 @@ impl App {
                 })
             });
         });
+        let ticket = self.outstanding.track();
         std::thread::spawn(move || {
+            let _ticket = ticket;
             rootle_trace::in_operation(op, || {
                 let started = rootle_trace::enabled().then(Instant::now);
                 let event = match fetch_blob_capped(
