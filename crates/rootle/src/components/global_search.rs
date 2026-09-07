@@ -276,6 +276,53 @@ impl GlobalSearch {
             SubMode::Normal => SetCursorStyle::SteadyBlock,
         })
     }
+
+    /// Focus/selection/count summary for session traces (plans/0030):
+    /// no query, hit or error text — lengths only.
+    pub(crate) fn diagnostics(&self) -> SearchDiagnostics {
+        SearchDiagnostics {
+            kind: self.kind.slug(),
+            scope: self.scope.stored(),
+            focus: match self.focus {
+                Focus::Query => "query",
+                Focus::Scope => "scope",
+                Focus::Extension => "extension",
+                Focus::Facets => "facets",
+                Focus::Results => "results",
+            },
+            selected: self.selected,
+            hits: self.hits.len(),
+            dropped: self.dropped,
+            clipped: self.clipped,
+            pending: self.pending,
+            filtering: self.filtering,
+            finding: self.finding,
+            expanded: self.expanded.is_some(),
+            query_len: self.query.value().len(),
+            filter_len: self.filter_value.len(),
+            error_len: self.error.as_deref().map(str::len),
+        }
+    }
+}
+
+/// Diagnostic summary of the global search view (plans/0030 session
+/// traces).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SearchDiagnostics {
+    pub(crate) kind: &'static str,
+    pub(crate) scope: &'static str,
+    pub(crate) focus: &'static str,
+    pub(crate) selected: usize,
+    pub(crate) hits: usize,
+    pub(crate) dropped: usize,
+    pub(crate) clipped: bool,
+    pub(crate) pending: bool,
+    pub(crate) filtering: bool,
+    pub(crate) finding: bool,
+    pub(crate) expanded: bool,
+    pub(crate) query_len: usize,
+    pub(crate) filter_len: usize,
+    pub(crate) error_len: Option<usize>,
 }
 
 /// File-pane title: `repo/path:line` — what you're looking at and

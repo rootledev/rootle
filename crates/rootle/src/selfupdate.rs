@@ -91,11 +91,19 @@ fn update_inner(
     channel: Channel,
     ui: &rootle_manager::progress::ProgressOutput,
 ) -> Result<Option<String>, String> {
+    rootle_trace::record_with(rootle_trace::EventKind::ExternalCommand, || {
+        serde_json::json!({"operation":"self_update", "phase":"started", "check_only":check_only,
+            "channel":format!("{channel:?}")})
+    });
     let current = env!("CARGO_PKG_VERSION");
     let release = rootle_manager::latest_release_at(api_base, "rootledev/rootle")
         .map_err(|e| e.to_string())?;
     let tag = release.tag_name.clone();
     if !is_newer(&tag) {
+        rootle_trace::record_with(
+            rootle_trace::EventKind::ExternalCommand,
+            || serde_json::json!({"operation":"self_update","phase":"current","version":current,"latest":tag}),
+        );
         return Ok(Some(format!("rootle {current} is current")));
     }
     let guidance = || {
@@ -116,9 +124,17 @@ fn update_inner(
         )
     };
     if !matches!(channel, Channel::Tarball | Channel::Other) {
+        rootle_trace::record_with(
+            rootle_trace::EventKind::ExternalCommand,
+            || serde_json::json!({"operation":"self_update","phase":"managed_channel","latest":tag}),
+        );
         return Ok(Some(guidance()));
     }
     if check_only {
+        rootle_trace::record_with(
+            rootle_trace::EventKind::ExternalCommand,
+            || serde_json::json!({"operation":"self_update","phase":"available","latest":tag}),
+        );
         return Ok(format!("{current} → {tag} available (run `rootle update`)").into());
     }
 
@@ -144,6 +160,10 @@ fn update_inner(
     // Staged write + atomic rename over self: the running process
     // keeps the old inode; the next launch runs the new one.
     let staged = exe.with_extension("update-tmp");
+    rootle_trace::record_with(
+        rootle_trace::EventKind::ExternalCommand,
+        || serde_json::json!({"operation":"self_update","phase":"staging","bytes":bytes.len()}),
+    );
     std::fs::write(&staged, &bytes).map_err(|e| e.to_string())?;
     #[cfg(unix)]
     {
@@ -151,6 +171,10 @@ fn update_inner(
         let _ = std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o755));
     }
     std::fs::rename(&staged, exe).map_err(|e| e.to_string())?;
+    rootle_trace::record_with(
+        rootle_trace::EventKind::ExternalCommand,
+        || serde_json::json!({"operation":"self_update","phase":"swapped","bytes":bytes.len(),"version":tag}),
+    );
     ui.done("Swapped", &exe.display().to_string());
     ui.summary(
         "Updated",
@@ -190,6 +214,11 @@ fn sweep_providers(
     let timer = rootle_manager::progress::Timer::start();
     ui.heading("Updating providers");
     let outcomes = manager.sweep(check_only, ui);
+    rootle_trace::record_with(rootle_trace::EventKind::ExternalCommand, || {
+        serde_json::json!({"operation":"provider_sweep","phase":"finished","check_only":check_only,
+            "providers":outcomes.len(),
+            "failed":outcomes.iter().filter(|outcome|matches!(outcome,rootle_manager::SweepOutcome::Failed{..})).count()})
+    });
     render_sweep(&outcomes, ui, timer.elapsed());
     let failed: Vec<&str> = outcomes
         .iter()
@@ -284,19 +313,36 @@ fn read_stamp(path: &Path) -> Option<Stamp> {
 /// at most. Failures are silent by design.
 pub fn latest_known() -> Option<String> {
     let now = unix_now();
-    let path = cache_path()?;
+    let Some(path) = cache_path() else {
+        rootle_trace::record_with(
+            rootle_trace::EventKind::Cache,
+            || serde_json::json!({"resource":"update_notice","outcome":"no_cache_directory"}),
+        );
+        return None;
+    };
     let prior = read_stamp(&path);
+    rootle_trace::record_with(rootle_trace::EventKind::Cache, || {
+        serde_json::json!({"resource":"update_notice","operation":"read","hit":prior.is_some(),
+            "fresh":prior.as_ref().is_some_and(|stamp|now.saturating_sub(stamp.checked_at)<DAY)})
+    });
     if let Some(stamp) = &prior
         && now.saturating_sub(stamp.checked_at) < DAY
     {
         return Some(stamp.tag.clone());
     }
-    let tag = rootle_manager::latest_release("rootledev/rootle")
-        .ok()?
-        .tag_name;
+    let tag = match rootle_manager::latest_release("rootledev/rootle") {
+        Ok(release) => release.tag_name,
+        Err(_) => {
+            rootle_trace::record_with(
+                rootle_trace::EventKind::Error,
+                || serde_json::json!({"operation":"update_probe","outcome":"unavailable"}),
+            );
+            return None;
+        }
+    };
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
-        let _ = std::fs::write(
+        let written = std::fs::write(
             &path,
             serde_json::to_string(&Stamp {
                 shown_at: prior.as_ref().and_then(|p| p.shown_at),
@@ -305,6 +351,10 @@ pub fn latest_known() -> Option<String> {
             })
             .unwrap_or_default(),
         );
+        rootle_trace::record_with(rootle_trace::EventKind::Cache, || {
+            serde_json::json!({"resource":"update_notice","operation":"write","success":written.is_ok(),
+                "error_kind":written.as_ref().err().map(|error|format!("{:?}",error.kind()))})
+        });
     }
     Some(tag)
 }
@@ -327,6 +377,10 @@ fn take_toast_at(path: &Path, tag: &str, now: u64) -> bool {
         Some(s) if s.tag == tag => !s.shown_at.is_some_and(|at| now.saturating_sub(at) < DAY),
         _ => true,
     };
+    rootle_trace::record_with(
+        rootle_trace::EventKind::Cache,
+        || serde_json::json!({"resource":"update_notice","operation":"toast","due":due}),
+    );
     if due && let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
         let _ = std::fs::write(

@@ -1,11 +1,27 @@
 //! Explicit token environment, then the user's authenticated gh session.
 
-pub(super) fn token() -> Option<String> {
-    ["ROOTLE_TOKEN", "GITHUB_TOKEN"]
-        .into_iter()
-        .filter_map(|name| std::env::var(name).ok())
-        .find(|value| !value.is_empty())
-        .or_else(gh_token)
+/// Resolve the API token. Returns it with a label naming its source —
+/// environment variable *names* are diagnostics, values never are.
+pub(super) fn token() -> (Option<String>, &'static str) {
+    for name in ["ROOTLE_TOKEN", "GITHUB_TOKEN"] {
+        if let Ok(value) = std::env::var(name)
+            && !value.is_empty()
+        {
+            return (Some(value), env_source(name));
+        }
+    }
+    match gh_token() {
+        Some(token) => (Some(token), "gh auth token"),
+        None => (None, "none"),
+    }
+}
+
+fn env_source(name: &str) -> &'static str {
+    if name == "ROOTLE_TOKEN" {
+        "env:ROOTLE_TOKEN"
+    } else {
+        "env:GITHUB_TOKEN"
+    }
 }
 
 fn gh_token() -> Option<String> {

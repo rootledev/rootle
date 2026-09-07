@@ -125,6 +125,14 @@ impl<Domain> std::fmt::Display for Generation<Domain> {
     }
 }
 
+/// Diagnostic/wire serialization exposes the count without weakening the
+/// domain-typed comparison API or round-tripping through Display.
+impl<Domain> serde::Serialize for Generation<Domain> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_u64(self.value)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

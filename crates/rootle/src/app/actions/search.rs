@@ -3,11 +3,14 @@
 //! change).
 
 use super::super::App;
+use super::super::diagnostics;
 use crate::action::Action;
 use crate::components::global_search::{GlobalSearch, SearchKind};
 use crate::components::search_popup::SearchPopup;
 use crate::event::AppEvent;
 use crate::mode::Mode;
+use rootle_trace::EventKind;
+use serde_json::json;
 
 impl App {
     /// This domain's arms: `Some(action)` back when not ours, so the
@@ -146,9 +149,19 @@ impl App {
             Action::LoadHitContext { hit, query } => {
                 // Dedupe repeat selections of an in-flight fetch.
                 if self.pending_context_sha.as_deref() == Some(hit.sha.as_str()) {
+                    diagnostics::record_job_rejected(
+                        "hit_context",
+                        "duplicate_pending",
+                        || json!({"sha": hit.sha}),
+                    );
                     return None;
                 }
                 if self.offline {
+                    diagnostics::record_job_rejected(
+                        "hit_context",
+                        "offline",
+                        || json!({"sha": hit.sha}),
+                    );
                     return None; // tests inject context via Action directly
                 }
                 // Cursor-rest debounce (plans/0008 §3): 200ms rearmed
@@ -162,15 +175,46 @@ impl App {
                 let shared = self.context_debounce_gen.clone();
                 let tx = self.tx.clone();
                 let hit = *hit;
+                let op = rootle_trace::operation_id();
+                rootle_trace::in_operation(op, || {
+                    rootle_trace::record_with(rootle_trace::EventKind::JobStarted, || {
+                        json!({
+                            "job": "hit_context_debounce",
+                            "timer_gen": timer_gen,
+                            "sha": hit.sha,
+                            "path": hit.path,
+                        })
+                    });
+                });
                 std::thread::spawn(move || {
-                    std::thread::sleep(std::time::Duration::from_millis(200));
-                    if shared.load(std::sync::atomic::Ordering::SeqCst) == timer_gen {
-                        let _ = tx.send(AppEvent::HitContextDebounceFired {
-                            timer_gen,
-                            hit,
-                            query,
+                    rootle_trace::in_operation(op, || {
+                        std::thread::sleep(std::time::Duration::from_millis(200));
+                        let still_current =
+                            shared.load(std::sync::atomic::Ordering::SeqCst) == timer_gen;
+                        rootle_trace::record_with(rootle_trace::EventKind::JobFinished, || {
+                            json!({
+                                "job": "hit_context_debounce",
+                                "timer_gen": timer_gen,
+                                "outcome": if still_current { "fired" } else { "superseded" },
+                            })
                         });
-                    }
+                        if still_current
+                            && tx
+                                .send(AppEvent::HitContextDebounceFired {
+                                    timer_gen,
+                                    hit,
+                                    query,
+                                })
+                                .is_err()
+                        {
+                            rootle_trace::record_with(rootle_trace::EventKind::Error, || {
+                                json!({
+                                    "job": "hit_context_debounce",
+                                    "send_failed": true,
+                                })
+                            });
+                        }
+                    });
                 });
                 true
             }
@@ -187,9 +231,21 @@ impl App {
                         .context_debounce_gen
                         .load(std::sync::atomic::Ordering::SeqCst)
                 {
+                    diagnostics::record_job_rejected("hit_context", "debounce_superseded", || {
+                        json!({
+                            "timer_gen": timer_gen,
+                            "current": self.context_debounce_gen
+                                .load(std::sync::atomic::Ordering::SeqCst),
+                        })
+                    });
                     return None;
                 }
                 if self.pending_context_sha.as_deref() == Some(hit.sha.as_str()) {
+                    diagnostics::record_job_rejected(
+                        "hit_context",
+                        "duplicate_pending",
+                        || json!({"sha": hit.sha}),
+                    );
                     return None;
                 }
                 // A different pending fetch is superseded — tell the
@@ -229,13 +285,37 @@ impl App {
                     // Real hit: materialize the blob like the browser
                     // does (cache-first; the UI is about to suspend).
                     if hit.repo.contains('/') {
-                        match crate::editor::prepare(
-                            &self.config,
-                            self.provider.as_ref(),
-                            &hit.repo,
-                            &hit.path,
-                            &hit.sha,
-                        ) {
+                        // 0030: same synchronous-job recording as the
+                        // browser's OpenSelected path.
+                        let op = rootle_trace::operation_id();
+                        let job = rootle_trace::in_operation(op, || {
+                            rootle_trace::record_with(EventKind::JobStarted, || {
+                                json!({
+                                    "job": "editor_prepare",
+                                    "repo": hit.repo,
+                                    "path": hit.path,
+                                    "sha": hit.sha,
+                                })
+                            });
+                            let started = rootle_trace::enabled().then(std::time::Instant::now);
+                            let prepared = crate::editor::prepare(
+                                &self.config,
+                                self.provider.as_ref(),
+                                &hit.repo,
+                                &hit.path,
+                                &hit.sha,
+                            );
+                            rootle_trace::record_with(EventKind::JobFinished, || {
+                                json!({
+                                    "job": "editor_prepare",
+                                    "outcome": if prepared.is_ok() { "ok" } else { "err" },
+                                    "error": prepared.as_ref().err().map(|e| diagnostics::text(e)),
+                                    "duration_us": started.map(|clock| clock.elapsed().as_micros()),
+                                })
+                            });
+                            prepared
+                        });
+                        match job {
                             Ok(job) => self.pending_editor = Some(job),
                             Err(message) => {
                                 self.status = Some(format!("editor: {message}"));

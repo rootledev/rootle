@@ -75,6 +75,7 @@ impl GitHubClient {
             .collect();
         let http = self.http.clone();
         let token = self.token.clone();
+        let auth_source = self.auth_source;
         let details: Vec<Option<BlameCommitFiles>> = std::thread::scope(|s| {
             let handles: Vec<_> = urls
                 .iter()
@@ -83,15 +84,52 @@ impl GitHubClient {
                     let token = token.clone();
                     let u = u.clone();
                     s.spawn(move || -> Option<BlameCommitFiles> {
+                        // Same record shape as the serial transport:
+                        // resource/status/elapsed/bytes, never bodies.
+                        let trace = super::transport::HttpTrace::begin(&u, auth_source, false);
                         let mut req = http.get(&u);
                         if let Some(t) = &token {
                             req = req.bearer_auth(t);
                         }
-                        let resp = req.send().ok()?;
-                        if !resp.status().is_success() {
+                        let resp = match req.send() {
+                            Ok(resp) => resp,
+                            Err(error) => {
+                                if let Some(trace) = &trace {
+                                    trace.fail(if error.is_timeout() {
+                                        "timeout"
+                                    } else {
+                                        "network"
+                                    });
+                                }
+                                return None;
+                            }
+                        };
+                        let status = resp.status();
+                        if !status.is_success() {
+                            if let Some(trace) = &trace {
+                                trace.finish(status.as_u16(), 0);
+                            }
                             return None;
                         }
-                        resp.json::<BlameCommitFiles>().ok()
+                        let bytes = match resp.bytes() {
+                            Ok(bytes) => bytes,
+                            Err(_) => {
+                                if let Some(trace) = &trace {
+                                    trace.fail("body_read");
+                                }
+                                return None;
+                            }
+                        };
+                        if let Some(trace) = &trace {
+                            trace.finish(status.as_u16(), bytes.len() as u64);
+                        }
+                        let decoded = serde_json::from_slice(&bytes).ok();
+                        if decoded.is_none()
+                            && let Some(trace) = &trace
+                        {
+                            trace.rejected("decode");
+                        }
+                        decoded
                     })
                 })
                 .collect();

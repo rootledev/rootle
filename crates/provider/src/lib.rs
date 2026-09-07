@@ -410,19 +410,3 @@ pub trait Provider: Send + Sync {
     fn org_url(&self, org: &str) -> ProviderResult<String>;
 }
 pub mod paths;
-
-/// Env-gated trace sink (`ROOTLE_TRACE=<path>`): timestamped appends,
-/// never a behavior change. Shared by the app and the provider
-/// crates (github client, transports) so one knob traces everything.
-pub fn trace(msg: &str) {
-    if let Ok(path) = std::env::var("ROOTLE_TRACE") {
-        use std::io::Write;
-        if let Ok(mut f) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path)
-        {
-            let _ = writeln!(f, "{:?} {msg}", std::time::SystemTime::now());
-        }
-    }
-}

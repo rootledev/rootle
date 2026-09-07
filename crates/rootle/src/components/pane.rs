@@ -121,6 +121,17 @@ impl Pane {
         }
     }
 
+    /// Cursor/viewport summary for session traces (plans/0030) —
+    /// indices and counts only, no entry text.
+    pub(crate) fn diagnostics(&self) -> PaneDiagnostics {
+        PaneDiagnostics {
+            selected: self.selected,
+            offset: self.state.offset(),
+            visible: self.visible().len(),
+            filter_len: self.filter.len(),
+        }
+    }
+
     pub fn render(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
         let sem = &theme.semantic;
         let focused = self.focused;
@@ -234,6 +245,16 @@ impl Pane {
             theme,
         );
     }
+}
+
+/// Diagnostic summary of one miller column (plans/0030 session
+/// traces): cursor, viewport and filter size — no entry text.
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+pub(crate) struct PaneDiagnostics {
+    pub(crate) selected: usize,
+    pub(crate) offset: usize,
+    pub(crate) visible: usize,
+    pub(crate) filter_len: usize,
 }
 
 /// Truncate to display width (CJK = 2 cells), never byte-count (PLAN.md §9).

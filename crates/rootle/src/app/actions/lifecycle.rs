@@ -2,7 +2,6 @@
 //! (moved from app/mod.rs, plans/0021 M1 — a pure move, zero behavior
 //! change).
 
-use super::super::trace;
 use super::super::{App, provider, provider_status};
 use crate::action::Action;
 use crate::components::clone_wizard::CloneWizard;
@@ -27,7 +26,6 @@ impl App {
                 true
             }
             Action::ClosePopup => {
-                trace("ClosePopup");
                 // Topmost overlay first; the search popup last.
                 if self.wizard.take().is_some()
                     || self.settings.take().is_some()
@@ -211,7 +209,28 @@ impl App {
             // the provider; swap it in on success, show the error on
             // failure (the popup stays up).
             Action::DeclarationRetry => {
-                let (provider, outcome) = provider::build(&self.config);
+                // 0030: the retry rebuild is a provider lifecycle
+                // event under a fresh operation id.
+                let op = rootle_trace::operation_id();
+                let (provider, outcome) = rootle_trace::in_operation(op, || {
+                    rootle_trace::record_with(
+                        rootle_trace::EventKind::ProviderLifecycle,
+                        || serde_json::json!({"stage": "rebuild"}),
+                    );
+                    let built = provider::build(&self.config);
+                    rootle_trace::record_with(rootle_trace::EventKind::ProviderLifecycle, || {
+                        serde_json::json!({
+                            "stage": "rebuild",
+                            "outcome": match &built.1 {
+                                provider::BuildOutcome::Ready => "ready",
+                                provider::BuildOutcome::Warn(_) => "warn",
+                                provider::BuildOutcome::Health(_) => "health",
+                                provider::BuildOutcome::Missing(_) => "missing",
+                            },
+                        })
+                    });
+                    built
+                });
                 match outcome {
                     provider::BuildOutcome::Ready | provider::BuildOutcome::Warn(_) => {
                         self.provider = provider;

@@ -22,6 +22,10 @@ pub struct CommandLine {
 }
 
 impl CommandLine {
+    pub(crate) fn diagnostics(&self, full: bool) -> serde_json::Value {
+        serde_json::json!({"selected":self.selected, "input":self.input.diagnostics(full)})
+    }
+
     pub fn new() -> Self {
         CommandLine {
             input: VimInput::transient(),
@@ -155,7 +159,7 @@ impl CommandLine {
         );
         let x = strip.x + 1 + self.input.cursor() as u16;
         if x < strip.x + strip.width {
-            frame.set_cursor_position((x, strip.y));
+            crate::diagnostics::place_cursor(frame, (x, strip.y));
         }
     }
 }

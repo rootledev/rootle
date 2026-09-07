@@ -77,7 +77,11 @@ pub struct HealthIssue {
 /// back to GitHub (with a warning for the status line) — a provider
 /// misconfiguration must never block startup.
 pub fn build(config: &Config) -> (Arc<dyn Provider>, BuildOutcome) {
-    match config.provider.kind.as_str() {
+    rootle_trace::record_with(
+        rootle_trace::EventKind::ProviderLifecycle,
+        || serde_json::json!({"phase":"selecting", "configured":provider_class(&config.provider.kind)}),
+    );
+    let selected: (Arc<dyn Provider>, BuildOutcome) = match config.provider.kind.as_str() {
         "github" => (
             Arc::new(rootle_github::GitHubProvider::new(config.cache.max_mb)),
             BuildOutcome::Ready,
@@ -97,6 +101,25 @@ pub fn build(config: &Config) -> (Arc<dyn Provider>, BuildOutcome) {
             }
         }
         other => build_declared(config, other),
+    };
+    rootle_trace::record_with(rootle_trace::EventKind::ProviderLifecycle, || {
+        let outcome = match &selected.1 {
+            BuildOutcome::Ready => "ready",
+            BuildOutcome::Warn(_) => "warning",
+            BuildOutcome::Health(_) => "health_prompt",
+            BuildOutcome::Missing(_) => "consent_required",
+        };
+        serde_json::json!({"phase":"selected", "configured":provider_class(&config.provider.kind),
+            "github":selected.0.name() == "github", "outcome":outcome})
+    });
+    selected
+}
+
+fn provider_class(kind: &str) -> &'static str {
+    match kind {
+        "github" => "github",
+        "stdio" => "stdio",
+        _ => "declared",
     }
 }
 

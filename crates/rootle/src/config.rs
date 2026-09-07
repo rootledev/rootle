@@ -178,9 +178,11 @@ impl Config {
     /// applied is the 0022-class quiet failure (0023 round 2).
     pub fn load() -> (Self, Option<String>) {
         let Some(path) = Self::path() else {
+            record_config("load", None, "no_config_directory", None);
             return (Self::default(), None);
         };
         if !path.exists() {
+            record_config("load", Some(&path), "missing_default", None);
             return (Self::default(), None);
         }
         Self::load_from(&path)
@@ -189,14 +191,28 @@ impl Config {
     /// Write the config back atomically (settings popup save).
     pub fn save(&self) -> std::io::Result<()> {
         let Some(path) = Self::path() else {
+            record_config("save", None, "no_config_directory", None);
             return Ok(()); // no config dir — nothing to persist
         };
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        let text = toml::to_string_pretty(self).map_err(std::io::Error::other)?;
-        std::fs::write(path.with_extension("toml.tmp"), text)?;
-        std::fs::rename(path.with_extension("toml.tmp"), path)
+        let result = (|| {
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            let text = toml::to_string_pretty(self).map_err(std::io::Error::other)?;
+            std::fs::write(path.with_extension("toml.tmp"), text)?;
+            std::fs::rename(path.with_extension("toml.tmp"), &path)
+        })();
+        record_config(
+            "save",
+            Some(&path),
+            if result.is_ok() {
+                "saved"
+            } else {
+                "write_error"
+            },
+            result.as_ref().err().map(std::io::Error::kind),
+        );
+        result
     }
 
     /// Load from an explicit path (--config). Missing or malformed
@@ -206,6 +222,7 @@ impl Config {
         let text = match std::fs::read_to_string(path) {
             Ok(text) => text,
             Err(e) => {
+                record_config("load", Some(path), "read_error", Some(e.kind()));
                 return (
                     Self::default(),
                     Some(format!(
@@ -216,16 +233,37 @@ impl Config {
             }
         };
         match toml::from_str(&text) {
-            Ok(config) => (config, None),
-            Err(e) => (
-                Self::default(),
-                Some(format!(
-                    "config {} malformed ({e}) — using defaults",
-                    path.display()
-                )),
-            ),
+            Ok(config) => {
+                record_config("load", Some(path), "loaded", None);
+                (config, None)
+            }
+            Err(e) => {
+                rootle_trace::record_with(rootle_trace::EventKind::Config, || {
+                    serde_json::json!({"operation":"load", "path":path.to_string_lossy(),
+                        "outcome":"parse_error", "byte_range":e.span(), "used_defaults":true})
+                });
+                (
+                    Self::default(),
+                    Some(format!(
+                        "config {} malformed ({e}) — using defaults",
+                        path.display()
+                    )),
+                )
+            }
         }
     }
+}
+
+fn record_config(
+    operation: &'static str,
+    path: Option<&std::path::Path>,
+    outcome: &'static str,
+    error: Option<std::io::ErrorKind>,
+) {
+    rootle_trace::record_with(rootle_trace::EventKind::Config, || {
+        serde_json::json!({"operation":operation, "path":path.map(|path|path.to_string_lossy()),
+            "outcome":outcome, "error_kind":error.map(|kind|format!("{kind:?}"))})
+    });
 }
 
 #[cfg(test)]

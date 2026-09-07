@@ -81,7 +81,16 @@ impl App {
                 rows[1],
             );
         }
-        self.modeline.status = self.status.clone().or_else(|| self.degraded.clone());
+        let mut status = self.status.clone().or_else(|| self.degraded.clone());
+        // 0030: a failed requested trace rides along as a sticky
+        // suffix — it must never displace the primary status.
+        if let Some(note) = &self.trace_failure {
+            status = Some(match status {
+                Some(current) => format!("{current} · {note}"),
+                None => note.clone(),
+            });
+        }
+        self.modeline.status = status;
         let modeline_row = rows[rows.len() - 1];
         self.modeline.update_tag = self.update_tag.clone();
         // 0022 M3: the forge chip tints warning while degraded.

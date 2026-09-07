@@ -38,6 +38,8 @@ docker or `sudo`.
 | `crates/github/` | `rootle-github`: REST client, wire models, disk cache — the in-tree reference impl |
 | `crates/manager/` | `rootle-manager`: install/update/pin for provider binaries + the CLI ui grammar |
 | `crates/diff/` | checked patch parsing, source line numbers and changed spans |
+| `crates/trace/` | private bounded JSONL diagnostics; `--log`, `--log-file`, `--log-content` |
+| `crates/rootle/src/diagnostics/` | CLI session and actual-grid observation boundary |
 | `crates/rootle/src/selfupdate.rs` | `rootle update` self-updater |
 | `crates/rootle/src/headless.rs` | scripted real-app driver and state/frame output |
 | `e2e/` | uv+pytest harness driving the real binary — headless scripts + PTY suite |

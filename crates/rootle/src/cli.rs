@@ -42,6 +42,20 @@ pub struct Cli {
     /// the script from stdin. Viewport: ROOTLE_HEADLESS_COLS/ROWS.
     #[arg(long, value_name = "SCRIPT")]
     pub headless: Option<PathBuf>,
+
+    /// Record all diagnostic categories in a new session file.
+    /// Omit PATH (or use ALL) for an automatic XDG-state log path.
+    #[arg(long, global = true, num_args = 0..=1, require_equals = true, default_missing_value = "ALL", value_name = "PATH")]
+    pub log: Option<std::ffi::OsString>,
+
+    /// Write diagnostics to this new file; existing files are refused.
+    /// ROOTLE_TRACE supplies the path when no CLI path is selected.
+    #[arg(long, global = true, value_name = "PATH", conflicts_with = "log")]
+    pub log_file: Option<PathBuf>,
+
+    /// Include sensitive input, visible UI text and provider stderr.
+    #[arg(long, global = true)]
+    pub log_content: bool,
 }
 
 /// Install a provider from a GitHub release, manage it locally, and
@@ -170,6 +184,9 @@ mod tests {
             update: false,
             check: false,
             headless: None,
+            log: None,
+            log_file: None,
+            log_content: false,
         }
     }
 

@@ -57,7 +57,7 @@ impl GlobalSearch {
         if focused && let Some(cursor) = cursor {
             let x = inner.x + 2 + cursor as u16;
             if x < inner.x + inner.width {
-                frame.set_cursor_position((x, inner.y));
+                crate::diagnostics::place_cursor(frame, (x, inner.y));
             }
         }
     }

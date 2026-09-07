@@ -22,12 +22,23 @@ impl StdioProvider {
         }
         let reply = self.exchange("initialize", params, false)?;
         let protocol = reply.get("protocol").and_then(Value::as_u64).unwrap_or(1);
+        let session = self.shared.routing.lock().session;
         if protocol != 1 {
+            crate::trace::lifecycle("handshake", |fields| {
+                fields.insert("session".into(), serde_json::json!(session.value()));
+                fields.insert("protocol".into(), serde_json::json!(protocol));
+                fields.insert("outcome".into(), serde_json::json!("unsupported_protocol"));
+            });
             return Err(ProviderError::new(
                 ErrorKind::Provider,
                 format!("unsupported provider protocol {protocol}"),
             ));
         }
+        crate::trace::lifecycle("handshake", |fields| {
+            fields.insert("session".into(), serde_json::json!(session.value()));
+            fields.insert("protocol".into(), serde_json::json!(protocol));
+            fields.insert("outcome".into(), serde_json::json!("ok"));
+        });
         Ok(reply)
     }
 

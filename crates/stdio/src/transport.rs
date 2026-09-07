@@ -2,13 +2,19 @@
 //! transitions live in `routing`; stdout parsing lives in `reader`.
 
 use crate::StdioProvider;
-use crate::routing::{Delivery, RequestId};
+use crate::routing::{Delivery, RequestId, SessionId};
 use rootle_provider::{ErrorKind, ProviderError, ProviderResult};
 use serde_json::{Value, json};
 use std::{
     io::Write,
     sync::{atomic::Ordering, mpsc},
 };
+
+struct PendingReply {
+    id: RequestId,
+    session: SessionId,
+    receiver: mpsc::Receiver<Delivery>,
+}
 
 impl StdioProvider {
     pub(super) fn exchange(
@@ -17,8 +23,8 @@ impl StdioProvider {
         params: Value,
         gated: bool,
     ) -> ProviderResult<Value> {
-        let (id, receiver) = self.send_request(method, params, gated, false)?;
-        self.await_reply(id, receiver, None)
+        let pending = self.send_request(method, params, gated, false)?;
+        self.await_reply(pending, None)
     }
 
     pub(super) fn exchange_with_partials(
@@ -28,8 +34,8 @@ impl StdioProvider {
         on_partial: &(dyn Fn(&Value) + Send + Sync),
     ) -> ProviderResult<Value> {
         self.ensure_alive()?;
-        let (id, receiver) = self.send_request(method, params, true, true)?;
-        self.await_reply(id, receiver, Some(on_partial))
+        let pending = self.send_request(method, params, true, true)?;
+        self.await_reply(pending, Some(on_partial))
     }
 
     fn send_request(
@@ -38,7 +44,7 @@ impl StdioProvider {
         params: Value,
         gated: bool,
         streaming: bool,
-    ) -> ProviderResult<(RequestId, mpsc::Receiver<Delivery>)> {
+    ) -> ProviderResult<PendingReply> {
         // Lock order is process -> routing everywhere a write can race
         // replacement. Registration and stdin always belong to one epoch.
         let mut process = self.process.lock();
@@ -49,7 +55,11 @@ impl StdioProvider {
         };
         let line = json!({"jsonrpc":"2.0", "id": id.wire(), "method": method, "params": params})
             .to_string();
+        // The wire frame is payload + newline; `written` separates an
+        // attempted write from one the pipe accepted.
+        let frame_bytes = line.len() as u64 + 1;
         if let Err(error) = writeln!(process.stdin, "{line}").and_then(|()| process.stdin.flush()) {
+            crate::trace::tx_request(session, id, method, frame_bytes, false);
             let mut routing = self.shared.routing.lock();
             routing.expire(id);
             routing.disconnect(session);
@@ -59,15 +69,24 @@ impl StdioProvider {
                 format!("provider write: {error}"),
             ));
         }
-        Ok((id, receiver))
+        crate::trace::tx_request(session, id, method, frame_bytes, true);
+        Ok(PendingReply {
+            id,
+            session,
+            receiver,
+        })
     }
 
     fn await_reply(
         &self,
-        id: RequestId,
-        receiver: mpsc::Receiver<Delivery>,
+        pending: PendingReply,
         on_partial: Option<&(dyn Fn(&Value) + Send + Sync)>,
     ) -> ProviderResult<Value> {
+        let PendingReply {
+            id,
+            session,
+            receiver,
+        } = pending;
         let _current = CurrentIdGuard::new(self, id);
         loop {
             match receiver.recv_timeout(self.timeout) {
@@ -79,17 +98,18 @@ impl StdioProvider {
                         on_partial(&params);
                     }
                 }
-                Ok(Delivery::Response(message)) => {
+                Ok(Delivery::Response(mut message)) => {
                     if let Some(error) = message.get("error") {
                         return Err(error_from_reply(error));
                     }
                     return message
-                        .get("result")
-                        .cloned()
+                        .get_mut("result")
+                        .map(Value::take)
                         .ok_or_else(|| ProviderError::other("provider reply without result"));
                 }
                 Err(mpsc::RecvTimeoutError::Timeout) => {
                     self.shared.routing.lock().expire(id);
+                    crate::trace::request_expired(session, id, self.timeout.as_millis() as u64);
                     return Err(ProviderError::new(
                         ErrorKind::Timeout,
                         format!("provider timeout after {}s", self.timeout.as_secs_f64()),
@@ -136,13 +156,9 @@ pub(super) fn de<Response: serde::de::DeserializeOwned>(value: Value) -> Provide
         .map_err(|error| ProviderError::other(format!("provider reply shape: {error}")))
 }
 
-fn error_from_reply(error: &Value) -> ProviderError {
-    let message = error
-        .get("message")
-        .and_then(Value::as_str)
-        .unwrap_or("provider error");
-    let data = error.get("data");
-    let kind = match data
+fn error_kind_of(error: &Value) -> ErrorKind {
+    match error
+        .get("data")
         .and_then(|data| data.get("kind"))
         .and_then(Value::as_str)
     {
@@ -153,8 +169,31 @@ fn error_from_reply(error: &Value) -> ProviderError {
         Some("timeout") => ErrorKind::Timeout,
         Some("provider") => ErrorKind::Provider,
         _ => ErrorKind::Other,
-    };
-    let error = ProviderError::new(kind, message);
+    }
+}
+
+/// The classified taxonomy label for a reply carrying an error —
+/// diagnostics record the class, never the remote message text.
+pub(super) fn classify_reply_error(message: &Value) -> Option<&'static str> {
+    let error = message.get("error")?;
+    Some(match error_kind_of(error) {
+        ErrorKind::Auth => "auth",
+        ErrorKind::RateLimited => "rate_limited",
+        ErrorKind::NotFound => "not_found",
+        ErrorKind::Network => "network",
+        ErrorKind::Timeout => "timeout",
+        ErrorKind::Provider => "provider",
+        _ => "other",
+    })
+}
+
+fn error_from_reply(error: &Value) -> ProviderError {
+    let message = error
+        .get("message")
+        .and_then(Value::as_str)
+        .unwrap_or("provider error");
+    let data = error.get("data");
+    let error = ProviderError::new(error_kind_of(error), message);
     match data
         .and_then(|data| data.get("retry_after_s"))
         .and_then(Value::as_u64)

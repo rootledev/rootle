@@ -46,6 +46,20 @@ pub struct CloneWizard {
 }
 
 impl CloneWizard {
+    pub(crate) fn diagnostics(&self, full: bool) -> serde_json::Value {
+        serde_json::json!({
+            "screen":match self.screen { Screen::Repos => "repos", Screen::Destination => "destination", Screen::Summary => "summary" },
+            "focus":match self.focus { Focus::List => "list", Focus::Buttons => "buttons" },
+            "button":match self.button { Button::Back => "back", Button::Next => "next" },
+            "selected":self.selection.selected().get(),
+            "destination_selected":self.destination_selection.selected().get(),
+            "destination":self.dest.to_string_lossy(), "repositories":self.repos.len(),
+            "marked":self.repos.iter().filter(|(_,marked)|*marked).count(),
+            "directories":self.dest_entries.len(), "viewport":self.viewport.diagnostics(),
+            "filter":self.filter.diagnostics(full),
+        })
+    }
+
     pub fn effective_mode(&self) -> crate::mode::Mode {
         if self.filter.active() {
             crate::mode::Mode::Search

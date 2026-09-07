@@ -17,6 +17,7 @@ rootle-stdio.workspace = true
 rootle-github.workspace = true
 rootle-manager.workspace = true
 rootle-diff.workspace = true
+rootle-trace.workspace = true
 ratatui = { version = "0.30", features = [] }
 crossterm = "0.29"
 serde = { version = "1", features = ["derive"] }

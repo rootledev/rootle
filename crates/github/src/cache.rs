@@ -109,8 +109,19 @@ fn blob_path(root: &std::path::Path, sha: &str) -> PathBuf {
 }
 
 pub fn read_blob(sha: &str) -> Option<Vec<u8>> {
-    let path = blob_path(&root_or_migrate()?, sha);
-    let bytes = std::fs::read(&path).ok()?;
+    let root = root_or_migrate()?;
+    let path = blob_path(&root, sha);
+    let bytes = std::fs::read(&path).ok();
+    let hit = &bytes;
+    rootle_trace::record_with(rootle_trace::EventKind::Cache, || {
+        serde_json::json!({
+            "op": "blob_read",
+            "sha": sha,
+            "hit": hit.is_some(),
+            "bytes": hit.as_ref().map_or(0, |b| b.len()),
+        })
+    });
+    let bytes = bytes?;
     touch(&path); // mtime = last-used, drives LRU eviction
     Some(bytes)
 }
@@ -119,34 +130,77 @@ pub fn write_blob(sha: &str, bytes: &[u8]) -> io::Result<()> {
     let Some(root) = root_or_migrate() else {
         return Ok(());
     };
+    rootle_trace::record_with(rootle_trace::EventKind::Cache, || {
+        serde_json::json!({
+            "op": "blob_write",
+            "sha": sha,
+            "bytes": bytes.len(),
+        })
+    });
     atomic_write(&blob_path(&root, sha), bytes)
 }
 
 pub fn cached_branch(owner: &str, repo: &str) -> Option<String> {
-    let dir = root_or_migrate()?
-        .join("index/refs")
-        .join(encode_component(owner))
-        .join(encode_component(repo));
-    // First cached ref — skips any .tmp left by an interrupted write.
-    // Entry names are encoded (a `feature/foo` branch is one entry);
-    // decode back to the real branch name.
-    let entry = std::fs::read_dir(dir)
-        .ok()?
-        .filter_map(|e| e.ok())
-        .find(|e| !e.file_name().to_string_lossy().ends_with(".tmp"))?;
-    Some(decode_component(&entry.file_name().into_string().ok()?))
+    let branch = root_or_migrate().and_then(|root| {
+        let dir = root
+            .join("index/refs")
+            .join(encode_component(owner))
+            .join(encode_component(repo));
+        // Skip incomplete atomic writes; decode the provider's opaque ref name.
+        let found = std::fs::read_dir(dir)
+            .ok()?
+            .filter_map(|entry| entry.ok())
+            .find(|entry| !entry.file_name().to_string_lossy().ends_with(".tmp"));
+        found.and_then(|entry| {
+            entry
+                .file_name()
+                .into_string()
+                .ok()
+                .map(|name| decode_component(&name))
+        })
+    });
+    rootle_trace::record_with(rootle_trace::EventKind::Cache, || {
+        serde_json::json!({
+            "op": "cached_branch",
+            "owner": owner,
+            "repo": repo,
+            "hit": branch.is_some(),
+        })
+    });
+    branch
 }
 
 pub fn read_ref(owner: &str, repo: &str, branch: &str) -> Option<RefCache> {
-    let path = ref_path(&root_or_migrate()?, owner, repo, branch);
-    let text = std::fs::read_to_string(path).ok()?;
-    serde_json::from_str(&text).ok()
+    let text = root_or_migrate()
+        .and_then(|root| std::fs::read_to_string(ref_path(&root, owner, repo, branch)).ok());
+    let entry = text
+        .as_deref()
+        .and_then(|text| serde_json::from_str(text).ok());
+    rootle_trace::record_with(rootle_trace::EventKind::Cache, || {
+        serde_json::json!({
+            "op": "ref_read",
+            "owner": owner,
+            "repo": repo,
+            "branch": branch,
+            "hit": entry.is_some(),
+            "miss_reason": if entry.is_some() { None } else if text.is_some() { Some("corrupt") } else { Some("unavailable") },
+        })
+    });
+    entry
 }
 
 pub fn write_ref(owner: &str, repo: &str, branch: &str, entry: &RefCache) -> io::Result<()> {
     let Some(root) = root_or_migrate() else {
         return Ok(());
     };
+    rootle_trace::record_with(rootle_trace::EventKind::Cache, || {
+        serde_json::json!({
+            "op": "ref_write",
+            "owner": owner,
+            "repo": repo,
+            "branch": branch,
+        })
+    });
     atomic_write(
         &ref_path(&root, owner, repo, branch),
         serde_json::to_string(entry)?.as_bytes(),
@@ -154,19 +208,55 @@ pub fn write_ref(owner: &str, repo: &str, branch: &str, entry: &RefCache) -> io:
 }
 
 pub fn read_tree(sha: &str) -> Option<TreeResponse> {
-    let path = tree_path(&root_or_migrate()?, sha);
-    let text = std::fs::read_to_string(path).ok()?;
-    serde_json::from_str(&text).ok()
+    let Some(root) = root_or_migrate() else {
+        rootle_trace::record_with(
+            rootle_trace::EventKind::Cache,
+            || serde_json::json!({"op":"tree_read","sha":sha,"hit":false,"miss_reason":"no_cache_directory"}),
+        );
+        return None;
+    };
+    let path = tree_path(&root, sha);
+    let (tree, miss_reason) = match std::fs::read_to_string(&path) {
+        Ok(text) => match serde_json::from_str::<TreeResponse>(&text) {
+            Ok(tree) => (Some(tree), None),
+            // A present-but-corrupt body is the documented 304 trap:
+            // the caller refetches unconditionally and heals both the
+            // tree and its ref (trees.rs).
+            Err(_) => (None, Some("corrupt")),
+        },
+        Err(e) => (
+            None,
+            Some(if e.kind() == io::ErrorKind::NotFound {
+                "absent"
+            } else {
+                "unreadable"
+            }),
+        ),
+    };
+    rootle_trace::record_with(rootle_trace::EventKind::Cache, || {
+        serde_json::json!({
+            "op": "tree_read",
+            "sha": sha,
+            "hit": tree.is_some(),
+            "miss_reason": miss_reason,
+        })
+    });
+    tree
 }
 
 pub fn write_tree(tree: &TreeResponse) -> io::Result<()> {
     let Some(root) = root_or_migrate() else {
         return Ok(());
     };
-    atomic_write(
-        &tree_path(&root, &tree.sha),
-        serde_json::to_string(tree)?.as_bytes(),
-    )
+    let text = serde_json::to_string(tree)?;
+    rootle_trace::record_with(rootle_trace::EventKind::Cache, || {
+        serde_json::json!({
+            "op": "tree_write",
+            "sha": tree.sha,
+            "bytes": text.len(),
+        })
+    });
+    atomic_write(&tree_path(&root, &tree.sha), text.as_bytes())
 }
 
 /// tmp + rename — a kill mid-write never yields a corrupt entry.
@@ -194,8 +284,23 @@ pub fn harden(max_bytes: u64) {
     let Some(root) = root_or_migrate() else {
         return;
     };
-    sweep_orphans(&root);
-    evict_blobs(&root, max_bytes);
+    let (trees_removed, blobs_removed) = sweep_orphans(&root);
+    let (evicted, reclaimed) = evict_blobs(&root, max_bytes);
+    rootle_trace::record_with(rootle_trace::EventKind::Cache, || {
+        serde_json::json!({
+            "op": "sweep",
+            "trees_removed": trees_removed,
+            "blobs_removed": blobs_removed,
+        })
+    });
+    rootle_trace::record_with(rootle_trace::EventKind::Cache, || {
+        serde_json::json!({
+            "op": "evict",
+            "evicted": evicted,
+            "reclaimed_bytes": reclaimed,
+            "budget_bytes": max_bytes,
+        })
+    });
 }
 
 /// Best-effort mtime bump so eviction sees the blob as recently used.
@@ -217,11 +322,14 @@ fn walk_files(dir: &PathBuf, out: &mut Vec<PathBuf>) {
     }
 }
 
-fn sweep_orphans(root: &Path) {
+/// Returns (trees_removed, blobs_removed).
+fn sweep_orphans(root: &Path) -> (usize, usize) {
     let index = root.join("index").join("refs");
     let trees_dir = root.join("trees");
     let blobs_dir = root.join("blobs");
 
+    let mut trees_removed = 0usize;
+    let mut blobs_removed = 0usize;
     // Tree shas referenced by at least one cached ref.
     let mut referenced_trees = std::collections::HashSet::new();
     let mut ref_files = Vec::new();
@@ -247,7 +355,7 @@ fn sweep_orphans(root: &Path) {
         if referenced_trees.contains(&sha) {
             live_trees.push(file);
         } else {
-            let _ = std::fs::remove_file(&file);
+            trees_removed += std::fs::remove_file(&file).is_ok() as usize;
         }
     }
 
@@ -279,12 +387,14 @@ fn sweep_orphans(root: &Path) {
             file.file_name().unwrap_or_default().to_string_lossy()
         );
         if !referenced_blobs.contains(&sha) {
-            let _ = std::fs::remove_file(&file);
+            blobs_removed += std::fs::remove_file(&file).is_ok() as usize;
         }
     }
+    (trees_removed, blobs_removed)
 }
 
-fn evict_blobs(root: &Path, max_bytes: u64) {
+/// Returns (blobs_evicted, bytes_reclaimed).
+fn evict_blobs(root: &Path, max_bytes: u64) -> (usize, u64) {
     let blobs_dir = root.join("blobs");
     let mut files = Vec::new();
     walk_files(&blobs_dir, &mut files);
@@ -298,19 +408,24 @@ fn evict_blobs(root: &Path, max_bytes: u64) {
         .collect();
     let mut total: u64 = entries.iter().map(|(_, size, _)| size).sum();
     if total <= max_bytes {
-        return;
+        return (0, 0);
     }
 
     // Oldest (least-recently-used) first.
     entries.sort_by_key(|(_, _, mtime)| *mtime);
+    let mut evicted = 0usize;
+    let mut reclaimed = 0u64;
     for (path, size, _) in entries {
         if total <= max_bytes {
             break;
         }
         if std::fs::remove_file(&path).is_ok() {
             total -= size;
+            evicted += 1;
+            reclaimed += size;
         }
     }
+    (evicted, reclaimed)
 }
 
 #[cfg(test)]

@@ -7,8 +7,8 @@
 //! `process.rs` spawns the child; `transport.rs` owns the reader
 //! thread + reply routing; `handshake.rs` runs the initialize round
 //! trip; `restart.rs` is the respawn-with-backoff recovery machine;
-//! `wire.rs` maps `trait Provider` methods onto round trips.
-//!
+//! `wire.rs` maps `trait Provider` methods onto round trips;
+//! `trace.rs` emits the diagnostic records (plans/0030).
 //! Transport (plans/0008 §1): a dedicated reader thread owns the
 //! child's stdout and routes replies by id into per-request slots.
 //! Requests wait with a deadline (`[provider] timeout_ms`) — one hung
@@ -37,6 +37,8 @@ mod process;
 mod reader;
 mod restart;
 mod routing;
+mod stderr;
+mod trace;
 mod transport;
 mod wire;
 
@@ -66,6 +68,10 @@ pub struct StdioProvider {
     command: Vec<String>,
     env: Vec<(String, String)>,
     stderr_mode: StderrMode,
+    /// Bounded stderr drainer for the same generation — present only
+    /// under Full-content tracing (Null mode); joined wherever the
+    /// stdout reader is, always after the child is terminated.
+    stderr_reader: Mutex<Option<stderr::StderrReader>>,
     reader: Mutex<Option<JoinHandle<()>>>,
     /// One-shot UI notice (a successful restart, a config warning),
     /// drained via `take_notice` (plans/0008 §5).
@@ -99,6 +105,10 @@ impl Drop for StdioProvider {
         let process = self.process.get_mut();
         process.terminate();
         if let Some(handle) = self.reader.lock().take() {
+            let _ = handle.join();
+        }
+        // Stop the bounded drainer even if descendants inherited the pipe.
+        if let Some(handle) = self.stderr_reader.lock().take() {
             let _ = handle.join();
         }
     }
@@ -182,10 +192,38 @@ impl StdioProvider {
         stderr_mode: StderrMode,
         cache: SpawnCache,
     ) -> ProviderResult<Self> {
-        let (process, stdout) = spawn_process(command, env, stderr_mode)?;
+        let spawned = spawn_process(command, env, stderr_mode);
         let shared = Arc::new(Shared::default());
         let session = shared.routing.lock().session;
+        let (mut process, stdout, child_stderr) = match spawned {
+            Ok(spawned) => {
+                self::trace::lifecycle("spawn", |fields| {
+                    fields.insert("session".into(), serde_json::json!(session.value()));
+                });
+                spawned
+            }
+            Err(error) => {
+                self::trace::lifecycle("spawn_failed", |fields| {
+                    fields.insert("session".into(), serde_json::json!(session.value()));
+                });
+                return Err(error);
+            }
+        };
         let reader = spawn_reader(stdout, Arc::clone(&shared), session)?;
+        let stderr_handle = match child_stderr
+            .map(|stderr| self::stderr::spawn(stderr, session))
+            .transpose()
+        {
+            Ok(handle) => handle,
+            Err(error) => {
+                rootle_trace::mark_incomplete("provider stderr reader could not start");
+                process.terminate();
+                let _ = reader.join();
+                return Err(rootle_provider::ProviderError::other(format!(
+                    "start provider stderr reader: {error}"
+                )));
+            }
+        };
         let provider = StdioProvider {
             name: "stdio".into(),
             icon: None,
@@ -210,6 +248,7 @@ impl StdioProvider {
                 .map(|(k, v)| (k.to_string(), v.to_string()))
                 .collect(),
             stderr_mode,
+            stderr_reader: Mutex::new(stderr_handle),
             reader: Mutex::new(Some(reader)),
             notice: Mutex::new(None),
             failure_noticed: Mutex::new(false),

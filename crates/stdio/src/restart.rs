@@ -77,13 +77,24 @@ impl StdioProvider {
             if let Some(reader) = self.reader.lock().take() {
                 let _ = reader.join();
             }
+            if let Some(stderr_reader) = self.stderr_reader.lock().take() {
+                let _ = stderr_reader.join();
+            }
         }
         guard.armed = false;
         self.finish_rebuild(attempt, result.as_ref().map(|_| ()))
     }
 
     fn rebuild_process(&self, attempt: u32) -> ProviderResult<()> {
-        std::thread::sleep(backoff_for(attempt));
+        let backoff = backoff_for(attempt);
+        crate::trace::lifecycle("backoff", |fields| {
+            fields.insert("attempt".into(), serde_json::json!(attempt));
+            fields.insert(
+                "backoff_ms".into(),
+                serde_json::json!(backoff.as_millis() as u64),
+            );
+        });
+        std::thread::sleep(backoff);
         if self.closed.load(Ordering::Acquire) {
             return Err(ProviderError::other("provider dropped during restart"));
         }
@@ -93,20 +104,46 @@ impl StdioProvider {
         if let Some(reader) = self.reader.lock().take() {
             let _ = reader.join();
         }
+        if let Some(stderr_reader) = self.stderr_reader.lock().take() {
+            let _ = stderr_reader.join();
+        }
         let environment: Vec<_> = self
             .env
             .iter()
             .map(|(name, value)| (name.as_str(), value.as_str()))
             .collect();
-        let (process, stdout) = spawn_process(&self.command, &environment, self.stderr_mode)?;
-        let session = {
+        {
+            let spawned = spawn_process(&self.command, &environment, self.stderr_mode);
             let mut current = self.process.lock();
-            *current = process;
             let mut routing = self.shared.routing.lock();
-            routing.output = OutputState::Open;
-            routing.session
+            let new_session = routing.session;
+            match spawned {
+                Ok((process, stdout, child_stderr)) => {
+                    crate::trace::lifecycle("spawn", |fields| {
+                        fields.insert("session".into(), serde_json::json!(new_session.value()));
+                    });
+                    *current = process;
+                    routing.output = OutputState::Open;
+                    let stderr_handle = child_stderr
+                        .map(|stderr| crate::stderr::spawn(stderr, new_session))
+                        .transpose()
+                        .map_err(|error| {
+                            rootle_trace::mark_incomplete("provider stderr reader could not start");
+                            ProviderError::other(format!("start provider stderr reader: {error}"))
+                        })?;
+                    *self.stderr_reader.lock() = stderr_handle;
+                    let reader = spawn_reader(stdout, Arc::clone(&self.shared), new_session)?;
+                    *self.reader.lock() = Some(reader);
+                    new_session
+                }
+                Err(error) => {
+                    crate::trace::lifecycle("spawn_failed", |fields| {
+                        fields.insert("session".into(), serde_json::json!(new_session.value()));
+                    });
+                    return Err(error);
+                }
+            }
         };
-        *self.reader.lock() = Some(spawn_reader(stdout, Arc::clone(&self.shared), session)?);
         self.handshake().map(|_| ())
     }
 
@@ -135,6 +172,27 @@ impl StdioProvider {
             }
         }
         drop(routing);
+        crate::trace::lifecycle("restart", |fields| {
+            fields.insert("attempt".into(), serde_json::json!(attempt));
+            fields.insert(
+                "backoff_ms".into(),
+                serde_json::json!(backoff_for(attempt).as_millis() as u64),
+            );
+            match &outcome {
+                Ok(()) => {
+                    fields.insert("outcome".into(), serde_json::json!("ok"));
+                }
+                // The kind only — restart error strings can carry the
+                // provider program name (argv) or spawn errors.
+                Err(error) => {
+                    fields.insert("outcome".into(), serde_json::json!("failed"));
+                    fields.insert(
+                        "error_kind".into(),
+                        serde_json::json!(crate::trace::error_kind_label(error.kind)),
+                    );
+                }
+            }
+        });
         self.shared.changed.notify_all();
         match &outcome {
             Ok(()) => {

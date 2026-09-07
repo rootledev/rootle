@@ -12,7 +12,7 @@ mod revision;
 
 mod blobs;
 pub(crate) use blobs::CachedBlob;
-pub(crate) use lenses::{BlameState, History};
+pub(crate) use lenses::{BlameState, History, HistoryDiagnostics};
 
 pub(crate) mod lenses;
 
@@ -167,7 +167,7 @@ impl Browser {
     /// Org repos arrived from the API: install/replace the repos level.
     /// Ignored if the user has since selected a different org.
     pub fn org_repos_loaded(&mut self, org: &str, repos: Vec<rootle_provider::RepoInfo>) {
-        if self.selected_org().as_deref() != Some(org) {
+        if !self.org_repos_would_accept(org) {
             return;
         }
         let entries = repos
@@ -191,11 +191,7 @@ impl Browser {
         truncated: bool,
         branch: String,
     ) {
-        if self.levels.get(1).map(|p| p.title.as_str()) != Some(owner) {
-            return;
-        }
-        let current_repo = self.levels[1].selected_entry().map(|e| e.name.clone());
-        if current_repo.as_deref() != Some(name) {
+        if !self.tree_would_accept(owner, name) {
             return;
         }
         self.tree = Some(RepoTree::new(
@@ -216,6 +212,69 @@ impl Browser {
         }
         self.sync();
     }
+
+    /// Shared identity guard for org-repo application and its observation.
+    pub(crate) fn org_repos_would_accept(&self, org: &str) -> bool {
+        self.selected_org().as_deref() == Some(org)
+    }
+
+    /// Shared identity guard for tree application and its observation.
+    pub(crate) fn tree_would_accept(&self, owner: &str, name: &str) -> bool {
+        self.levels.get(1).map(|p| p.title.as_str()) == Some(owner)
+            && self
+                .levels
+                .get(1)
+                .and_then(|p| p.selected_entry())
+                .map(|e| e.name.as_str())
+                == Some(name)
+    }
+
+    /// Shared condition for applying arrived blame ranges to the open lens.
+    pub(crate) fn blame_awaiting(&self, path: &str) -> bool {
+        self.blame
+            .as_ref()
+            .is_some_and(|b| b.loading && b.path == path)
+    }
+
+    /// Column/marks/blob-cache summary for session traces (plans/0030):
+    /// indices and counts only, no entry text.
+    pub(crate) fn diagnostics(&self) -> BrowserDiagnostics {
+        BrowserDiagnostics {
+            focus: self.focus,
+            columns: self.levels.iter().map(|p| p.diagnostics()).collect(),
+            visual: self.visual,
+            marks: self.marks.len(),
+            cached_blobs: self.blobs.len(),
+            pending_blobs: self.pending_blobs.len(),
+            failed_blobs: self.failed_blobs.len(),
+            history: self.history.as_ref().map(|h| h.diagnostics()),
+            blame: self.blame.as_ref().map(|b| BlameDiagnostics {
+                loading: b.loading,
+                ranges: b.ranges.len(),
+            }),
+        }
+    }
+}
+
+/// Diagnostic summary of the browser (plans/0030 session traces).
+#[derive(Debug, Clone)]
+pub(crate) struct BrowserDiagnostics {
+    pub(crate) focus: usize,
+    pub(crate) columns: Vec<super::pane::PaneDiagnostics>,
+    pub(crate) visual: bool,
+    pub(crate) marks: usize,
+    pub(crate) cached_blobs: usize,
+    pub(crate) pending_blobs: usize,
+    pub(crate) failed_blobs: usize,
+    pub(crate) history: Option<HistoryDiagnostics>,
+    pub(crate) blame: Option<BlameDiagnostics>,
+}
+
+/// Blame-lens summary: is a fetch in flight, how many ranges landed.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct BlameDiagnostics {
+    pub(crate) loading: bool,
+    pub(crate) ranges: usize,
 }
 
 pub use marks::MarkKey;

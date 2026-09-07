@@ -1,5 +1,6 @@
 //! Input for App.
 
+use super::diagnostics;
 use super::{Action, App, Component, KeyEvent, Mode, Outcome, keymap};
 
 impl App {
@@ -46,10 +47,13 @@ impl App {
             None => self.mode,
         }
     }
-
     pub fn handle_key(&mut self, key: KeyEvent) {
-        let action = self.dispatch(key);
-        self.handle_action(action);
+        rootle_trace::in_operation(rootle_trace::operation_id(), || {
+            diagnostics::record_key(&key, self.effective_mode().chip());
+            let action = self.dispatch(key);
+            self.handle_action(action);
+            diagnostics::record_state(self, "post_key");
+        });
     }
 
     pub(super) fn dispatch(&mut self, key: KeyEvent) -> Action {
@@ -123,6 +127,7 @@ impl App {
     /// shared tail (filter re-apply, theme sync, blob drain, provider
     /// notices) applies to every routed action.
     pub fn handle_action(&mut self, action: Action) {
+        diagnostics::record_action(&action);
         let left = self
             .try_browse(action)
             .and_then(|a| self.try_search(a))
@@ -153,5 +158,6 @@ impl App {
             }
             self.status = Some(note);
         }
+        diagnostics::record_state(self, "post_action");
     }
 }

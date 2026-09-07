@@ -3,6 +3,26 @@
 User-visible changes per release. Protocol archaeology lives in
 `plans/`; this file is for "what's new for me".
 
+## Unreleased
+
+### Diagnostic sessions
+
+- `--log` / `--log=ALL` creates a private session log; `--log-file PATH`
+  and `ROOTLE_TRACE=PATH` select a new JSONL file. Existing files are refused,
+  not overwritten or appended. CLI flags also work with provider commands.
+- Input, actions, post-transition state, actual cell grids/cursors/resize,
+  worker outcomes and rejection reasons, RPC traffic metadata, HTTP/cache,
+  config, update, editor and clipboard activity share one bounded writer.
+  Operation IDs and provider session/request IDs connect the evidence.
+- Metadata omits typed text, file contents, rendered glyphs and provider
+  stderr. `--log-content` explicitly enables sensitive UI/stderr capture.
+  Authorization headers, environment values, command argument vectors and
+  RPC/HTTP bodies are never automatically recorded.
+- Captures have byte/event/record limits and explicit completion markers;
+  write/queue/cap failures surface without writing over the TUI. Panic
+  capture is best-effort and bounded. Headless draws retain their terminal
+  buffers, and stderr capture cannot wait forever on an inherited pipe.
+
 ## [0.10.0] — 2026-09-07
 
 ### Commit inspection and shared foundations

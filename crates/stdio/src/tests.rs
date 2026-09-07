@@ -355,5 +355,148 @@ fn progressive_search_rebuilds_after_child_death() {
         .expect("progressive calls share the recovery gate");
 }
 
+// -- 0030 diagnostic tracing: privacy, byte accounting, lifecycle ------
+//
+// The recorder is process-global, so every test that installs a
+// session holds this lock; other tests in this binary may emit
+// records into an active session, which these assertions tolerate.
+static TRACE_LOCK: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
+
+fn trace_path(tag: &str) -> std::path::PathBuf {
+    let path =
+        std::env::temp_dir().join(format!("rootle-stdio-trace-{}-{tag}", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    path
+}
+
+fn records(path: &std::path::Path) -> Vec<serde_json::Value> {
+    std::fs::read_to_string(path)
+        .expect("trace file readable after finish")
+        .lines()
+        .filter(|line| !line.is_empty())
+        .map(|line| serde_json::from_str(line).expect("trace file is JSONL"))
+        .collect()
+}
+
+/// RpcMessage records carry the ACTUAL wire frame length (payload +
+/// newline) and the routing outcome, and the default Metadata policy
+/// never records request params or reply bodies — only this test's
+/// own secret param value decides that, not method-name substrings.
+#[test]
+fn rpc_records_count_real_frame_bytes_and_exclude_payloads() {
+    let _guard = TRACE_LOCK.lock();
+    let path = trace_path("rpc-bytes");
+    let session = rootle_trace::start(&path, rootle_trace::TraceOptions::default())
+        .expect("trace session starts");
+    let provider = fake("trace-bytes", Duration::from_secs(5));
+    provider
+        .request("org/repos", json!({ "org": "ORG-SECRET-VALUE" }))
+        .expect("request round trip");
+    drop(provider);
+    session.finish().expect("trace session finishes");
+
+    let expected = json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "org/repos",
+        "params": { "org": "ORG-SECRET-VALUE" }
+    })
+    .to_string()
+    .len() as u64
+        + 1; // the newline writeln! adds to the wire frame
+
+    let events = records(&path);
+    let tx = events.iter().any(|record| {
+        record["event"] == "rpc_message"
+            && record["fields"]["frame"] == "request"
+            && record["fields"]["dir"] == "tx"
+            && record["fields"]["method"] == "org/repos"
+            && record["fields"]["id"] == 2
+            && record["fields"]["written"] == true
+            && record["fields"]["bytes"] == expected
+    });
+    assert!(
+        tx,
+        "tx record must report the exact frame byte count {expected}: {events:?}"
+    );
+    let rx = events.iter().any(|record| {
+        record["event"] == "rpc_message"
+            && record["fields"]["frame"] == "response"
+            && record["fields"]["id"] == 2
+            && record["fields"]["routed"] == "delivered"
+            && record["fields"]["bytes"].as_u64().is_some_and(|b| b > 0)
+    });
+    assert!(rx, "rx record must report delivery and a real byte count");
+
+    let file = std::fs::read_to_string(&path).unwrap();
+    assert!(
+        !file.contains("ORG-SECRET-VALUE"),
+        "metadata policy must never record request params"
+    );
+    let _ = std::fs::remove_file(&path);
+}
+
+/// Provider stderr is captured only under the explicit Full policy
+/// (Null mode; inherit is never diverted), the drainer is bounded and
+/// keeps draining, and Drop terminates + joins it without hanging.
+#[test]
+fn provider_stderr_is_full_only_and_joins_cleanly_on_drop() {
+    let _guard = TRACE_LOCK.lock();
+    // Metadata: no stderr pipe at all — no provider_stderr records.
+    let path = trace_path("stderr-meta");
+    let session = rootle_trace::start(&path, rootle_trace::TraceOptions::default())
+        .expect("metadata trace session starts");
+    {
+        let provider = fake("chatty-stderr", Duration::from_secs(5));
+        provider
+            .request("search/repos", json!({ "query": "q" }))
+            .expect("request round trip under metadata");
+        drop(provider);
+    }
+    session.finish().expect("metadata trace finishes");
+    let meta_events = records(&path);
+    assert!(
+        meta_events
+            .iter()
+            .all(|record| record["event"] != "provider_stderr"),
+        "metadata policy must not capture provider stderr"
+    );
+    let _ = std::fs::remove_file(&path);
+
+    // Full: the null sink is replaced by a capture pipe; Drop joins
+    // the drainer after killing the child, so it cannot hang.
+    let path = trace_path("stderr-full");
+    let session = rootle_trace::start(
+        &path,
+        rootle_trace::TraceOptions {
+            content: rootle_trace::ContentPolicy::Full,
+            ..rootle_trace::TraceOptions::default()
+        },
+    )
+    .expect("full trace session starts");
+    let dropped_at = std::time::Instant::now();
+    {
+        let provider = fake("chatty-stderr", Duration::from_secs(5));
+        provider
+            .request("search/repos", json!({ "query": "q" }))
+            .expect("request round trip under full");
+        drop(provider);
+    }
+    let drop_elapsed = dropped_at.elapsed();
+    session.finish().expect("full trace finishes");
+    assert!(
+        drop_elapsed < Duration::from_secs(10),
+        "Drop must terminate and join the stderr drainer promptly, took {drop_elapsed:?}"
+    );
+    let events = records(&path);
+    let marker = events.iter().any(|record| {
+        record["event"] == "provider_stderr"
+            && record["fields"]["text"]
+                .as_str()
+                .is_some_and(|text| text.contains("rootle-fake-stderr-marker"))
+    });
+    assert!(marker, "full policy captures the provider's stderr text");
+    let _ = std::fs::remove_file(&path);
+}
 pub(crate) mod support;
 pub(crate) use support::fake;

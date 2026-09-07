@@ -16,12 +16,48 @@ impl RequestId {
     }
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct SessionId(u64);
+impl SessionId {
+    pub(crate) fn value(self) -> u64 {
+        self.0
+    }
+}
 
 pub(crate) enum Delivery {
     Partial(Value),
     Response(Value),
+}
+
+/// What happened to an inbound frame, for diagnostics: delivered to
+/// its caller, or the precise reason it was dropped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RouteOutcome {
+    Delivered,
+    /// From a reader generation that was already replaced.
+    StaleSession,
+    /// Allocated once (id ≤ next_id) but no longer pending — timed
+    /// out or already answered; ids are never reused.
+    RetiredId,
+    /// Never allocated by this transport (id > next_id).
+    UnknownId,
+    /// The slot exists but did not opt into streaming.
+    NotStreaming,
+    /// The waiting caller is gone (its channel closed).
+    ReceiverGone,
+}
+
+impl RouteOutcome {
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            RouteOutcome::Delivered => "delivered",
+            RouteOutcome::StaleSession => "stale_session",
+            RouteOutcome::RetiredId => "retired_id",
+            RouteOutcome::UnknownId => "unknown_id",
+            RouteOutcome::NotStreaming => "not_streaming",
+            RouteOutcome::ReceiverGone => "receiver_gone",
+        }
+    }
 }
 struct PendingRequest {
     sender: mpsc::Sender<Delivery>,
@@ -88,29 +124,56 @@ impl Routing {
         self.pending.remove(&id);
     }
 
-    pub fn response(&mut self, session: SessionId, id: RequestId, response: Value) -> bool {
+    pub fn response(&mut self, session: SessionId, id: RequestId, response: Value) -> RouteOutcome {
         if session != self.session {
-            return false;
+            return RouteOutcome::StaleSession;
         }
-        self.pending
-            .remove(&id)
-            .is_some_and(|request| request.sender.send(Delivery::Response(response)).is_ok())
+        match self.pending.remove(&id) {
+            Some(request) => {
+                if request.sender.send(Delivery::Response(response)).is_ok() {
+                    RouteOutcome::Delivered
+                } else {
+                    RouteOutcome::ReceiverGone
+                }
+            }
+            None => self.retirement_of(id),
+        }
     }
 
-    pub fn partial(&self, session: SessionId, id: RequestId, params: Value) -> bool {
+    pub fn partial(&self, session: SessionId, id: RequestId, params: Value) -> RouteOutcome {
         if session != self.session {
-            return false;
+            return RouteOutcome::StaleSession;
         }
-        self.pending
-            .get(&id)
-            .filter(|request| request.streaming)
-            .is_some_and(|request| request.sender.send(Delivery::Partial(params)).is_ok())
+        match self.pending.get(&id) {
+            Some(request) if !request.streaming => RouteOutcome::NotStreaming,
+            Some(request) => {
+                if request.sender.send(Delivery::Partial(params)).is_ok() {
+                    RouteOutcome::Delivered
+                } else {
+                    RouteOutcome::ReceiverGone
+                }
+            }
+            None => self.retirement_of(id),
+        }
     }
 
-    pub fn disconnect(&mut self, session: SessionId) {
-        if session != self.session {
-            return;
+    /// An id that has no slot was either allocated and since retired
+    /// (timeout, already answered — ids are monotonic and never
+    /// reused) or was never ours at all.
+    fn retirement_of(&self, id: RequestId) -> RouteOutcome {
+        if id.wire() <= self.next_id {
+            RouteOutcome::RetiredId
+        } else {
+            RouteOutcome::UnknownId
         }
+    }
+
+    /// Returns how many pending slots were dropped by this disconnect.
+    pub fn disconnect(&mut self, session: SessionId) -> usize {
+        if session != self.session {
+            return 0;
+        }
+        let dropped = self.pending.len();
         self.pending.clear();
         self.output = OutputState::Closed;
         // Recovery remains owned by its rebuilder until it publishes the
@@ -118,6 +181,7 @@ impl Routing {
         if self.lifecycle != Lifecycle::Respawning {
             self.lifecycle = Lifecycle::Dead;
         }
+        dropped
     }
 
     /// Reserve the new reader epoch before stopping the old process. Its
