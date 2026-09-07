@@ -127,7 +127,7 @@ mod tests {
 
     #[test]
     fn repository_in_an_org_named_orgs_is_not_an_organization_mark() {
-        let mut browser = Browser::new(&["orgs".into()], &[]);
+        let mut browser = Browser::new(&["orgs".into()]);
         browser.org_repos_loaded("orgs", vec![rootle_provider::RepoInfo::bare("project")]);
         browser.toggle_selected();
         assert!(browser.delete_marked_orgs().is_empty());

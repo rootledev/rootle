@@ -86,6 +86,7 @@ pub struct App {
     /// The syntax roles the highlighter + blob cache are styled with
     /// (restyle trigger on theme switch).
     highlight_syntax: crate::theme::Syntax,
+    highlight_text: ratatui::style::Color,
     /// Generation counter on search submissions; stale results dropped.
     search_gen: SearchGeneration,
     /// Independent from repository search; cross-pipeline compares do not compile.
@@ -248,7 +249,7 @@ impl App {
         };
         App {
             mode: Mode::Browse,
-            browser: Browser::new(&state.recent_orgs, &provider.default_orgs()),
+            browser: Browser::new(&state.recent_orgs),
             popup, // opens on launch only for a fresh state
             search_view: None,
             help: None,
@@ -282,6 +283,7 @@ impl App {
             // with; compared against the effective theme to trigger
             // restyle (settings live preview / commit).
             highlight_syntax: theme.syntax,
+            highlight_text: theme.semantic.text,
             search_gen: SearchGeneration::default(),
             view_gen: ViewGeneration::default(),
             commit_generation: CommitGeneration::default(),

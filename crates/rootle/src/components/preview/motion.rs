@@ -10,9 +10,10 @@ impl Preview {
         if self.line_count == 0 {
             return;
         }
-        self.cursor = i32::from(self.cursor)
-            .saturating_add(delta)
-            .clamp(0, i32::from(self.line_count - 1)) as u16;
+        self.cursor = self
+            .cursor
+            .saturating_add_signed(delta as isize)
+            .min(self.line_count - 1);
     }
 
     /// Drop the cursor onto a 1-based line (hit expand, plans/0012
@@ -23,13 +24,12 @@ impl Preview {
         if self.line_count == 0 || line == 0 {
             return;
         }
-        let target = line.saturating_sub(1).min(u32::from(self.line_count - 1));
-        self.cursor = target as u16;
+        self.cursor = (line.saturating_sub(1) as usize).min(self.line_count - 1);
     }
 
     /// Current cursor line, 1-based — what `␣ y` anchors to.
     pub fn line(&self) -> Option<u32> {
-        (self.line_count > 0).then(|| u32::from(self.cursor) + 1)
+        (self.line_count > 0).then(|| u32::try_from(self.cursor + 1).unwrap_or(u32::MAX))
     }
 
     /// The pending count, cleared. None = no digits typed.
@@ -38,8 +38,7 @@ impl Preview {
     }
 
     fn goto_line(&mut self, line_1based: usize) {
-        let max = self.line_count as usize;
-        self.cursor = (line_1based.max(1).min(max) - 1) as u16;
+        self.cursor = line_1based.max(1).min(self.line_count) - 1;
     }
 
     /// One key of the motion set. Consumed keys return true; anything
@@ -66,12 +65,12 @@ impl Preview {
             Some(MotionCommand::Down) => {
                 let count = self.take_count().unwrap_or(1);
                 self.motion_pending = None;
-                self.move_cursor(count.min(usize::from(self.line_count)) as i32);
+                self.move_cursor(count.min(self.line_count).min(i32::MAX as usize) as i32);
             }
             Some(MotionCommand::Up) => {
                 let count = self.take_count().unwrap_or(1);
                 self.motion_pending = None;
-                self.move_cursor(-(count.min(usize::from(self.line_count)) as i32));
+                self.move_cursor(-(count.min(self.line_count).min(i32::MAX as usize) as i32));
             }
             Some(MotionCommand::Start) => {
                 if self.motion_pending == Some(MotionPrefix::Start) {
@@ -83,7 +82,7 @@ impl Preview {
                 }
             }
             Some(MotionCommand::End) => {
-                let count = self.take_count().unwrap_or(usize::from(self.line_count));
+                let count = self.take_count().unwrap_or(self.line_count);
                 self.motion_pending = None;
                 self.goto_line(count);
             }
@@ -94,15 +93,14 @@ impl Preview {
                 | MotionCommand::PageUp),
             ) => {
                 let page = match command {
-                    MotionCommand::HalfPageDown | MotionCommand::HalfPageUp => {
-                        usize::from(self.viewport) / 2
-                    }
-                    _ => usize::from(self.viewport),
+                    MotionCommand::HalfPageDown | MotionCommand::HalfPageUp => self.viewport / 2,
+                    _ => self.viewport,
                 }
                 .max(1);
                 let count = page
                     .saturating_mul(self.take_count().unwrap_or(1))
-                    .min(usize::from(self.line_count)) as i32;
+                    .min(self.line_count)
+                    .min(i32::MAX as usize) as i32;
                 self.motion_pending = None;
                 self.move_cursor(
                     if matches!(command, MotionCommand::HalfPageUp | MotionCommand::PageUp) {
@@ -116,34 +114,34 @@ impl Preview {
                 self.motion_pending = None;
                 self.take_count();
                 let lines = self.plain_lines();
-                let mut line = usize::from(self.cursor);
+                let mut line = self.cursor;
                 while line > 0 && lines[line].trim().is_empty() {
                     line -= 1;
                 }
                 while line > 0 && !lines[line - 1].trim().is_empty() {
                     line -= 1;
                 }
-                self.cursor = line.saturating_sub(1) as u16;
+                self.cursor = line.saturating_sub(1);
             }
             Some(MotionCommand::ParagraphNext) => {
                 self.motion_pending = None;
                 self.take_count();
                 let lines = self.plain_lines();
-                let mut line = usize::from(self.cursor);
-                let last = usize::from(self.line_count) - 1;
+                let mut line = self.cursor;
+                let last = self.line_count - 1;
                 while line < last && lines[line + 1].trim().is_empty() {
                     line += 1;
                 }
                 while line < last && !lines[line + 1].trim().is_empty() {
                     line += 1;
                 }
-                self.cursor = (line + usize::from(line < last)) as u16;
+                self.cursor = line + usize::from(line < last);
             }
             Some(MotionCommand::Bracket) => {
                 self.motion_pending = None;
                 self.take_count();
-                if let Some(line) = bracket_match(&self.plain_lines(), usize::from(self.cursor)) {
-                    self.cursor = line as u16;
+                if let Some(line) = bracket_match(&self.plain_lines(), self.cursor) {
+                    self.cursor = line;
                 }
             }
             Some(MotionCommand::Align) => {

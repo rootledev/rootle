@@ -79,7 +79,7 @@ impl GlobalSearch {
             " query ",
             &self.query.value(),
             self.focus == super::Focus::Query,
-            Some(self.query.cursor()),
+            Some(&self.query),
             true,
         );
         self.render_field(
@@ -99,7 +99,7 @@ impl GlobalSearch {
             " extension ",
             &self.extension.value(),
             self.focus == super::Focus::Extension,
-            Some(self.extension.cursor()),
+            Some(&self.extension),
             false,
         );
 

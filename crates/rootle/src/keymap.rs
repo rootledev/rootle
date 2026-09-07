@@ -148,6 +148,14 @@ pub fn leader(code: KeyCode) -> Action {
 pub fn history(code: KeyCode) -> Action {
     browse::HISTORY.lookup(plain(code)).unwrap_or(Action::Noop)
 }
+pub fn repository_history(code: KeyCode) -> Action {
+    browse::REPOSITORY_HISTORY
+        .lookup(plain(code))
+        .unwrap_or(Action::Noop)
+}
+pub fn repository_history_hints() -> &'static [Hint] {
+    browse::REPOSITORY_HISTORY.hints()
+}
 pub fn preview_named(code: KeyCode) -> Action {
     browse::PREVIEW.lookup(plain(code)).unwrap_or(Action::Noop)
 }

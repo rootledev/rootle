@@ -50,6 +50,8 @@ pub enum Action {
     ExitPreview,
     /// `␣ p h` — file history lens over the preview, plans/0016 M1b.
     LeaderHistory,
+    /// `␣ h` — commits for the selected repository at the browsed revision.
+    LeaderRepositoryHistory,
     /// `␣ p b` — blame lens over the preview (margin runs), M1c.
     BlameToggle,
     /// `Y` in a file pane — copy content (the visual selection, else

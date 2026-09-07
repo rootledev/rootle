@@ -248,12 +248,6 @@ pub struct SearchCodeResult {
 pub trait Provider: Send + Sync {
     fn name(&self) -> &str;
     fn capabilities(&self) -> Capabilities;
-    /// Suggested orgs for a cold start (no state); GitHub ships its
-    /// defaults, other providers return nothing.
-    fn default_orgs(&self) -> Vec<String> {
-        Vec::new()
-    }
-
     /// Repo + org search for the launch popup (orgs first).
     fn search(&self, query: &str) -> ProviderResult<Vec<SearchItem>>;
     /// Repo names of an org/group, with listing metadata when the

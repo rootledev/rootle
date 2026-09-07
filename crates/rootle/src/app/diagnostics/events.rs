@@ -187,16 +187,16 @@ pub(super) fn describe_event(event: &AppEvent) -> Value {
             "error": describe_error(error),
         }),
         AppEvent::LogLoaded {
-            path,
+            request,
             entries,
             truncated,
         } => json!({
-            "path": path,
+            "request": request,
             "entries": entries.len(),
             "truncated": truncated,
         }),
-        AppEvent::LogFailed { path, error } => json!({
-            "path": path,
+        AppEvent::LogFailed { request, error } => json!({
+            "request": request,
             "error": describe_error(error),
         }),
         AppEvent::CommitLoaded { request, detail } => json!({

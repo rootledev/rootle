@@ -98,6 +98,12 @@ pub(super) static LEADER: LazyLock<Table<Action>> = LazyLock::new(|| {
         Binding::new("s", "search", LeaderSearch, &[Key::Code(Char('s'))]),
         Binding::new("f", "find file", LeaderFileFind, &[Key::Code(Char('f'))]),
         Binding::new("g", "grep", LeaderGrep, &[Key::Code(Char('g'))]),
+        Binding::new(
+            "h",
+            "repo history",
+            LeaderRepositoryHistory,
+            &[Key::Code(Char('h'))],
+        ),
         Binding::new("b", "branches", LeaderRefs, &[Key::Code(Char('b'))]),
         Binding::new("p", "preview", LeaderPreview, &[Key::Code(Char('p'))]),
         Binding::new(
@@ -115,8 +121,12 @@ pub(super) static LEADER: LazyLock<Table<Action>> = LazyLock::new(|| {
     ])
 });
 
-pub(super) static HISTORY: LazyLock<Table<Action>> = LazyLock::new(|| {
-    Table::new(vec![
+pub(super) static HISTORY: LazyLock<Table<Action>> = LazyLock::new(|| history_table(true));
+pub(super) static REPOSITORY_HISTORY: LazyLock<Table<Action>> =
+    LazyLock::new(|| history_table(false));
+
+fn history_table(file_history: bool) -> Table<Action> {
+    let mut bindings = vec![
         Binding::new(
             "j/k",
             "commit",
@@ -129,19 +139,38 @@ pub(super) static HISTORY: LazyLock<Table<Action>> = LazyLock::new(|| {
             HistoryUp,
             &[Key::Code(Char('k')), Key::Code(Up)],
         ),
-        Binding::new("enter", "file at commit", HistoryOpen, &[Key::Code(Enter)]),
+        Binding::new(
+            "enter",
+            if file_history {
+                "file at commit"
+            } else {
+                "commit detail"
+            },
+            HistoryOpen,
+            &[Key::Code(Enter)],
+        ),
         Binding::new("d", "commit detail", CommitDive, &[Key::Code(Char('d'))]),
-        Binding::new("y", "yank at commit", HistoryYank, &[Key::Code(Char('y'))]),
+    ];
+    if file_history {
+        bindings.push(Binding::new(
+            "y",
+            "file permalink",
+            HistoryYank,
+            &[Key::Code(Char('y'))],
+        ));
+    }
+    bindings.extend([
         Binding::new("/", "filter", HistoryFilterBegin, &[Key::Code(Char('/'))]),
         Binding::new("esc", "back", HistoryClose, &[Key::Code(Esc)]),
-    ])
-});
+    ]);
+    Table::new(bindings)
+}
 
 pub(super) static PREVIEW: LazyLock<Table<Action>> = LazyLock::new(|| {
     Table::new(vec![
         Binding::new("/", "find", LeaderFindInFile, &[Key::Code(Char('/'))]),
         Binding::new(":", "goto/command", CommandLine, &[Key::Code(Char(':'))]),
-        Binding::new("h", "history", LeaderHistory, &[Key::Code(Char('h'))]),
+        Binding::new("h", "file history", LeaderHistory, &[Key::Code(Char('h'))]),
         Binding::new("b", "blame", BlameToggle, &[Key::Code(Char('b'))]),
         Binding::new(
             "v",
@@ -208,7 +237,7 @@ pub(super) static COMMIT: LazyLock<Table<Action>> = LazyLock::new(|| {
             CommitStepPrev,
             &[Key::Chord('[', 'f')],
         ),
-        Binding::new("tab", "message/files", CommitFocus, &[Key::Code(Tab)]),
+        Binding::new("tab", "files/preview", CommitFocus, &[Key::Code(Tab)]),
         Binding::new(
             "h/l",
             "delta columns",

@@ -5,13 +5,13 @@
 
 use super::Preview;
 use ratatui::style::Style;
-use ratatui::text::{Line, Span};
+use ratatui::text::Line;
 
 /// One find occurrence: 0-based line + byte range in that line's
 /// plain (tab-expanded) text.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct FindMatch {
-    pub(super) line: u16,
+    pub(super) line: usize,
     pub(super) start: usize,
     pub(super) end: usize,
 }
@@ -24,7 +24,7 @@ pub(super) struct FindState {
     /// Index into `matches` the cursor sits on.
     pub(super) current: usize,
     /// Cursor line before the session — restored on cancel (vim `/`).
-    pub(super) saved_cursor: u16,
+    pub(super) saved_cursor: usize,
 }
 
 /// Case-insensitive substring matches across all lines, in occurrence
@@ -44,7 +44,7 @@ fn compute_matches(lines: &[String], query: &str) -> Vec<FindMatch> {
             let Some(pos) = rest.find(&q) else { break };
             let start = at + pos;
             out.push(FindMatch {
-                line: i as u16,
+                line: i,
                 start,
                 end: start + q.len(),
             });
@@ -151,44 +151,16 @@ pub(super) fn chip_line(
     match_style: Style,
     current_style: Style,
 ) -> Line<'static> {
-    let mut out: Vec<Span<'static>> = Vec::new();
-    let mut pos = 0usize; // byte offset of the span start in the line
-    for span in &line.spans {
-        let span_end = pos + span.content.len();
-        let mut cuts = vec![pos, span_end];
-        for (start, end, _) in ranges {
-            if *start > pos && *start < span_end {
-                cuts.push(*start);
-            }
-            if *end > pos && *end < span_end {
-                cuts.push(*end);
-            }
-        }
-        cuts.sort_unstable();
-        cuts.dedup();
-        for w in cuts.windows(2) {
-            let (a, b) = (w[0], w[1]);
-            if a == b {
-                continue;
-            }
-            let covering = ranges.iter().find(|(s, e, _)| *s <= a && b <= *e);
-            let style = match covering {
-                Some((_, _, true)) => current_style,
-                Some((_, _, false)) => match_style,
-                None => span.style,
-            };
-            // Non-boundary drift on exotic unicode folds: skip the
-            // segment rather than panic (cosmetic loss, no crash).
-            if let Some(text) = span.content.get(a - pos..b - pos) {
-                out.push(Span::styled(text.to_string(), style));
-            }
-        }
-        pos = span_end;
-    }
-    let mut chipped = Line::from(out);
-    chipped.style = line.style;
-    chipped.alignment = line.alignment;
-    chipped
+    let overlays: Vec<_> = ranges
+        .iter()
+        .map(|(start, end, current)| {
+            (
+                *start..*end,
+                if *current { current_style } else { match_style },
+            )
+        })
+        .collect();
+    crate::components::text::paint_line(line, crate::components::text::TextColumns::ALL, &overlays)
 }
 
 #[cfg(test)]
@@ -296,34 +268,5 @@ mod tests {
         p.begin_find();
         p.update_find("ratatui".into());
         assert_eq!(p.readout().as_deref(), Some("1/2 · 1/1"));
-    }
-
-    #[test]
-    fn chip_line_splits_spans_at_boundaries() {
-        use ratatui::style::Color;
-        let line = Line::from(vec![
-            Span::styled("let ".to_string(), Style::default().fg(Color::Blue)),
-            Span::styled("ratatui".to_string(), Style::default().fg(Color::Green)),
-        ]);
-        let m = Style::default().bg(Color::Yellow);
-        let c = Style::default().bg(Color::Red);
-        let chipped = chip_line(&line, &[(4, 11, true)], m, c);
-        assert_eq!(chipped.spans.len(), 2);
-        assert_eq!(chipped.spans[0].content.as_ref(), "let ");
-        assert_eq!(chipped.spans[0].style.fg, Some(Color::Blue));
-        assert_eq!(chipped.spans[1].content.as_ref(), "ratatui");
-        assert_eq!(chipped.spans[1].style.bg, Some(Color::Red));
-
-        // A match spanning two spans splits both.
-        let line = Line::from(vec![
-            Span::raw("ab".to_string()),
-            Span::raw("cd".to_string()),
-        ]);
-        let chipped = chip_line(&line, &[(1, 3, false)], m, c);
-        let texts: Vec<&str> = chipped.spans.iter().map(|s| s.content.as_ref()).collect();
-        assert_eq!(texts, ["a", "b", "c", "d"]);
-        assert_eq!(chipped.spans[1].style.bg, Some(Color::Yellow));
-        assert_eq!(chipped.spans[2].style.bg, Some(Color::Yellow));
-        assert_eq!(chipped.spans[3].style.bg, None);
     }
 }

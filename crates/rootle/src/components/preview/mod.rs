@@ -1,6 +1,7 @@
 //! Preview column: sanitized text for files, child listing for dirs.
 //! Find-in-file (`␣ /`) lives in `find.rs`.
 
+mod prose;
 mod render;
 
 mod lens;
@@ -27,6 +28,7 @@ pub enum PreviewContent {
     #[default]
     Empty,
     Text(String),
+    Prose(String),
     /// Syntax-highlighted lines (Tree-sitter captures → palette colors).
     Highlighted(Vec<Line<'static>>),
     DirSummary(Vec<Entry>),
@@ -43,12 +45,12 @@ pub struct Preview {
     /// file pane does (plans/0012 M2).
     pub focused: bool,
     /// Vertical scroll offset (lines), follows the line cursor.
-    scroll: u16,
+    scroll: usize,
     /// Line cursor (0-based) — `J/K` walk it, `␣ y` anchors the yank
     /// URL to it (plans/0006 §5). Only text content is cursored.
-    cursor: u16,
+    cursor: usize,
     /// Total logical lines of the current text content; 0 = cursorless.
-    line_count: u16,
+    line_count: usize,
     /// Real file content gets the line-number gutter; meta placeholders
     /// ("loading…"), dirs and binaries don't (plans/0007 §4).
     numbered: bool,
@@ -64,7 +66,7 @@ pub struct Preview {
     /// Visual-lines selection (vim's V, pane-local): the anchor line;
     /// the range is anchor..=cursor. `Y` copies it, `y` range-anchors
     /// the URL.
-    visual_anchor: Option<u16>,
+    visual_anchor: Option<usize>,
     /// Blame lens (plans/0016 M1c): one mark per logical line,
     /// `Some` at run starts. Drawn as a margin before the gutter.
     blame: Option<Vec<Option<BlameMark>>>,
@@ -73,7 +75,8 @@ pub struct Preview {
     motion_count: crate::keymap::MotionCount,
     motion_pending: Option<crate::keymap::MotionPrefix>,
     /// Last rendered inner height — page motions measure against it.
-    viewport: u16,
+    viewport: usize,
+    prose_viewport: prose::ProseViewport,
 }
 
 impl Default for Preview {
@@ -101,19 +104,20 @@ impl Preview {
             motion_count: crate::keymap::MotionCount::default(),
             motion_pending: None,
             viewport: 0,
+            prose_viewport: prose::ProseViewport::default(),
         }
     }
 
     /// Line total for blame-mark computation (plans/0016 M1c).
     pub fn text_line_count(&self) -> usize {
-        self.line_count as usize
+        self.line_count
     }
 
     /// The pane's text content as shown (spans rejoined — tabs are
     /// display-expanded; the copy target is what's on screen).
     pub fn content_text(&self) -> Option<String> {
         match &self.content {
-            PreviewContent::Text(text) => Some(text.clone()),
+            PreviewContent::Text(text) | PreviewContent::Prose(text) => Some(text.clone()),
             PreviewContent::Highlighted(lines) => Some(
                 lines
                     .iter()
@@ -172,7 +176,7 @@ impl Preview {
             self.numbered = false;
         } else {
             let text = sanitize::sanitize(bytes);
-            self.line_count = text.lines().count() as u16;
+            self.line_count = text.lines().count();
             self.content = PreviewContent::Text(text);
             self.numbered = true;
         }
@@ -194,7 +198,7 @@ impl Preview {
         let size = size.map(|s| s.to_string()).unwrap_or_else(|| "?".into());
         let short = &sha[..sha.len().min(7)];
         let text = format!("{size} bytes · blob {short}\n\n{tail}");
-        self.line_count = text.lines().count() as u16;
+        self.line_count = text.lines().count();
         self.content = PreviewContent::Text(text);
         self.numbered = false;
         self.lang = None;
@@ -214,11 +218,41 @@ impl Preview {
 
     pub fn set_highlighted(&mut self, name: &str, lang: &str, lines: Vec<Line<'static>>) {
         self.title = sanitize::sanitize_inline(name);
-        self.line_count = lines.len() as u16;
+        self.line_count = lines.len();
         self.content = PreviewContent::Highlighted(lines);
         self.numbered = true;
         self.lang = Some(lang.to_string());
         self.reset();
+    }
+
+    /// Already-sanitized prose uses the same cursor, scrolling and shell as files.
+    pub(crate) fn set_text(&mut self, title: &str, text: String) {
+        self.title = sanitize::sanitize_inline(title);
+        self.line_count = 0;
+        self.content = PreviewContent::Prose(text);
+        self.numbered = false;
+        self.lang = None;
+        self.reset();
+    }
+
+    pub(crate) fn scroll_text(&mut self, movement: crate::components::list_view::ListMovement) {
+        self.prose_viewport.scroll(movement);
+    }
+
+    pub(crate) fn pane_block(title: String, focused: bool, theme: &Theme) -> Block<'static> {
+        Block::default()
+            .borders(Borders::ALL)
+            .border_type(theme.border_type())
+            .border_style(Style::default().fg(if focused {
+                theme.semantic.border_focused
+            } else {
+                theme.semantic.border_unfocused
+            }))
+            .style(Style::default().bg(theme.semantic.base))
+            .title(Span::styled(
+                title,
+                Style::default().fg(theme.semantic.subtext0),
+            ))
     }
 
     // ---- vim vertical motions (plans/0016 M1) ----
@@ -248,10 +282,11 @@ impl Preview {
         self.scroll = 0;
         self.cursor = 0;
         self.find = None;
+        self.prose_viewport = prose::ProseViewport::default();
     }
 
     /// Keep the cursor inside the viewport after moves/renders.
-    fn clamp_scroll(&mut self, viewport: u16) {
+    fn clamp_scroll(&mut self, viewport: usize) {
         if self.line_count == 0 || viewport == 0 {
             return;
         }

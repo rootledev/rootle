@@ -8,7 +8,7 @@ use crate::action::Action;
 use crate::components::Component;
 use crate::components::refs_popup::RefsPopup;
 use crate::mode::Mode;
-use rootle_provider::{GitRef, RepoId};
+use rootle_provider::GitRef;
 
 impl App {
     /// This domain's arms: `Some(action)` back when not ours, so the
@@ -124,21 +124,38 @@ impl App {
                 }
                 true
             }
-            Action::LeaderHistory => {
+            history_action @ (Action::LeaderHistory | Action::LeaderRepositoryHistory) => {
                 let back = self.mode;
-                self.mode = Mode::Browse;
+                let repository_scope = matches!(history_action, Action::LeaderRepositoryHistory);
                 if !self.provider.capabilities().log {
+                    self.mode = Mode::Browse;
                     self.status = Some("provider has no commit log".into());
-                } else if self.browser.open_history(None) {
-                    self.history_return = Some(if back == Mode::Preview {
-                        Mode::Preview
-                    } else {
-                        Mode::Browse
-                    });
-                    self.open_history_fetch();
-                    self.mode = Mode::History;
                 } else {
-                    self.status = Some("preview a file for its history".into());
+                    let opened = if repository_scope {
+                        self.browser.open_repository_history()
+                    } else {
+                        self.browser.open_history(None)
+                    };
+                    if opened {
+                        self.history_return = Some(if back == Mode::Preview {
+                            Mode::Preview
+                        } else {
+                            Mode::Browse
+                        });
+                        self.open_history_fetch();
+                        self.status = None;
+                        self.mode = Mode::History;
+                    } else {
+                        self.mode = Mode::Browse;
+                        self.status = Some(
+                            if repository_scope {
+                                "select a repository for its history"
+                            } else {
+                                "preview a file for its history"
+                            }
+                            .into(),
+                        );
+                    }
                 }
                 true
             }
@@ -147,23 +164,22 @@ impl App {
                 true
             }
             Action::HistoryYank => {
-                // The permalink that never rots: the URL carries the
-                // commit sha as its ref.
-                let target = self.browser.repo_coords().zip(self.browser.history_pick());
-                if let Some(((owner, name), (path, sha))) = target {
+                if let Some((request, revision)) = self.browser.history_pick()
+                    && let crate::request::HistoryScope::File(path) = request.scope
+                {
                     match self.provider.web_url(
-                        &RepoId::from(format!("{owner}/{name}")),
-                        &path,
-                        Some(&GitRef::from(sha.as_str())),
+                        &request.repository,
+                        path.as_str(),
+                        Some(&GitRef::from(revision.as_str())),
                         None,
                         None,
                         true,
                     ) {
-                        Ok(u) => {
-                            self.pending_clipboard = Some(u.clone());
-                            self.status = Some(format!("yanked {u}"));
+                        Ok(url) => {
+                            self.pending_clipboard = Some(url.clone());
+                            self.status = Some(format!("yanked {url}"));
                         }
-                        Err(e) => self.status = Some(provider_status(&e)),
+                        Err(error) => self.status = Some(provider_status(&error)),
                     }
                 }
                 true
@@ -177,15 +193,16 @@ impl App {
                 true
             }
             Action::HistoryOpen => {
-                // Open the file at the picked commit — bytes land via
-                // BlobAtLoaded; the restore point is noted there.
-                let target = self.browser.repo_coords().zip(self.browser.history_pick());
-                let entry = self.browser.history_pick_entry();
-                if let (Some(((owner, name), (path, sha))), Some(entry)) = (target, entry) {
+                if self.browser.repository_history_active() {
+                    self.handle_action(Action::CommitDive);
+                } else if let Some((request, revision)) = self.browser.history_pick()
+                    && let crate::request::HistoryScope::File(path) = request.scope
+                    && let Some(entry) = self.browser.history_pick_entry()
+                {
                     self.spawn_blob_at(
-                        format!("{owner}/{name}"),
-                        path,
-                        sha,
+                        request.repository.to_string(),
+                        path.to_string(),
+                        revision.to_string(),
                         entry.subject,
                         entry.author,
                         entry.date,
@@ -198,12 +215,10 @@ impl App {
             Action::CommitDive => {
                 if !self.provider.capabilities().commit {
                     self.status = Some("provider has no commit detail".into());
-                } else if let Some(((owner, name), (_path, sha))) =
-                    self.browser.repo_coords().zip(self.browser.history_pick())
-                {
+                } else if let Some((history, revision)) = self.browser.history_pick() {
                     let request = crate::request::CommitRequest {
-                        repository: format!("{owner}/{name}").into(),
-                        revision: sha.into(),
+                        repository: history.repository,
+                        revision,
                         generation: self.commit_generation.tick(),
                     };
                     self.browser.open_commit(request.clone());

@@ -154,17 +154,18 @@ fn preview_submode_zoom_blame_history() {
     app.handle_app_event(rootle::event::AppEvent::BlameLoaded {
         path: "Cargo.toml".into(),
         ranges: vec![
+            // Complete provider identities; only the rendered margin shortens them.
             rootle_provider::BlameRange {
                 start_line: 1,
                 end_line: 2,
-                sha: "a1b2c3d4e5".into(),
+                sha: "a1b2c3d4e5f6".into(),
                 author: "tarek".into(),
                 date: "2026-08-25".into(),
             },
             rootle_provider::BlameRange {
                 start_line: 3,
                 end_line: 4,
-                sha: "c7d8e9f0a1".into(),
+                sha: "c7d8e9f0a1b2".into(),
                 author: "mira".into(),
                 date: "2026-07-30".into(),
             },
@@ -193,7 +194,7 @@ fn preview_submode_zoom_blame_history() {
     // Enter on a blame line: history lens at that commit (composition).
     app.handle_key(key(KeyCode::Enter));
     app.handle_app_event(rootle::event::AppEvent::LogLoaded {
-        path: "Cargo.toml".into(),
+        request: app.active_history_request().unwrap().clone(),
         entries: vec![
             rootle_provider::LogEntry {
                 sha: "c7d8e9f0a1b2".into(),

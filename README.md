@@ -39,14 +39,18 @@ small stdio script.
 - **Revise** — `␣ b` switches branches/tags (`rootle owner/repo@ref`
   from the CLI); `␣ p h` file history with open-at-commit; `␣ p b`
   blame run-margins; yanks from history anchor to the commit sha.
-- **Inspect commits** — `d` in file history opens the full message and
-  changed files; `Enter` opens a unified delta, `]f`/`[f` step files,
-  and `Esc` unwinds. Binary, unavailable and truncated patches are
-  identified explicitly. Read-only; no staging or committing.
+- **Inspect commits** — `␣ h` opens repository history; `Enter` inspects
+  a commit. File history (`␣ p h`) still supports open-at-commit and `d`
+  for detail. Changed files stay beside the syntax-highlighted diff;
+  `Tab` switches files/preview, `]f`/`[f` step filtered files, and `Esc`
+  unwinds. Binary, unavailable and truncated patches remain explicit.
+  Read-only; no staging or committing.
 - **Search** — find (`␣ f`) and grep (`␣ g`) with a real grammar
   (`"quoted"`, `-negation`, `language:rust`), results streaming into
   decorated per-file boxes with facet chips; `Enter` opens the whole
   file at the match line.
+  Fresh profiles start here with an empty browser, not seeded repositories.
+  Modal input prompts show `❯` in INSERT and `●` in NORMAL.
 - **The pane** — `␣ p` focuses and zooms the preview with vim's
   vertical motions (`3j`, `gg`/`G`, `^D`/`^U`, `{`/`}`, `%`, `zt`,
   `:42`).

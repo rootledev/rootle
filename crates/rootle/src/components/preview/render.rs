@@ -1,9 +1,8 @@
 //! Render for Preview.
 
 use super::{
-    Block, Borders, Constraint, Direction, EntryKind, Frame, Layout, Line, Modifier, Paragraph,
-    Preview, PreviewContent, Rect, Span, Style, Theme, UnicodeWidthStr, Wrap, chip_line,
-    fit_middle, lens,
+    Constraint, Direction, EntryKind, Frame, Layout, Line, Modifier, Paragraph, Preview,
+    PreviewContent, Rect, Span, Style, Theme, UnicodeWidthStr, Wrap, chip_line, fit_middle, lens,
 };
 
 impl Preview {
@@ -14,16 +13,7 @@ impl Preview {
             Some(f) => format!(" {} /{} ", self.title, f.query),
             None => format!(" {} ", self.title),
         };
-        let mut block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(theme.border_type())
-            .border_style(Style::default().fg(if self.focused {
-                sem.border_focused
-            } else {
-                sem.border_unfocused
-            }))
-            .style(Style::default().bg(sem.base))
-            .title(Span::styled(title, Style::default().fg(sem.subtext0)));
+        let mut block = Self::pane_block(title, self.focused, theme);
         if let Some(readout) = self.readout() {
             block = block.title_bottom(
                 Line::from(Span::styled(
@@ -45,8 +35,14 @@ impl Preview {
         }
 
         let cursored = self.line_count > 0;
-        let cursor = self.cursor as usize;
+        let cursor = self.cursor;
         let mut lines: Vec<Line> = match &self.content {
+            PreviewContent::Prose(text) => {
+                let inner = block.inner(area);
+                frame.render_widget(block, area);
+                self.prose_viewport.render(frame, area, inner, text, theme);
+                return;
+            }
             PreviewContent::Empty => {
                 vec![Line::from(Span::styled(
                     "nothing selected",
@@ -102,7 +98,7 @@ impl Preview {
                     .matches
                     .iter()
                     .enumerate()
-                    .filter(|(_, m)| m.line as usize == i)
+                    .filter(|(_, m)| m.line == i)
                     .map(|(idx, m)| (m.start, m.end, idx == find.current))
                     .collect();
                 if !ranges.is_empty() {
@@ -191,7 +187,7 @@ impl Preview {
         // content.
         let band = self.numbered && self.band_path.is_some();
         let inner = block.inner(area);
-        self.viewport = inner.height.saturating_sub(band as u16);
+        self.viewport = usize::from(inner.height.saturating_sub(band as u16));
         self.clamp_scroll(self.viewport);
         frame.render_widget(block, area);
         let content_area = if band {
@@ -262,19 +258,18 @@ impl Preview {
             inner
         };
         frame.render_widget(
-            Paragraph::new(lines)
-                .scroll((self.scroll, 0))
+            Paragraph::new(lines.into_iter().skip(self.scroll).collect::<Vec<_>>())
                 .wrap(Wrap { trim: false }),
             content_area,
         );
         // House style: anything that scrolls shows a scrollbar.
-        if self.numbered {
+        if cursored {
             crate::components::scrollbar(
                 frame,
                 area,
-                self.viewport as usize,
-                self.line_count as usize,
-                self.scroll as usize,
+                self.viewport,
+                self.line_count,
+                self.scroll,
                 theme,
             );
         }

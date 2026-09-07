@@ -185,3 +185,18 @@ fn scroll_follows_cursor_into_viewport() {
     p.clamp_scroll(10);
     assert_eq!(p.scroll, 0);
 }
+
+#[test]
+fn large_previews_do_not_truncate_cursor_or_scroll_to_u16() {
+    let mut preview = Preview::new();
+    let source = format!("{}END_OF_LONG_PREVIEW\n", "line\n".repeat(70_000));
+    preview.set_bytes("large.txt", source.as_bytes());
+    preview.set_cursor_line(70_001);
+    let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(60, 8)).unwrap();
+    terminal
+        .draw(|frame| preview.render(frame, frame.area(), &Theme::catppuccin_mocha()))
+        .unwrap();
+    assert!(
+        crate::headless::buffer_text(terminal.backend().buffer()).contains("END_OF_LONG_PREVIEW")
+    );
+}

@@ -141,12 +141,12 @@ pub enum AppEvent {
     },
     /// Commit log for the history lens.
     LogLoaded {
-        path: String,
+        request: crate::request::HistoryRequest,
         entries: Vec<rootle_provider::LogEntry>,
         truncated: bool,
     },
     LogFailed {
-        path: String,
+        request: crate::request::HistoryRequest,
         error: ProviderError,
     },
     /// Commit lookup result, scoped by repository, revision and request epoch.

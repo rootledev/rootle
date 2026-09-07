@@ -3,6 +3,25 @@
 User-visible changes per release. Protocol archaeology lives in
 `plans/`; this file is for "what's new for me".
 
+## [0.12.0] — 2026-09-08
+
+- Repository-wide history: `␣ h` from a selected or browsed repository,
+  then `Enter` to inspect a commit. File history remains under `␣ p h`.
+  Log replies and failures are guarded by repository, revision, scope
+  and request generation.
+- Commit files remain in a sidebar beside the message or diff. `Tab`
+  switches focus in either view; file stepping respects the active filter.
+  Messages reuse the preview component with cached, scrollable prose layout.
+- Commit diffs use Tree-sitter foregrounds beneath origin and changed-span
+  background tints. Old/new hunk sides are highlighted independently,
+  including renamed-file language changes; omitted context is not invented.
+  Palette changes restyle prepared diffs without refetching.
+- Fresh profiles have no seeded organizations or repositories. Search is
+  the entry point; genuine user recents are retained.
+- Shared modal input prompts switch from `❯` to `●` in NORMAL mode.
+- Native provider implementations no longer expose `default_orgs`.
+  The stdio wire protocol remains v1.6.
+
 ## [0.11.0] — 2026-09-07
 
 ### Syntax highlighting and headless waits
@@ -317,6 +336,7 @@ User-visible changes per release. Protocol archaeology lives in
 - Chrome: powerline modeline (Nerd Font opt-in), bat-style gutters,
   fzf prompts, `[ui] border` / `[ui] nerd_font`.
 
+[0.12.0]: https://github.com/rootledev/rootle/releases/tag/v0.12.0
 [0.11.0]: https://github.com/rootledev/rootle/releases/tag/v0.11.0
 [0.10.0]: https://github.com/rootledev/rootle/releases/tag/v0.10.0
 [0.9.3]: https://github.com/rootledev/rootle/releases/tag/v0.9.3

@@ -34,9 +34,10 @@ impl Browser {
         &mut self,
         request: &crate::request::CommitRequest,
         detail: rootle_provider::CommitDetail,
+        theme: &crate::theme::Theme,
     ) {
         if let Some(view) = &mut self.commit {
-            view.loaded(request, detail);
+            view.loaded(request, detail, theme);
         }
     }
 
