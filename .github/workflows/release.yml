@@ -145,7 +145,7 @@ jobs:
             echo "::error::tag $GITHUB_REF_NAME != crate version v$versions"; exit 1; }
           # Dependency order: provider first (everything path-depends
           # on it), the app crate last (plans/0024 M6).
-          for crate in rootle-provider rootle-stdio rootle-github rootle-manager rootle; do
+          for crate in rootle-provider rootle-diff rootle-stdio rootle-github rootle-manager rootle; do
             cargo publish -p "$crate"
           done
 

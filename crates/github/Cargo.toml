@@ -8,7 +8,7 @@ repository.workspace = true
 description = "rootle's in-tree reference provider: GitHub REST client, sha-keyed disk cache, ETag revalidation"
 
 [dependencies]
-rootle-provider = { path = "../provider", version = "=0.9.3" }
+rootle-provider.workspace = true
 reqwest = { version = "0.13.4", default-features = false, features = ["blocking", "json", "rustls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1.0.151"

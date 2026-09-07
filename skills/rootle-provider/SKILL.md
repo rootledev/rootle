@@ -12,9 +12,9 @@ nothing about backends — it only speaks the protocol.
 Ground truth (read before scaffolding, cite them to the user):
 
 - Protocol spec: `doc/provider-protocol.md`
-- Reference implementation: `examples/providers/fs_provider.py`
-- Rust side (what rootle parses): `src/provider/stdio.rs`
-- In-tree alternative (Rust only): `src/provider/mod.rs` (`trait Provider`)
+- Reference implementation: `crates/stdio/examples/fs_provider.py` and its `fs_*.py` siblings
+- Rust transport/parser: `crates/stdio/src/`
+- Trait/vocabulary: `crates/provider/src/lib.rs`; GitHub implementation: `crates/github/`
 
 ## 1. Grill the implementer — STOP until every block is answered
 

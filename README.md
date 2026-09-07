@@ -39,6 +39,10 @@ small stdio script.
 - **Revise** — `␣ b` switches branches/tags (`rootle owner/repo@ref`
   from the CLI); `␣ p h` file history with open-at-commit; `␣ p b`
   blame run-margins; yanks from history anchor to the commit sha.
+- **Inspect commits** — `d` in file history opens the full message and
+  changed files; `Enter` opens a unified delta, `]f`/`[f` step files,
+  and `Esc` unwinds. Binary, unavailable and truncated patches are
+  identified explicitly. Read-only; no staging or committing.
 - **Search** — find (`␣ f`) and grep (`␣ g`) with a real grammar
   (`"quoted"`, `-negation`, `language:rust`), results streaming into
   decorated per-file boxes with facet chips; `Enter` opens the whole
@@ -121,20 +125,20 @@ config-managed installs.
 ## Development
 
 ```
-cargo test                          # unit + TestBackend render tests
+cargo test --workspace              # unit + TestBackend render tests
 rootle --headless script.txt        # scripted driver: keys in, frames + state JSON out
 cd e2e && uv run pytest             # headless + PTY end-to-end suites
 docker compose run --build --rm test  # fmt + clippy -D warnings + cargo test
 docker compose run --build --rm e2e # same e2e suite in a container
+docker compose run --build --rm model # bounded TLA+ properties + four kept faults
 ```
 
 `--headless` (plans/0023) drives the real app without a terminal —
 `keys`/`settle`/`frame`/`state` script steps in, plain-text cell grids
 and state JSON out — the deterministic surface for tests, reviews, and
-agent-driven stress runs. See `src/headless.rs`'s module docs for the
+agent-driven stress runs. See `crates/rootle/src/headless.rs`'s module docs for the
 script language.
 
-CI runs the gate + e2e on every push; the `demo` workflow re-renders
-the demo GIFs above (one per palette) whenever the app or its tooling
-changes and opens a PR with the refreshed artifacts — this README
-always shows the current look and feel.
+CI runs the Rust, e2e, provider-conformance and protocol-model gates.
+The `demo` workflow re-renders all palettes when the app or its tooling
+changes and publishes the GIFs to the site repository.

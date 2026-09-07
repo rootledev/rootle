@@ -19,6 +19,19 @@ pub(super) struct Process {
     pub(super) stdin: ChildStdin,
 }
 
+impl Process {
+    pub(super) fn terminate(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+impl Drop for Process {
+    fn drop(&mut self) {
+        self.terminate();
+    }
+}
+
 /// Spawn the child and split its pipes for the process/reader halves.
 pub(super) fn spawn_process(
     command: &[String],

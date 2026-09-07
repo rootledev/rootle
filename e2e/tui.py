@@ -29,7 +29,7 @@ from pathlib import Path
 import pyte
 
 ROOT = Path(__file__).resolve().parent.parent
-BINARY = ROOT / "target" / "debug" / "rootle"
+BINARY = ROOT / os.environ.get("CARGO_TARGET_DIR", "target") / "debug" / "rootle"
 
 KEYS: dict[str, bytes] = {
     "BACKSPACE": b"\x7f",

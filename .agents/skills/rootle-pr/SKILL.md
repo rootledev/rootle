@@ -13,8 +13,8 @@ section. If there is no evidence, there is no PR.
 - Confirm the definition of done from the relevant plan
   (`plans/NNNN-*.md`) — flip its milestone status in the same PR.
 - Green matrix, no exceptions:
-  `cargo fmt --check && cargo clippy --all-targets && cargo test`,
-  then `cd e2e && uv run pytest`, then
+  `cargo fmt --all --check && cargo clippy --workspace --all-targets && cargo test --workspace`,
+  then `uv run --directory e2e pytest`, then
   `docker compose run --build --rm e2e` (the docker gate runs a NEWER
   clippy than the host — it catches lints the host misses; do not skip
   it and be surprised in CI).
@@ -91,12 +91,12 @@ change is doc-worthy visually, it belongs in the demo tape: extend
 
 ### Recordings (flow changes)
 
-Short VHS tape for the PR thread — do NOT commit unless it replaces
-`doc/demo.gif`. Keep it in `/tmp` and reference locally, or regenerate
-on request:
+Capture the flow with `Tui.record()` / `save_recording()` or a short
+VHS tape. Keep PR-only recordings under `/tmp`; paste text frames in
+the PR. Published demo changes belong in `demos/demo.tape`:
 
 ```bash
-bash e2e/demo_setup.sh
+bash demos/demo_setup.sh
 docker run --rm -v "$PWD:/vhs" -w /vhs ghcr.io/charmbracelet/vhs /tmp/<tape>
 ```
 

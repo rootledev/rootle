@@ -1,6 +1,10 @@
 # 0026 — Unified components: one list widget, one dispatch table
 
-Status: **partial (2026-09-06)** — the ListCursor engine (components/list_view.rs: clamping, keep-visible scroll, selection gutter, substring filter) landed with 0028's changed-files list as its first consumer. The five existing-surface migrations and the keymap-dispatch closure are queued (site roadmap) rather than half-done in this wave; the engine's tests pin the semantics they will adopt.
+Status: **implemented and verified locally (2026-09-07)** — refs, help,
+settings, clone lists, history and commit files share `ListFilter`,
+`ListCursor` and `Viewport`. Item and display coordinates are separate;
+binding tables drive both commands and hints. The former migration
+deferral is closed by 0029. Release tracking lives there.
 
 ## Problem
 

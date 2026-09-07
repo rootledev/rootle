@@ -5,8 +5,8 @@ description: Scaffold a new rootle UI component following the project's Componen
 
 # Scaffolding a rootle component
 
-All components live in `src/components/` and implement the shared
-contract from `src/components/mod.rs`:
+All components live in `crates/rootle/src/components/` and implement the shared
+contract from `crates/rootle/src/components/mod.rs`:
 
 ```rust
 pub trait Component {
@@ -19,7 +19,7 @@ pub trait Component {
 
 ## Layout: file per component, sibling submodules
 
-A component is one file in `src/components/`. If it grows several
+A component is one file in `crates/rootle/src/components/`. If it grows several
 concerns, keep `foo.rs` as the surface (state struct, `update`,
 accessors, re-exports) and add private submodules in the sibling
 `foo/` directory — `keys.rs`, `render.rs`, `model.rs`, worker I/O —
@@ -35,12 +35,12 @@ and the existing splits: `global_search/`, `settings_popup/`,
    mutate state here beyond local, non-dispatched concerns (e.g. cursor
    blink); everything else flows back through `update`.
 3. **Keymap table** — register the component's keys in
-   `src/keymap.rs` under its mode(s). The modeline hints are *derived*
+   `crates/rootle/src/keymap.rs` and its siblings under its mode(s). Hints are *derived*
    from this table: if a key isn't in the table, it must not work, and
    vice versa. No out-of-band key handling.
 4. **Theming** — colors come ONLY from `Theme` semantic roles
    (`theme.semantic.*`), never a hardcoded `Color::`. If a needed role
-   doesn't exist, add it to the palette schema (`src/theme.rs`) with a
+   doesn't exist, add it to the palette schema (`crates/rootle/src/theme.rs`) with a
    Catppuccin Mocha default.
 5. **Render** — draw into the caller's `Rect`; never assume full screen.
    Borders follow `theme.border_type()` (plain square corners by
@@ -75,7 +75,7 @@ and the existing splits: `global_search/`, `settings_popup/`,
 
 ## Anti-patterns (rejected in review)
 
-- `Color::Red`-style hardcoded colors anywhere in `src/components/`.
+- `Color::Red`-style hardcoded colors anywhere in `crates/rootle/src/components/`.
 - `match` on keys inside `app.rs` — dispatch belongs to the keymap table.
 - Components calling each other directly or sharing `&mut` state.
 - Rendering with `format!`-padded strings instead of layout-aware

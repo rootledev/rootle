@@ -46,20 +46,20 @@ per-release notes are on the GitHub releases page:
 - [0016-product-direction](plans/0016-product-direction.md) — the
   current direction: revision awareness (refs, history, blame), the
   preview submode, what rootle will NOT become.
-- [0024-crate-split](plans/0024-crate-split.md) — the workspace:
-  provider/stdio/github/manager crates, app crate, publish order.
-  **Shipped.**
-- [0025-typed-identity](plans/0025-typed-identity.md) — RepoId/Sha/
-  GitRef/Generation newtypes; no naked identity strings. **Shipped.**
-- [0026-unified-components](plans/0026-unified-components.md) — one
-  ListView for every list; keymap tables become dispatch. **Engine
-  shipped; surface migrations queued (roadmap).**
-- [0027-provider-protocol-tla](plans/0027-provider-protocol-tla.md)
-  — the transport lifecycle model-checked (TLC + kept mutant).
-  **Shipped.**
-- [0028-commit-viewer](plans/0028-commit-viewer.md) — repo/commit
-  (v1.6), rootle-diff, the commit-detail → file-delta dive chain.
-  **Shipped.**
+- [0024-crate-split](plans/0024-crate-split.md) — six-crate virtual
+  workspace and dependency-ordered publishing. **Implemented.**
+- [0025-typed-identity](plans/0025-typed-identity.md) — provider
+  identities, domain request clocks and entity-scoped marks. **Implemented.**
+- [0026-unified-components](plans/0026-unified-components.md) — shared
+  list/filter/viewport mechanics and table-driven keys. **Implemented.**
+- [0027-provider-protocol-tla](plans/0027-provider-protocol-tla.md) —
+  bounded safety/temporal checks, four kept faults and the Rust bridge.
+  **Implemented.**
+- [0028-commit-viewer](plans/0028-commit-viewer.md) — `repo/commit`
+  (v1.6), checked deltas and the detail → file-delta chain. **Implemented.**
+- [0029-polish-release-integration](plans/0029-polish-release-integration.md)
+  — final integration, evidence, green CI and verified v0.10.0 release.
+  **Executing; published-release status lives here.**
 
 
 Source comments referencing `plans/0005` mean this file.

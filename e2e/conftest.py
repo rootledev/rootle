@@ -26,7 +26,7 @@ def dismiss_launch_popup(tui: Tui) -> None:
 
 # --- fs stdio provider (plans/0005) --------------------------------------
 
-FS_PROVIDER = ROOT / "examples" / "providers" / "fs_provider.py"
+FS_PROVIDER = ROOT / "crates" / "stdio" / "examples" / "fs_provider.py"
 
 
 def make_fs_root(tmp: Path) -> Path:

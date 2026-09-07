@@ -15,6 +15,7 @@ leaves a `target/` tree that fights the container's own cache.
 ```
 docker compose run --build --rm test      # fmt + clippy -D warnings + cargo test
 docker compose run --build --rm e2e       # PTY e2e suite (pyte screen reconstruction)
+docker compose run --build --rm model     # protocol safety/progress + kept mutants
 docker compose run --build --rm release   # static musl binary → ./dist/
 ```
 
@@ -29,17 +30,18 @@ docker or `sudo`.
 
 | Path | Contents |
 |---|---|
-| `src/app/` | event loop glue: dispatch (`actions/`), event routing, worker spawns (`workers/`) |
-| `src/components/` | every UI piece behind the Component contract |
-| `src/provider/` | the app's composition root: `build()`, the consent/declaration types, config-writing lifecycle (`bookkeeping.rs`) |
+| `crates/rootle/src/app/` | event loop glue: dispatch, worker results and effects |
+| `crates/rootle/src/components/` | UI components and the shared list/filter/viewport engine |
+| `crates/rootle/src/provider/` | application composition and config-writing lifecycle |
 | `crates/provider/` | `rootle-provider`: the `Provider` trait, wire vocabulary, XDG paths — everything behind the seam |
 | `crates/stdio/` | `rootle-stdio`: the NDJSON-RPC stdio transport (see doc/provider-protocol.md) |
 | `crates/github/` | `rootle-github`: REST client, wire models, disk cache — the in-tree reference impl |
 | `crates/manager/` | `rootle-manager`: install/update/pin for provider binaries + the CLI ui grammar |
-| `src/selfupdate.rs` | `rootle update` self-updater (tarball swap, provider sweep) |
-| `src/headless.rs` | `--headless` scripted driver: keys in, frames/state JSON out (no PTY) |
+| `crates/diff/` | checked patch parsing, source line numbers and changed spans |
+| `crates/rootle/src/selfupdate.rs` | `rootle update` self-updater |
+| `crates/rootle/src/headless.rs` | scripted real-app driver and state/frame output |
 | `e2e/` | uv+pytest harness driving the real binary — headless scripts + PTY suite |
-| `tests/render.rs` | frame-level snapshots on ratatui's TestBackend |
+| `crates/rootle/tests/` | frame-level integration tests on ratatui's TestBackend |
 | `demos/` | demo tape + fixture (`demo_setup.sh`), vendored VHS fonts |
 | `skills/` | public skill: provider scaffolding (gate: forge-conformance) |
 | `.agents/skills/` | maintainer skills: component scaffolding, TUI debugging, demo capture, PR authoring |
@@ -50,9 +52,8 @@ docker or `sudo`.
 - `doc/house-style.md` — component contract (actions unidirectional,
   modeline, keymap tables are the single source of truth, sanitize at
   the boundary, `/` filter on every list, scrollbar rules).
-- `doc/provider-protocol.md` — the stdio wire format (v1.3: `$/partial`
-  progressive results + inactivity deadlines, reader tolerance,
-  `$/cancelRequest`, `located`, `data.kind` errors).
+- `doc/provider-protocol.md` — NDJSON-RPC v1.6 wire contract and the model's
+  explicit bounds/assumptions, progressive results, cancellation and errors.
 - `doc/development.md` — architecture, testing tiers, e2e harness details.
 - `.agents/skills/rootle-pr/` — PR template + evidence contract
   (frames/screenshots, green matrix including the docker e2e gate).
@@ -62,7 +63,7 @@ docker or `sudo`.
 - `main` is protected: PRs only, `test` check required. As the repo
   owner you merge with the admin override.
 - The `demo` workflow re-renders the demo GIFs (one per palette) when
-  `src/`, `demos/`, or `e2e/` change and commits them to the site
+  `crates/`, `demos/`, or `e2e/` change and commits them to the site
   repo's `img/` (needs the `SITE_REPO_TOKEN` secret) — the site
   redeploys itself on push. Renders stage in gitignored `demos/out/`.
 - The site (rootle.dev) is its own repo:

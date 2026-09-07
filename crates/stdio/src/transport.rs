@@ -1,171 +1,95 @@
-//! Transport machinery (plans/0008 §1): the stdout reader thread and
-//! the reply-routing round trip. `process.rs` spawns the child;
-//! nothing here knows the provider method surface — `wire.rs` maps
-//! methods onto `exchange`.
+//! Request registration/write and the caller-side inactivity wait. Routing
+//! transitions live in `routing`; stdout parsing lives in `reader`.
 
-use super::StdioProvider;
-use parking_lot::{Condvar, Mutex};
+use crate::StdioProvider;
+use crate::routing::{Delivery, RequestId};
 use rootle_provider::{ErrorKind, ProviderError, ProviderResult};
 use serde_json::{Value, json};
-use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Write};
-use std::process::ChildStdout;
-use std::sync::Arc;
-use std::sync::atomic::Ordering;
-use std::sync::mpsc;
-use std::time::Duration;
-
-/// Transport lifecycle, shared with the reader thread(s). The
-/// condvar gates recovery: `Respawning` means exactly one thread is
-/// rebuilding the child (others wait, without holding the mutex), and
-/// `Dead` means the next fresh request becomes the rebuilder.
-pub(super) struct Shared {
-    pub(super) routing: Mutex<Routing>,
-    pub(super) changed: Condvar,
-}
-
-impl Default for Shared {
-    fn default() -> Self {
-        Shared {
-            routing: Mutex::new(Routing::default()),
-            changed: Condvar::new(),
-        }
-    }
-}
-
-#[derive(Default)]
-pub(super) struct Routing {
-    pub(super) next_id: u64,
-    /// Reply slots by request id; the reader thread completes them.
-    pub(super) pending: HashMap<u64, mpsc::Sender<Value>>,
-    /// Transport state: three states, not a bool — `Respawning`
-    /// exists so waiters never proceed against a child that hasn't
-    /// passed the initialize handshake yet.
-    pub(super) lifecycle: Lifecycle,
-    /// Successful rebuilds so far (drives the backoff ladder).
-    pub(super) restarts: u32,
-    /// Why the last rebuild attempt failed — surfaced to threads that
-    /// waited on it, so they fail with a reason instead of a timeout.
-    pub(super) restart_error: Option<String>,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(super) enum Lifecycle {
-    #[default]
-    Alive,
-    /// One thread is sleeping in backoff / spawning / handshaking.
-    Respawning,
-    /// Reader saw EOF (or the child never validated); rebuild needed.
-    Dead,
-}
+use std::{
+    io::Write,
+    sync::{atomic::Ordering, mpsc},
+};
 
 impl StdioProvider {
-    /// One NDJSON-RPC round trip: register a reply slot, write the
-    /// request line, wait for the matched reply with a deadline.
-    /// Timeout: the slot is removed and the (eventual) late reply is
-    /// discarded by the reader — the transport stays usable. EOF: the
-    /// reader dropped every slot, so the wait fails fast.
-    ///
-    /// `gated` requests bail unless the transport is `Alive` — checked
-    /// in the same locked section that registers the slot, so a death
-    /// racing the registration either clears the slot (fail fast) or is
-    /// observed here (fail fast); a request can no longer slip onto a
-    /// dead transport and wait out its full deadline. The handshake
-    /// runs ungated: it IS the validation that flips Respawning →
-    /// Alive.
     pub(super) fn exchange(
         &self,
         method: &str,
         params: Value,
         gated: bool,
     ) -> ProviderResult<Value> {
-        let (id, rx) = self.send_request(method, params, gated)?;
-        self.await_reply(id, rx, None)
+        let (id, receiver) = self.send_request(method, params, gated, false)?;
+        self.await_reply(id, receiver, None)
     }
 
-    /// `exchange` with progressive results (protocol v1.3, plans/0011):
-    /// the request opts in via `partial` in params, and `$/partial`
-    /// notifications for its id are routed to `on_partial` (the
-    /// notification's params value) from the reader thread while the
-    /// worker waits. The read deadline becomes an inactivity deadline —
-    /// every partial resets it — so a provider that keeps streaming
-    /// never times out, but a silent one still fails.
     pub(super) fn exchange_with_partials(
         &self,
         method: &str,
         params: Value,
         on_partial: &(dyn Fn(&Value) + Send + Sync),
     ) -> ProviderResult<Value> {
-        let (id, rx) = self.send_request(method, params, true)?;
-        self.await_reply(id, rx, Some(on_partial))
+        self.ensure_alive()?;
+        let (id, receiver) = self.send_request(method, params, true, true)?;
+        self.await_reply(id, receiver, Some(on_partial))
     }
 
-    /// Register the reply slot and write the request line — shared by
-    /// every round-trip shape.
     fn send_request(
         &self,
         method: &str,
         params: Value,
         gated: bool,
-    ) -> ProviderResult<(u64, mpsc::Receiver<Value>)> {
-        let (id, rx) = {
+        streaming: bool,
+    ) -> ProviderResult<(RequestId, mpsc::Receiver<Delivery>)> {
+        // Lock order is process -> routing everywhere a write can race
+        // replacement. Registration and stdin always belong to one epoch.
+        let mut process = self.process.lock();
+        let (id, receiver, session) = {
             let mut routing = self.shared.routing.lock();
-            if gated && routing.lifecycle != Lifecycle::Alive {
-                return Err(ProviderError::new(
-                    ErrorKind::Provider,
-                    "provider restarting — try again",
-                ));
-            }
-            routing.next_id += 1;
-            let id = routing.next_id;
-            let (tx, rx) = mpsc::channel::<Value>();
-            routing.pending.insert(id, tx);
-            (id, rx)
+            let (id, receiver) = routing.register(gated, streaming)?;
+            (id, receiver, routing.session)
         };
-        let line = json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "method": method,
-            "params": params,
-        })
-        .to_string();
-        {
-            let mut process = self.process.lock();
-            let written = writeln!(process.stdin, "{line}").and_then(|()| process.stdin.flush());
-            if let Err(e) = written {
-                let mut routing = self.shared.routing.lock();
-                routing.pending.remove(&id);
-                // A broken pipe almost certainly means a dead child —
-                // the next request rebuilds (plans/0008 §5). Never
-                // clobber an in-flight rebuild: the pipe that broke
-                // belongs to the old child.
-                if routing.lifecycle == Lifecycle::Alive {
-                    routing.lifecycle = Lifecycle::Dead;
-                }
-                return Err(ProviderError::new(
-                    ErrorKind::Provider,
-                    format!("provider write: {e}"),
-                ));
-            }
+        let line = json!({"jsonrpc":"2.0", "id": id.wire(), "method": method, "params": params})
+            .to_string();
+        if let Err(error) = writeln!(process.stdin, "{line}").and_then(|()| process.stdin.flush()) {
+            let mut routing = self.shared.routing.lock();
+            routing.expire(id);
+            routing.disconnect(session);
+            self.shared.changed.notify_all();
+            return Err(ProviderError::new(
+                ErrorKind::Provider,
+                format!("provider write: {error}"),
+            ));
         }
-        Ok((id, rx))
+        Ok((id, receiver))
     }
 
-    /// Wait for the reply. `on_partial`, when set, consumes `$/partial`
-    /// notifications routed to this request's slot; each one resets the
-    /// deadline (inactivity semantics, v1.3).
     fn await_reply(
         &self,
-        id: u64,
-        rx: mpsc::Receiver<Value>,
+        id: RequestId,
+        receiver: mpsc::Receiver<Delivery>,
         on_partial: Option<&(dyn Fn(&Value) + Send + Sync)>,
     ) -> ProviderResult<Value> {
-        let _cleared = CurrentIdGuard::new(self, id);
+        let _current = CurrentIdGuard::new(self, id);
         loop {
-            let msg = match rx.recv_timeout(self.timeout) {
-                Ok(msg) => msg,
+            match receiver.recv_timeout(self.timeout) {
+                Ok(Delivery::Partial(params)) => {
+                    // Only opted-in slots can receive this variant. A
+                    // non-streaming call's deadline cannot be extended by
+                    // unsolicited partial notifications.
+                    if let Some(on_partial) = on_partial {
+                        on_partial(&params);
+                    }
+                }
+                Ok(Delivery::Response(message)) => {
+                    if let Some(error) = message.get("error") {
+                        return Err(error_from_reply(error));
+                    }
+                    return message
+                        .get("result")
+                        .cloned()
+                        .ok_or_else(|| ProviderError::other("provider reply without result"));
+                }
                 Err(mpsc::RecvTimeoutError::Timeout) => {
-                    self.shared.routing.lock().pending.remove(&id);
+                    self.shared.routing.lock().expire(id);
                     return Err(ProviderError::new(
                         ErrorKind::Timeout,
                         format!("provider timeout after {}s", self.timeout.as_secs_f64()),
@@ -177,155 +101,65 @@ impl StdioProvider {
                         "provider closed its output",
                     ));
                 }
-            };
-            // A notification on this slot is a v1.3 partial, not the
-            // reply — hand its params to the sink and keep waiting.
-            if msg.get("method").is_some() {
-                if let (Some(on_partial), Some(params)) = (on_partial, msg.get("params")) {
-                    on_partial(params);
-                }
-                continue;
             }
-            if let Some(err) = msg.get("error") {
-                return Err(error_from_reply(err));
-            }
-            return msg
-                .get("result")
-                .cloned()
-                .ok_or_else(|| ProviderError::other("provider reply without result"));
         }
     }
 }
 
-/// The v1.1 error taxonomy: semantics ride in `data.kind`; unknown or
-/// absent kinds degrade to Other (plans/0008 §2).
-fn error_from_reply(err: &Value) -> ProviderError {
-    let message = err
+struct CurrentIdGuard<'a> {
+    provider: &'a StdioProvider,
+    id: RequestId,
+}
+impl<'a> CurrentIdGuard<'a> {
+    fn new(provider: &'a StdioProvider, id: RequestId) -> Self {
+        provider.current_id.store(id.wire(), Ordering::Release);
+        Self { provider, id }
+    }
+}
+impl Drop for CurrentIdGuard<'_> {
+    fn drop(&mut self) {
+        let _ = self.provider.current_id.compare_exchange(
+            self.id.wire(),
+            0,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        );
+    }
+}
+
+pub(super) fn cancel_notification(id: u64) -> String {
+    json!({"jsonrpc":"2.0", "method":"$/cancelRequest", "params":{"id":id}}).to_string()
+}
+
+pub(super) fn de<Response: serde::de::DeserializeOwned>(value: Value) -> ProviderResult<Response> {
+    serde_json::from_value(value)
+        .map_err(|error| ProviderError::other(format!("provider reply shape: {error}")))
+}
+
+fn error_from_reply(error: &Value) -> ProviderError {
+    let message = error
         .get("message")
         .and_then(Value::as_str)
         .unwrap_or("provider error");
-    let data = err.get("data");
-    let kind = data
-        .and_then(|d| d.get("kind"))
+    let data = error.get("data");
+    let kind = match data
+        .and_then(|data| data.get("kind"))
         .and_then(Value::as_str)
-        .map(|k| match k {
-            "auth" => ErrorKind::Auth,
-            "rate_limited" => ErrorKind::RateLimited,
-            "not_found" => ErrorKind::NotFound,
-            "network" => ErrorKind::Network,
-            "timeout" => ErrorKind::Timeout,
-            "provider" => ErrorKind::Provider,
-            _ => ErrorKind::Other,
-        })
-        .unwrap_or(ErrorKind::Other);
+    {
+        Some("auth") => ErrorKind::Auth,
+        Some("rate_limited") => ErrorKind::RateLimited,
+        Some("not_found") => ErrorKind::NotFound,
+        Some("network") => ErrorKind::Network,
+        Some("timeout") => ErrorKind::Timeout,
+        Some("provider") => ErrorKind::Provider,
+        _ => ErrorKind::Other,
+    };
     let error = ProviderError::new(kind, message);
     match data
-        .and_then(|d| d.get("retry_after_s"))
+        .and_then(|data| data.get("retry_after_s"))
         .and_then(Value::as_u64)
     {
-        Some(s) => error.with_retry_after(Duration::from_secs(s)),
+        Some(seconds) => error.with_retry_after(std::time::Duration::from_secs(seconds)),
         None => error,
-    }
-}
-
-/// The stdout pump: read lines, complete the matching reply slot.
-/// Id-less lines are tolerated chatter today and become the server-
-/// initiated notification seam when that slice lands (plans/0008 §0).
-/// On EOF or a fatal read error every pending slot is dropped
-/// (failing all in-flight requests at once) and the transport is
-/// marked dead so the next request rebuilds (plans/0008 §5).
-pub(super) fn reader_loop(stdout: ChildStdout, shared: Arc<Shared>) {
-    let mut stdout = BufReader::new(stdout);
-    let mut buf = String::new();
-    loop {
-        buf.clear();
-        let n = match stdout.read_line(&mut buf) {
-            Ok(n) => n,
-            Err(_) => break,
-        };
-        if n == 0 {
-            break; // EOF — child exited
-        }
-        let Ok(msg) = serde_json::from_str::<Value>(buf.trim()) else {
-            continue; // tolerate non-JSON chatter
-        };
-        let Some(id) = msg.get("id").and_then(Value::as_u64) else {
-            // $/partial (v1.3): routed to the pending request's slot —
-            // the slot stays until the reply. Other id-less lines stay
-            // tolerated chatter.
-            if msg.get("method").and_then(Value::as_str) == Some("$/partial")
-                && let Some(pid) = msg
-                    .get("params")
-                    .and_then(|p| p.get("id"))
-                    .and_then(Value::as_u64)
-            {
-                let routing = shared.routing.lock();
-                if let Some(tx) = routing.pending.get(&pid) {
-                    let _ = tx.send(msg);
-                }
-            }
-            continue;
-        };
-        let tx = shared.routing.lock().pending.remove(&id);
-        if let Some(tx) = tx {
-            // A timed-out request has no slot; sending on a dropped
-            // receiver is a no-op either way.
-            let _ = tx.send(msg);
-        }
-    }
-    let mut routing = shared.routing.lock();
-    routing.pending.clear();
-    // Dead unconditionally: if a rebuild is mid-handshake and this is
-    // its brand-new reader dying, waiters must not proceed.
-    routing.lifecycle = Lifecycle::Dead;
-}
-
-/// Publishes `id` in `current_id` until the request leaves the wait
-/// (reply, error, timeout, or closed pipe).
-struct CurrentIdGuard<'a> {
-    provider: &'a StdioProvider,
-}
-
-impl<'a> CurrentIdGuard<'a> {
-    fn new(provider: &'a StdioProvider, id: u64) -> Self {
-        provider.current_id.store(id, Ordering::Release);
-        CurrentIdGuard { provider }
-    }
-}
-
-impl Drop for CurrentIdGuard<'_> {
-    fn drop(&mut self) {
-        self.provider.current_id.store(0, Ordering::Release);
-    }
-}
-
-/// The advisory-cancel notification line for a request id (v1.1).
-pub(super) fn cancel_notification(id: u64) -> String {
-    json!({
-        "jsonrpc": "2.0",
-        "method": "$/cancelRequest",
-        "params": { "id": id },
-    })
-    .to_string()
-}
-
-/// Deserialize a `result` value, tolerating missing optional fields.
-pub(super) fn de<T: serde::de::DeserializeOwned>(v: Value) -> ProviderResult<T> {
-    serde_json::from_value(v)
-        .map_err(|e| ProviderError::other(format!("provider reply shape: {e}")))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn cancel_notification_shape() {
-        let line = cancel_notification(7);
-        let v: Value = serde_json::from_str(&line).unwrap();
-        assert_eq!(v["jsonrpc"], "2.0");
-        assert_eq!(v["method"], "$/cancelRequest");
-        assert_eq!(v["params"]["id"], 7);
-        assert!(v.get("id").is_none()); // notification, not request
     }
 }

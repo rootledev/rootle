@@ -1,275 +1,170 @@
 ---- MODULE ProviderProtocol ----
-(***************************************************************************)
-(* The rootle provider transport lifecycle (plans/0027), model-checked.   *)
-(* doc/provider-protocol.md v1.5 is normative prose; this spec is its     *)
-(* concurrency core, machine-checked with TLC:                             *)
-(*                                                                       *)
-(*   1. requests ride a monotonic id allocator (1, 2, 3, ... — never      *)
-(*      reused, not across timeouts, not across rebuilds)                 *)
-(*   2. a reader thread routes replies and $/partial notifications by    *)
-(*      id; a delivery for an id with no live slot (late after timeout,  *)
-(*      duplicate, unknown, after-cancel) is DROPPED, never applied      *)
-(*   3. per-request lifecycle: pending -> partial* -> one terminal of    *)
-(*      result | error (the reply), timeout (the read deadline),         *)
-(*      cancelled (advisory $/cancelRequest, client abandons),          *)
-(*      closed (child death)                                             *)
-(*   4. the deadline is discrete and per-inactivity: Tick counts it      *)
-(*      down for every live request at once; a $/partial or the reply    *)
-(*      re-arms it — never extends it past one deadline period           *)
-(*   5. child death closes every in-flight request; the next request     *)
-(*      rebuilds after a backoff rung (the ladder advances only when a   *)
-(*      rebuild succeeded and the child later died again), then the      *)
-(*      replacement must pass initialize before it serves anything       *)
-(*                                                                       *)
-(* THE invariants, each named after the failure it forbids:              *)
-(*   CorrelationSafety — replies/partials are ROUTED only to live ids;   *)
-(*                       unknown, late, and duplicate deliveries drop    *)
-(*   UniqueTerminal    — at most one terminal transition per id          *)
-(*   PartialOrder      — no $/partial routed at/after an id's terminal   *)
-(*   TimeoutLiveness   — every live request holds an armed countdown     *)
-(*                       within one deadline period (safety-encoded:     *)
-(*                       plus always-enabled Tick/Expire, every request  *)
-(*                       reaches a terminal client-side)                 *)
-(*   RestartFailClosed — child down means nothing in flight; death       *)
-(*                       closes every in-flight id exactly once          *)
-(*   CancelAdvisory    — a cancel ends its request only as `cancelled`; *)
-(*                       result/error come from the reply alone          *)
-(*   NoIdReuse         — ids at or below the allocator's high-water      *)
-(*                       mark are never free again                        *)
-(*                                                                       *)
-(* Not modeled: payload shapes (wire.rs's job), real time (one Tick =    *)
-(* one deadline quantum), multiple providers/sessions, the initialize    *)
-(* handshake's content (only that a rebuild must validate — Restart-     *)
-(* FailClosed), and liveness fairness (bounded-exhaustive safety check   *)
-(* only — see plans/0027 "Honest scope").                                *)
-(*                                                                       *)
-(* The kept mutant (specs/ProviderProtocol_Mutant.tla) removes the       *)
-(* live-id guard from Deliver; the Dockerfile `model` target asserts it  *)
-(* FAILS with CorrelationSafety — if it ever passes, the invariant lost  *)
-(* its teeth.                                                            *)
-(***************************************************************************)
-EXTENDS Integers, FiniteSets
+(**************************************************************************)
+(* Bounded provider routing/recovery model (0027, corrected in 0029).       *)
+(* Cancel is advisory: it records intent and leaves the request live.       *)
+(* Only opted-in partials reset an inactivity deadline.                    *)
+(* Every delivery records the pre-state independently of the routing       *)
+(* guard; invariants check those observations, not ornamental flags.       *)
+(* Fault selects a kept mutation; the release gate checks its counterexample.*)
+(*                                                                        *)
+(* Abstraction: an admitted application call starts after initialize.       *)
+(* Handshake content, JSON payloads and OS process behavior are outside     *)
+(* this model; Rust routing-conformance and real-child tests cover them.    *)
+(* Tick models elapsed read time. MAXPARTIAL bounds finite streams.         *)
+(* EventuallyTerminal relies on finite streaming plus weakly fair Tick     *)
+(* and Expire, NOT merely on an armed countdown. A provider streaming      *)
+(* forever is allowed by the real protocol and need not terminate.         *)
+(**************************************************************************)
+EXTENDS Naturals, FiniteSets, TLC
+CONSTANTS IDS, DEADLINE, MAXPARTIAL, MAXREBUILD, BACKOFFCAP, Fault
+\* Observers retain the latest effect only. TLC checks each transition's
+\* observation before it can be overwritten; accumulated history adds
+\* combinations but changes neither the safety contract nor routing behavior.
+VARIABLES requests, nextId, epoch, phase, output, backoff, rebuilds,
+          deliveries, cancellations, readerEffects, admissions
 
-CONSTANTS IDS,         \* request ids in play, e.g. {1, 2, 3}
-          DEADLINE,    \* deadline period in Ticks, e.g. 3
-          MAXPARTIAL,  \* $/partial batches per request before the reply
-          MAXREBUILD,  \* cap on successful rebuilds (bounds the model)
-          BACKOFFCAP   \* longest backoff rung in Ticks
-
-VARIABLES req,         \* id -> [state, remaining, partials, done, term]
-          nextId,      \* allocator high-water mark (ids 1..nextId spent)
-          child,       \* up | down (down = reader saw EOF, needs rebuild)
-          backoff,     \* Ticks until a rebuild may run
-          rebuilds,    \* successful rebuilds so far (drives the rung)
-          misrouted,   \* TRUE iff a delivery was ROUTED onto a non-live
-                       \* slot — unreachable here; the kept mutant
-                       \* without the live-id guard sets it
-          zombiePartials \* $/partial routed at/after terminal — zero by
-                       \* construction; a spec edit that routes partials
-                       \* onto dead slots drives it off zero
-
-up == "up"
-down == "down"
-
-free == "free"
-pending == "pending"
-partial == "partial"
-result == "result"
-error == "error"
-timeout == "timeout"
-cancelled == "cancelled"
-closed == "closed"
-
-none == "none"
-reply == "reply"
-expire == "expire"
-cancel == "cancel"
-death == "death"
-
-STATES == {free, pending, partial, result, error, timeout, cancelled, closed}
-TERMS == {none, reply, expire, cancel, death}
-
-Live(id) == req[id].state \in {pending, partial}
-
-\* The backoff rung for the coming rebuild attempt: the ladder advances
-\* only when a rebuild succeeded and the child later died again (the
-\* code's `restarts` counter); a failing streak retries its rung.
-\* Scaled: real 1s -> 2s -> 5s -> 30s cap becomes 1 -> BACKOFFCAP.
-BackoffFor(attempt) == IF attempt <= 1 THEN 1 ELSE BACKOFFCAP
-
-\* Terminal transition for id: one state, one source tag, done counts
-\* terminal landings (UniqueTerminal caps it at 1).
-Terminate(id, st, how) ==
-    [state |-> st, remaining |-> 0, partials |-> req[id].partials,
-     done |-> req[id].done + 1, term |-> how]
-
-TypeOK ==
-    /\ req \in [IDS -> [state: STATES,
-                        \* loose by two so the one-deadline-period bound
-                        \* is enforced by TimeoutLiveness, not the types
-                        remaining: 0..DEADLINE + 2,
-                        partials: 0..MAXPARTIAL,
-                        done: 0..2,
-                        term: TERMS]]
-    /\ nextId \in {0} \cup IDS
-    /\ child \in {up, down}
-    /\ backoff \in 0..BACKOFFCAP
-    /\ rebuilds \in 0..MAXREBUILD
-    /\ misrouted \in BOOLEAN
-    /\ zombiePartials \in 0..MAXPARTIAL
+vars == <<requests, nextId, epoch, phase, output, backoff, rebuilds,
+          deliveries, cancellations, readerEffects, admissions>>
+Statuses == {"free", "live", "result", "error", "timeout", "closed", "cancelled"}
+Live == {id \in IDS : requests[id].status = "live"}
+EmptyRequest == [status |-> "free", streaming |-> FALSE, remaining |-> 0,
+                 partials |-> 0, completed |-> 0, issued |-> 0, epoch |-> 0]
 
 Init ==
-    /\ req = [id \in IDS |-> [state |-> free, remaining |-> 0,
-                              partials |-> 0, done |-> 0, term |-> none]]
-    /\ nextId = 0
-    /\ child = up
-    /\ backoff = 0
-    /\ rebuilds = 0
-    /\ misrouted = FALSE
-    /\ zombiePartials = 0
+    /\ requests = [id \in IDS |-> EmptyRequest]
+    /\ nextId = 0 /\ epoch = 0
+    /\ phase = "ready" /\ output = "open"
+    /\ backoff = 0 /\ rebuilds = 0
+    /\ deliveries = {} /\ cancellations = {} /\ readerEffects = {} /\ admissions = {}
 
-\* A fresh id leaves the allocator: armed with one full deadline period.
-Send ==
-    /\ child = up                    \* gated: nothing rides a dead child
+Finish(id, status) == [requests[id] EXCEPT !.status = status,
+                      !.remaining = 0, !.completed = @ + 1]
+
+Send(streaming) ==
+    /\ phase = "ready" /\ output = "open"
     /\ nextId + 1 \in IDS
+    /\ LET id == nextId + 1 IN
+       /\ requests' = [requests EXCEPT ![id] =
+           [status |-> "live", streaming |-> streaming, remaining |-> DEADLINE,
+            partials |-> 0, completed |-> 0, issued |-> @.issued + 1, epoch |-> epoch]]
+       /\ admissions' = {[id |-> id, validated |-> phase = "ready"]}
     /\ nextId' = nextId + 1
-    /\ req' = [req EXCEPT ![nextId + 1] =
-        [state |-> pending, remaining |-> DEADLINE,
-         partials |-> 0, done |-> 0, term |-> none]]
-    /\ UNCHANGED <<child, backoff, rebuilds, misrouted, zombiePartials>>
+    /\ UNCHANGED <<epoch, phase, output, backoff, rebuilds, deliveries, cancellations, readerEffects>>
 
-\* The reply lands on a live slot exactly once; anything else (late
-\* after timeout, duplicate final, unknown id, after cancel) matches no
-\* live slot and is dropped by the reader — ids are never reused, so it
-\* can never collide with a fresh request either.
-Deliver(id, ok) ==
-    /\ id \in IDS
-    /\ IF Live(id)
-       THEN /\ req' = [req EXCEPT ![id] =
-                           Terminate(id, IF ok THEN result ELSE error, reply)]
-            /\ misrouted' = misrouted
-       ELSE /\ req' = req
-            /\ misrouted' = misrouted
-    /\ UNCHANGED <<nextId, child, backoff, rebuilds, zombiePartials>>
+Observation(target, source, origin, kind) ==
+    [owner |-> target, source |-> source, origin |-> origin,
+     expectedEpoch |-> requests[target].epoch, live |-> target \in Live,
+     streaming |-> requests[target].streaming, kind |-> kind]
 
-\* A $/partial batch: routed only to a live slot, and it re-arms (never
-\* extends) the inactivity deadline — a stream that keeps talking never
-\* times out, a silent one still does.
-Partial(id) ==
-    /\ id \in IDS
-    /\ IF Live(id) /\ req[id].partials < MAXPARTIAL
-       THEN /\ req' = [req EXCEPT ![id] =
-               [req[id] EXCEPT !.state = partial, !.remaining = DEADLINE,
-                                !.partials = @ + 1]]
-            /\ zombiePartials' = zombiePartials
-       ELSE /\ req' = req
-            /\ zombiePartials' = zombiePartials
-    /\ UNCHANGED <<nextId, child, backoff, rebuilds, misrouted>>
+Reply(source, origin, ok) ==
+    /\ source \in IDS /\ origin \in 0..epoch
+    /\ LET route == source \in Live /\ origin = epoch
+           target == IF route THEN source
+                     ELSE IF Fault = "misroute" /\ Live # {} THEN CHOOSE id \in Live : TRUE
+                     ELSE 0
+       IN IF target # 0
+          THEN /\ requests' = [requests EXCEPT ![target] = Finish(target, IF ok THEN "result" ELSE "error")]
+               /\ deliveries' = {Observation(target, source, origin, "response")}
+          ELSE /\ requests' = requests /\ deliveries' = deliveries
+    /\ UNCHANGED <<nextId, epoch, phase, output, backoff, rebuilds, cancellations, readerEffects, admissions>>
 
-\* Advisory $/cancelRequest: the client abandons a live request; the
-\* reply may still arrive — and is then an ordinary non-live delivery,
-\* dropped above. Cancels for unknown or completed ids are no-ops.
+Partial(id, origin) ==
+    /\ id \in IDS /\ origin \in 0..epoch
+    /\ IF id \in Live /\ origin = epoch /\ requests[id].partials < MAXPARTIAL
+          /\ (requests[id].streaming \/ Fault = "nonstream-partial")
+       THEN /\ requests' = [requests EXCEPT ![id].remaining = DEADLINE, ![id].partials = @ + 1]
+            /\ deliveries' = {Observation(id, id, origin, "partial")}
+       ELSE /\ requests' = requests /\ deliveries' = deliveries
+    /\ UNCHANGED <<nextId, epoch, phase, output, backoff, rebuilds, cancellations, readerEffects, admissions>>
+
 Cancel(id) ==
     /\ id \in IDS
-    /\ req' = IF Live(id)
-              THEN [req EXCEPT ![id] = Terminate(id, cancelled, cancel)]
-              ELSE req
-    /\ UNCHANGED <<nextId, child, backoff, rebuilds, misrouted, zombiePartials>>
+    /\ LET after == IF Fault = "cancel-terminal" /\ id \in Live THEN "cancelled" ELSE requests[id].status IN
+       /\ requests' = [requests EXCEPT ![id].status = after]
+       /\ cancellations' = {[before |-> requests[id].status, after |-> after]}
+    /\ UNCHANGED <<nextId, epoch, phase, output, backoff, rebuilds, deliveries, readerEffects, admissions>>
 
-\* The read deadline fired: the slot is dropped (never reused), the
-\* transport stays usable, and the eventual late reply is discarded.
-Expire(id) ==
-    /\ Live(id)
-    /\ req[id].remaining = 1
-    /\ req' = [req EXCEPT ![id] = Terminate(id, timeout, expire)]
-    /\ UNCHANGED <<nextId, child, backoff, rebuilds, misrouted, zombiePartials>>
-
-\* One deadline quantum passes: every live request's countdown ticks
-\* toward its expiry; the rebuild gate ticks open.
 Tick ==
-    /\ \/ \E id \in IDS : Live(id) /\ req[id].remaining > 1
-       \/ backoff > 0
-    /\ req' = [id \in IDS |-> [req[id] EXCEPT !.remaining = IF @ > 1 THEN @ - 1 ELSE @]]
+    /\ (\E id \in Live : requests[id].remaining > 0) \/ backoff > 0
+    /\ requests' = [id \in IDS |-> [requests[id] EXCEPT !.remaining = IF @ > 0 THEN @ - 1 ELSE 0]]
     /\ backoff' = IF backoff > 0 THEN backoff - 1 ELSE 0
-    /\ UNCHANGED <<nextId, child, rebuilds, misrouted, zombiePartials>>
+    /\ UNCHANGED <<nextId, epoch, phase, output, rebuilds, deliveries, cancellations, readerEffects, admissions>>
 
-\* The child dies (EOF on its stdout): every in-flight request fails
-\* closed, exactly once, and nothing new rides the dead transport.
-Die ==
-    /\ child = up
-    /\ child' = down
-    /\ backoff' = BackoffFor(rebuilds + 1)
-    /\ req' = [id \in IDS |->
-        IF Live(id)
-        THEN [req[id] EXCEPT !.state = closed, !.remaining = 0,
-                             !.done = @ + 1, !.term = death]
-        ELSE req[id]]
-    /\ UNCHANGED <<nextId, rebuilds, misrouted, zombiePartials>>
+Expire(id) ==
+    /\ id \in Live /\ requests[id].remaining = 0
+    /\ requests' = [requests EXCEPT ![id] = Finish(id, "timeout")]
+    /\ UNCHANGED <<nextId, epoch, phase, output, backoff, rebuilds, deliveries, cancellations, readerEffects, admissions>>
 
-\* A rebuild attempt that validated (passed initialize): the transport
-\* serves again — fresh ids only; the pre-death requests stay closed.
-RebuildOk ==
-    /\ child = down
-    /\ backoff = 0
-    /\ rebuilds < MAXREBUILD
-    /\ child' = up
-    /\ rebuilds' = rebuilds + 1
-    /\ UNCHANGED <<req, nextId, backoff, misrouted, zombiePartials>>
+Eof(origin) ==
+    /\ origin \in 0..epoch
+    /\ LET affects == origin = epoch \/ Fault = "stale-reader"
+           nextLive == IF affects THEN {} ELSE Live
+           nextPhase == IF affects /\ phase = "ready" THEN "dead" ELSE phase
+           nextOutput == IF affects THEN "closed" ELSE output
+       IN /\ requests' = [id \in IDS |-> IF affects /\ id \in Live THEN Finish(id, "closed") ELSE requests[id]]
+          /\ phase' = nextPhase /\ output' = nextOutput
+          /\ readerEffects' = {
+              [stale |-> origin # epoch, before |-> Live, after |-> nextLive,
+               phaseBefore |-> phase, phaseAfter |-> nextPhase,
+               outputBefore |-> output, outputAfter |-> nextOutput]}
+    /\ UNCHANGED <<nextId, epoch, backoff, rebuilds, deliveries, cancellations, admissions>>
 
-\* A rebuild attempt that failed (spawn error, failed handshake): same
-\* rung again for the next fresh request — retries are unbounded per
-\* session; the bound is per caller (the code fails waiters after one
-\* attempt, which Tick/Expire never see: Die already closed everything).
-RebuildFail ==
-    /\ child = down
-    /\ backoff = 0
-    /\ backoff' = BackoffFor(rebuilds + 1)
-    /\ UNCHANGED <<req, nextId, child, rebuilds, misrouted, zombiePartials>>
+StartRebuild ==
+    /\ phase = "dead" /\ epoch < MAXREBUILD
+    /\ phase' = "sleeping" /\ output' = "awaiting"
+    /\ epoch' = epoch + 1
+    /\ backoff' = IF rebuilds = 0 THEN 1 ELSE BACKOFFCAP
+    /\ UNCHANGED <<requests, nextId, rebuilds, deliveries, cancellations, readerEffects, admissions>>
+
+Spawn ==
+    /\ phase = "sleeping" /\ backoff = 0
+    /\ phase' = "handshake" /\ output' = "open"
+    /\ UNCHANGED <<requests, nextId, epoch, backoff, rebuilds, deliveries, cancellations, readerEffects, admissions>>
+
+HandshakeOk ==
+    /\ phase = "handshake" /\ output = "open"
+    /\ phase' = "ready" /\ rebuilds' = rebuilds + 1
+    /\ UNCHANGED <<requests, nextId, epoch, output, backoff, deliveries, cancellations, readerEffects, admissions>>
+
+HandshakeFail ==
+    /\ phase = "handshake"
+    /\ phase' = "dead" /\ output' = "closed"
+    /\ UNCHANGED <<requests, nextId, epoch, backoff, rebuilds, deliveries, cancellations, readerEffects, admissions>>
 
 Next ==
-    \/ Send
-    \/ \E id \in IDS, ok \in {TRUE, FALSE} : Deliver(id, ok)
-    \/ \E id \in IDS : Partial(id)
+    \/ \E streaming \in BOOLEAN : Send(streaming)
+    \/ \E id \in IDS, origin \in 0..epoch, ok \in BOOLEAN : Reply(id, origin, ok)
+    \/ \E id \in IDS, origin \in 0..epoch : Partial(id, origin)
     \/ \E id \in IDS : Cancel(id)
     \/ \E id \in IDS : Expire(id)
     \/ Tick
-    \/ Die
-    \/ RebuildOk
-    \/ RebuildFail
+    \/ \E origin \in 0..epoch : Eof(origin)
+    \/ StartRebuild \/ Spawn \/ HandshakeOk \/ HandshakeFail
 
-Spec == Init /\ [][Next]_<<req, nextId, child, backoff, rebuilds,
-                         misrouted, zombiePartials>>
+Spec == Init /\ [][Next]_vars
+            /\ WF_vars(Tick) /\ (\A id \in IDS : WF_vars(Expire(id)))
+            /\ WF_vars(Spawn) /\ WF_vars(HandshakeOk) /\ WF_vars(HandshakeFail)
 
-(* -- the invariants ------------------------------------------------------- *)
-
-CorrelationSafety == ~misrouted
-
-UniqueTerminal ==
-    \A id \in IDS : req[id].done <= 1
-
-PartialOrder ==
-    zombiePartials = 0
-
-TimeoutLiveness ==
-    \A id \in IDS : Live(id) => req[id].remaining \in 1..DEADLINE
-
-RestartFailClosed ==
-    (child = down) => \A id \in IDS : ~Live(id)
-
-CancelAdvisory ==
-    \A id \in IDS :
-        /\ req[id].state \in {result, error} => req[id].term = reply
-        /\ req[id].state = cancelled => req[id].term = cancel
-        /\ req[id].state = timeout => req[id].term = expire
-        /\ req[id].state = closed => req[id].term = death
-        /\ req[id].state \in {pending, partial} =>
-            req[id].done = 0 /\ req[id].term = none
-
-NoIdReuse ==
-    \A id \in IDS : id <= nextId => req[id].state # free
-
-THEOREM Spec => []TypeOK
-          /\ []CorrelationSafety /\ []UniqueTerminal /\ []PartialOrder
-          /\ []TimeoutLiveness /\ []RestartFailClosed
-          /\ []CancelAdvisory /\ []NoIdReuse
+TypeOK ==
+    /\ requests \in [IDS -> [status: Statuses, streaming: BOOLEAN,
+         remaining: 0..DEADLINE, partials: 0..MAXPARTIAL, completed: 0..2,
+         issued: 0..1, epoch: 0..MAXREBUILD]]
+    /\ epoch \in 0..MAXREBUILD /\ rebuilds \in 0..MAXREBUILD
+    /\ phase \in {"ready", "dead", "sleeping", "handshake"}
+    /\ output \in {"open", "closed", "awaiting"}
+    /\ backoff \in 0..BACKOFFCAP /\ nextId \in {0} \cup IDS
+CorrelationSafety == \A delivery \in deliveries :
+    delivery.owner = delivery.source /\ delivery.origin = delivery.expectedEpoch /\ delivery.live
+UniqueTerminal == \A id \in IDS : requests[id].completed <= 1
+PartialOrder == \A delivery \in deliveries : delivery.kind = "partial" => delivery.live
+PartialOptIn == \A delivery \in deliveries : delivery.kind = "partial" => delivery.streaming
+DeadlineBounded == \A id \in Live : requests[id].remaining \in 0..DEADLINE
+RestartFailClosed == output # "open" => Live = {}
+ValidatedAdmission == \A admission \in admissions : admission.validated
+CancelAdvisory == \A event \in cancellations : event.before = event.after
+NoIdReuse == \A id \in IDS : requests[id].issued <= 1 /\ (id <= nextId => requests[id].status # "free")
+StaleReaderIsolation == \A event \in readerEffects : event.stale =>
+    event.before = event.after /\ event.phaseBefore = event.phaseAfter /\ event.outputBefore = event.outputAfter
+EventuallyTerminal == \A id \in IDS : [](id \in Live => <>(id \notin Live))
+RecoveryResolves == [](phase \in {"sleeping", "handshake"} => <>(phase \in {"ready", "dead"}))
 =============================================================================

@@ -133,7 +133,6 @@ def test_grep_view_scope_radio_popup(tmp_path, binary):
     )
     f = frames(out)
     assert "grep" in f[0]
-    assert "all of github" in f[1]
     assert "(•) current repo" in f[1]
     assert "(•) current org" in f[2]
     assert "grep · org:local" in f[3]

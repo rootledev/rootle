@@ -28,12 +28,12 @@
 //! `bookkeeping` (pin/remove/use/list).
 
 mod install;
-mod refs;
+pub mod progress;
+mod reference;
 mod release;
 mod store;
-pub mod ui;
 
-pub use refs::Ref;
+pub use reference::ProviderReference;
 
 /// The verified-download machinery, shared with `rootle update`
 /// (0017 M2) — same integrity model as provider installs.

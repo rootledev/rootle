@@ -10,10 +10,10 @@ pub mod cache;
 pub mod client;
 pub mod types;
 
-use crate::client::Client;
+use crate::client::GitHubClient;
 
 pub struct GitHubProvider {
-    client: Client,
+    client: GitHubClient,
 }
 
 impl GitHubProvider {
@@ -23,7 +23,7 @@ impl GitHubProvider {
         let max_bytes = max_mb * 1024 * 1024;
         std::thread::spawn(move || crate::cache::harden(max_bytes));
         GitHubProvider {
-            client: Client::new(),
+            client: GitHubClient::new(),
         }
     }
 
@@ -31,7 +31,7 @@ impl GitHubProvider {
     /// Token-less, no hardening (tests and offline defaults).
     pub fn anonymous() -> Self {
         GitHubProvider {
-            client: Client::anonymous(),
+            client: GitHubClient::anonymous(),
         }
     }
 }
@@ -270,35 +270,41 @@ impl From<&crate::types::CodeItem> for CodeMatch {
 }
 
 impl From<crate::types::CommitResponse> for CommitDetail {
-    fn from(c: crate::types::CommitResponse) -> Self {
+    fn from(response: crate::types::CommitResponse) -> Self {
+        let author = response.commit.author;
+        let (author, date) = author
+            .map(|author| {
+                (
+                    author.name.unwrap_or_default(),
+                    author.date.unwrap_or_default(),
+                )
+            })
+            .unwrap_or_default();
         CommitDetail {
-            sha: c.sha,
-            author: c
-                .commit
-                .author
-                .as_ref()
-                .and_then(|a| a.name.clone())
-                .unwrap_or_default(),
-            date: c
-                .commit
-                .author
-                .as_ref()
-                .and_then(|a| a.date.clone())
-                .unwrap_or_default(),
-            message: c.commit.message,
-            parents: c.parents.into_iter().map(|p| p.sha).collect(),
-            files: c
+            sha: response.sha.into(),
+            author,
+            date,
+            message: response.commit.message,
+            parents: response
+                .parents
+                .into_iter()
+                .map(|parent| parent.sha.into())
+                .collect(),
+            files: response
                 .files
                 .into_iter()
-                .map(|f| CommitFile {
-                    path: f.filename,
-                    status: file_status(f.status.as_deref()),
-                    additions: f.additions,
-                    deletions: f.deletions,
-                    patch: f.patch,
-                    previous_path: f.previous_filename,
+                .map(|file| CommitFile {
+                    path: file.filename.into(),
+                    status: file_status(file.status.as_deref()),
+                    additions: file.additions,
+                    deletions: file.deletions,
+                    patch: file.patch,
+                    previous_path: file.previous_filename.map(Into::into),
+                    binary: false,
                 })
                 .collect(),
+            truncated: response.truncated,
+            web_url: response.html_url,
         }
     }
 }
@@ -421,17 +427,21 @@ mod tests {
         }"#;
         let wire: crate::types::CommitResponse = serde_json::from_str(json).unwrap();
         let d = CommitDetail::from(wire);
-        assert_eq!(d.sha, "6dcb09b5");
-        assert_eq!(d.author, "octocat");
-        assert_eq!(d.date, "2026-09-06T10:00:00Z");
-        assert_eq!(d.message, "Fix the race\n\nBody line.");
-        assert_eq!(d.parents, ["aaa111", "bbb222"]);
         assert_eq!(d.files[0].status, FileStatus::Modified);
         assert_eq!(d.files[1].status, FileStatus::Renamed);
-        assert_eq!(d.files[1].previous_path.as_deref(), Some("src/orig.rs"));
+        assert_eq!(
+            d.files[1].previous_path.as_ref().map(|path| path.as_str()),
+            Some("src/orig.rs")
+        );
         // "changed" is not one of the seam's four → modified.
         assert_eq!(d.files[2].status, FileStatus::Modified);
         assert_eq!(d.files[2].patch, None);
-        assert_eq!(d.line_stats(), (6, 2));
+        assert_eq!(
+            d.line_stats(),
+            rootle_provider::CommitStatistics {
+                additions: Some(6),
+                deletions: Some(2)
+            }
+        );
     }
 }

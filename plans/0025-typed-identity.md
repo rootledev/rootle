@@ -1,7 +1,10 @@
 # 0025 — Typed identity: no naked strings, no bare counters
 
-Status: **done (2026-09-06)** — commit 4a970eb. Result-struct fields (LogEntry.sha etc.) deliberately wait for the 0028 wave that touches their consumers, per this plan's own migration clause.
-the new crates).
+Status: **implemented and verified locally (2026-09-07)** — typed
+provider arguments, domain-tagged request generations, entity-scoped
+VISUAL marks and distinct list/diff coordinates. Some wire response
+fields remain strings at the serde boundary; further domain migration
+is recorded on the site roadmap. Release tracking lives in 0029.
 
 ## Problem
 
@@ -33,11 +36,10 @@ live bugs today; all are one refactor away.
    `#[serde(transparent)]`, `Display`, cheap `Clone`. The `Provider`
    trait adopts them in one cutover (two impls + workers — contained),
    wire stays stringly.
-2. **`Generation` newtype** wrapping the counters, with
-   `Generation::next()` / `is_current(&self)` so landing sites read as
-   a guard, not an inequality.
-3. **`MarkKey { pane, entry }`** struct replaces the string-convention
-   marks key.
+2. **Domain-tagged `Generation<Domain>`** wraps request clocks, with
+   `tick()` / `is_current()` guards; unrelated pipelines cannot compare.
+3. **Entity-scoped `MarkKey` variants** distinguish organization,
+   repository and repository/ref/path entries, independent of captions.
 4. **Action hygiene**: new/reworked variants carry typed identity
    (`RepoId`, `Sha`), no joined-then-split repo strings. The 85-variant
    enum stays one sectioned file (keymap-like single source).
@@ -57,11 +59,9 @@ live bugs today; all are one refactor away.
   overlay slots) — typed names + `Generation` counters cover the same
   failure classes without a memory-management abstraction. If rootle
   ever grows dynamic panes, this decision is the one to revisit.
-- **No `coordinate!`-style usize newtypes** for cursor/scroll yet:
-  rootle has one coordinate domain (line index inside a component)
-  vs strop's four; the payoff isn't there. Revisit with 0028's diff
-  gutters if dual line-number domains (old/new side) leak into app
-  state.
+- Diff source lines, item selection and display-row offsets now have
+  distinct types. Local arithmetic and named layout constants remain
+  ordinary integers; no wrapper ceremony without a domain boundary.
 
 ## Verification
 

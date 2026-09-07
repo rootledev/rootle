@@ -1,7 +1,10 @@
 # 0024 — The crate split
 
-Status: **done (2026-09-06)** — commits 938a445+cdeed35-era scaffolding through 4a970eb; docker test gate green, e2e/model re-run on the combined tree. update.rs → selfupdate.rs; factory stayed app-side (src/provider/) — dependency reality over the plan's first sketch.
-(0024–0028); this lands first so the rest lands in the new shape.
+Status: **implemented and verified locally (2026-09-07)** — six crates,
+virtual root manifest, application source/tests under `crates/rootle`,
+direct provider imports and dependency-ordered release publishing.
+The app-side factory remains in `crates/rootle/src/provider/`.
+Published-release tracking lives in 0029.
 
 ## Problem
 

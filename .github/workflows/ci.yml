@@ -66,4 +66,4 @@ jobs:
           python3 -m pip install pytest
           # `run` chdirs into the suite root — the provider path must
           # be absolute.
-          python3 forge-conformance/run -- python3 "$GITHUB_WORKSPACE/examples/providers/fs_provider.py"
+          python3 forge-conformance/run -- python3 "$GITHUB_WORKSPACE/crates/stdio/examples/fs_provider.py"

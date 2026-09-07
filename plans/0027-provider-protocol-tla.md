@@ -1,18 +1,14 @@
 # 0027 — Provider protocol, model-checked (TLA+)
 
-Status: **shipped (2026-09-06)** — M1–M4 done: specs/
-ProviderProtocol.tla (+ kept mutant) with all seven named invariants
-each validated by a throwaway mutant; Dockerfile `model` target gates
-BOTH outcomes (base clean, mutant killed by CorrelationSafety);
-compose `model` + ci.yml step wired. Doc gaps settled: (a) ids are
-monotonic per session, never reused — late replies match no live
-slot; (b) retry bounds are per caller (one attempt), unbounded per
-session, ladder advancing only across successful rebuilds — as the
-code does. Standing rule added to doc/provider-protocol.md. Bridge
-tests in crates/stdio/src/tests.rs (5 fault classes), teeth proven by
-reader-misroute mutation. Gate teeth proven by re-breaking the mutant
-as a Die fault (killed via RestartFailClosed, not the grepped
-CorrelationSafety → build failed) and reverting.
+Status: **implemented and verified locally (2026-09-07)** — corrected
+under 0029: advisory cancellation stays non-terminal, partials require
+opt-in, admissions require a validated generation, and old readers are
+isolated. TLC checks ten safety invariants, type correctness and two
+fairness-qualified temporal properties. Four kept mutants must fail
+by their named invariant and exit code, not parsing/runtime errors.
+Generated traces exercise the production router; real-child scenarios
+cover timeout, streaming, EOF and bounded recovery. Release tracking
+lives in 0029; the earlier “shipped” wording was premature.
 
 ## Problem
 
@@ -51,21 +47,18 @@ and has never been machine-checked:
 
 ## The spec
 
-`specs/ProviderProtocol.tla` models the transport lifecycle, not
-payload shapes: per-request state (pending → partial* →
-result|error|timeout|cancelled), the reader thread, a discrete
-deadline clock, child death/rebuild with backoff states, and the id
-allocator. Invariants, named for the failure they forbid:
+`specs/ProviderProtocol.tla` models admitted requests and recovery,
+not payloads or OS pipe/process behavior. Cancellation records intent;
+it does not complete a live request. Safety checks:
 
-- **CorrelationSafety** — replies only for live ids
-- **UniqueTerminal** — at most one result/error per id per session
-- **PartialOrder** — no `$/partial` at or after terminal
-- **TimeoutLiveness** — with fair delivery, every request reaches a
-  terminal state client-side
-- **RestartFailClosed** — child death errors every in-flight id
-  exactly once; no zombie partials after rebuild
-- **CancelAdvisory** — cancel breaks none of the above
-- **NoIdReuse** — ids are monotonic per session (see gap (a))
+- `CorrelationSafety`, `UniqueTerminal`, `PartialOrder`, `PartialOptIn`
+- `DeadlineBounded`, `RestartFailClosed`, `ValidatedAdmission`
+- `CancelAdvisory`, `NoIdReuse`, `StaleReaderIsolation`, plus `TypeOK`
+
+`EventuallyTerminal` requires finite streaming and weakly fair clock
+and expiry scheduling. `RecoveryResolves` requires weakly fair
+spawn/handshake scheduling. An indefinitely streaming real provider is
+allowed not to terminate; a countdown bound is not a liveness proof.
 
 Two prose gaps the model must settle (doc amended in the same PR):
 
@@ -93,13 +86,13 @@ client-side obligations safe for existing adapters.
 
 ### M3 — bridge tests
 
-The fault classes as wire-level tests in the stdio crate (current
-`src/provider/stdio/tests.rs`; moving with 0024 to
-`crates/stdio/src/tests.rs` — check which path exists when writing):
-double-final rejected, partial-after-final dropped, unknown-id
-ignored, late-reply-after-timeout discarded (needs the (a) mechanism),
-cancel-then-rebuild, EOF mid-stream. Conformance suite gains the
-adapter-side mirrors.
+Generated request/response/partial/expiry/restart traces exercise
+`crates/stdio/src/routing.rs` through its real delivery channels.
+Tests in `crates/stdio/src/tests.rs` and `restart/tests.rs` exercise
+real child processes: duplicate/unknown/late replies, partial opt-in,
+EOF fan-out, progressive recovery and failed-rebuild waiter bounds.
+The external forge-conformance suite remains the adapter contract gate;
+the new commit path is also exercised by the real-app headless suite.
 
 ### M4 — the standing rule
 
@@ -109,15 +102,17 @@ the same PR."
 
 ## Honest scope (recorded pushback)
 
-"Sound and complete" is not literally what TLC delivers and the
-site/roadmap must not claim it. What ships: bounded-exhaustive
-checking (≤3 in-flight, ≤4 partials, ≤2 rebuilds — seconds of CI),
-mutant-validated invariants, and every modeled fault class pinned by
-an executable test. The spec proves the protocol design; the bridge
-tests hold the implementations to it.
+“Sound and complete” is not what TLC delivers. The checked configuration
+uses two IDs, deadline two, one partial per request, one rebuild and a
+backoff cap of two ticks. These are exhaustive finite bounds, not limits
+imposed by the implementation. Four mutants validate fault detection;
+the executable bridge is complementary evidence, not formal refinement.
+OS backpressure/process-tree behavior and a full application-state model
+are outside this model and recorded on the public roadmap.
 
 ## Verification
 
-`docker compose run --build --rm model` green (both assertions);
-mutant deliberately broken once more in review to watch the gate
-fire.
+`docker compose run --build --rm model` passed with the corrected model.
+The four faults are misrouting, terminal cancellation, unsolicited
+partial delivery and stale-reader mutation. Rust and adapter gates
+are recorded with the integration/release evidence in 0029.

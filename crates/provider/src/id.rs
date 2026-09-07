@@ -73,31 +73,55 @@ opaque_id!(
      call site means the default branch; this type never encodes it."
 );
 
-impl std::fmt::Display for Generation {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
+opaque_id!(
+    RepoPath,
+    "An opaque repository-relative path, not a host filesystem path."
+);
+opaque_id!(
+    OrgId,
+    "An opaque organization or group identity, independent of its displayed caption."
+);
+
+impl Sha {
+    pub fn short(&self) -> String {
+        self.as_str().chars().take(7).collect()
     }
 }
 
-/// A staleness clock for async replies (plans/0025): workers capture
-/// the generation they were spawned under; the landing site drops
-/// results whose generation is no longer current. Replaces raw `u64`
-/// counters compared by `!=` — the type makes the guard read as a
-/// guard and stops cross-counter comparisons from compiling.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub struct Generation(u64);
+/// Domain-tagged request generation. Different pipelines cannot compare
+/// clocks, even though both happen to be represented by an integer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Generation<Domain> {
+    value: u64,
+    domain: std::marker::PhantomData<Domain>,
+}
 
-impl Generation {
-    /// Tick the clock; the returned value is what a spawn captures.
-    pub fn tick(&mut self) -> Generation {
-        self.0 += 1;
+impl<Domain> Default for Generation<Domain> {
+    fn default() -> Self {
+        Self {
+            value: 0,
+            domain: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<Domain: Copy + PartialEq> Generation<Domain> {
+    pub fn tick(&mut self) -> Self {
+        self.value = self
+            .value
+            .checked_add(1)
+            .expect("request generation exhausted");
         *self
     }
 
-    /// Is `other` the generation this clock is currently at? A spawn
-    /// holds the value it captured; the landing site asks the clock.
-    pub fn is_current(&self, other: Generation) -> bool {
+    pub fn is_current(&self, other: Self) -> bool {
         *self == other
+    }
+}
+
+impl<Domain> std::fmt::Display for Generation<Domain> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.value.fmt(formatter)
     }
 }
 
@@ -107,7 +131,7 @@ mod tests {
 
     #[test]
     fn generation_guards_drop_stale_captures() {
-        let mut clock = Generation::default();
+        let mut clock = Generation::<()>::default();
         let spawn = clock.tick();
         assert!(clock.is_current(spawn));
         let _newer = clock.tick();

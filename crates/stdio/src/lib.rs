@@ -23,7 +23,8 @@
 //! leaves a notice (`take_notice`) for the status line.
 
 use self::process::{Process, StderrMode, spawn_process};
-use self::transport::{Shared, reader_loop};
+use self::reader::spawn_reader;
+use self::routing::Shared;
 use parking_lot::Mutex;
 use rootle_provider::{Capabilities, ProviderResult};
 use std::sync::Arc;
@@ -33,7 +34,9 @@ use std::time::Duration;
 
 mod handshake;
 mod process;
+mod reader;
 mod restart;
+mod routing;
 mod transport;
 mod wire;
 
@@ -94,18 +97,29 @@ impl Drop for StdioProvider {
     fn drop(&mut self) {
         self.closed.store(true, Ordering::Release);
         let process = self.process.get_mut();
-        let _ = process.child.kill();
-        let _ = process.child.wait();
+        process.terminate();
         if let Some(handle) = self.reader.lock().take() {
             let _ = handle.join();
         }
     }
 }
 
+#[derive(Default)]
+struct SpawnCache {
+    bytes: u64,
+    directory: Option<std::path::PathBuf>,
+}
+
 impl StdioProvider {
     /// Spawn the provider and run the initialize handshake.
     pub fn spawn(command: &[String], timeout: Duration) -> ProviderResult<Self> {
-        Self::spawn_inner(command, timeout, &[], StderrMode::Null)
+        Self::spawn_inner(
+            command,
+            timeout,
+            &[],
+            StderrMode::Null,
+            SpawnCache::default(),
+        )
     }
 
     /// Spawn with the configured stderr policy (plans/0008 §4):
@@ -133,14 +147,16 @@ impl StdioProvider {
         } else {
             StderrMode::Null
         };
-        let mut provider = Self::spawn_inner(command, timeout, &[], mode)?;
-        provider.cache_bytes = cache_bytes;
-        provider.cache_dir = cache_dir;
-        // The initial handshake already ran inside spawn_inner without
-        // the budget; re-run it so the provider hears cache_bytes on
-        // THIS generation too. Respawns always carry it.
-        let reply = provider.handshake()?;
-        provider.initialize_from(reply)
+        Self::spawn_inner(
+            command,
+            timeout,
+            &[],
+            mode,
+            SpawnCache {
+                bytes: cache_bytes,
+                directory: cache_dir,
+            },
+        )
     }
 
     /// Spawn with extra environment for the child process — the
@@ -150,7 +166,13 @@ impl StdioProvider {
         timeout: Duration,
         env: &[(&str, &str)],
     ) -> ProviderResult<Self> {
-        Self::spawn_inner(command, timeout, env, StderrMode::Null)
+        Self::spawn_inner(
+            command,
+            timeout,
+            env,
+            StderrMode::Null,
+            SpawnCache::default(),
+        )
     }
 
     fn spawn_inner(
@@ -158,13 +180,12 @@ impl StdioProvider {
         timeout: Duration,
         env: &[(&str, &str)],
         stderr_mode: StderrMode,
+        cache: SpawnCache,
     ) -> ProviderResult<Self> {
         let (process, stdout) = spawn_process(command, env, stderr_mode)?;
         let shared = Arc::new(Shared::default());
-        let reader = std::thread::spawn({
-            let shared = Arc::clone(&shared);
-            move || reader_loop(stdout, shared)
-        });
+        let session = shared.routing.lock().session;
+        let reader = spawn_reader(stdout, Arc::clone(&shared), session)?;
         let provider = StdioProvider {
             name: "stdio".into(),
             icon: None,
@@ -193,8 +214,8 @@ impl StdioProvider {
             notice: Mutex::new(None),
             failure_noticed: Mutex::new(false),
             closed: AtomicBool::new(false),
-            cache_bytes: 0,
-            cache_dir: None,
+            cache_bytes: cache.bytes,
+            cache_dir: cache.directory,
             cache_used: parking_lot::Mutex::new(None),
         };
         // Same deadline as any request: a provider that hangs on

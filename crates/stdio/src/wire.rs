@@ -29,7 +29,7 @@ impl Provider for StdioProvider {
 
     fn search(&self, query: &str) -> ProviderResult<Vec<SearchItem>> {
         #[derive(serde::Deserialize)]
-        struct R {
+        struct RepositorySearchReply {
             #[serde(default)]
             items: Vec<Item>,
         }
@@ -38,8 +38,10 @@ impl Provider for StdioProvider {
             full_name: Option<String>,
             org: Option<String>,
         }
-        let r: R = de(self.request("search/repos", json!({ "query": query }))?)?;
-        Ok(r.items
+        let reply: RepositorySearchReply =
+            de(self.request("search/repos", json!({ "query": query }))?)?;
+        Ok(reply
+            .items
             .into_iter()
             .filter_map(|i| match (i.full_name, i.org) {
                 (Some(r), _) => Some(SearchItem::Repo(r)),
@@ -51,7 +53,7 @@ impl Provider for StdioProvider {
 
     fn org_repos(&self, org: &str) -> ProviderResult<Vec<RepoInfo>> {
         #[derive(serde::Deserialize)]
-        struct R {
+        struct OrganizationRepositoriesReply {
             #[serde(default)]
             repos: Vec<RepoEntry>,
         }
@@ -72,8 +74,10 @@ impl Provider for StdioProvider {
                 pushed_at: Option<String>,
             },
         }
-        let r: R = de(self.request("org/repos", json!({ "org": org }))?)?;
-        Ok(r.repos
+        let reply: OrganizationRepositoriesReply =
+            de(self.request("org/repos", json!({ "org": org }))?)?;
+        Ok(reply
+            .repos
             .into_iter()
             .map(|e| match e {
                 RepoEntry::Name(name) => RepoInfo::bare(name),
@@ -96,7 +100,7 @@ impl Provider for StdioProvider {
 
     fn fetch_tree(&self, repo: &RepoId, ref_: Option<&GitRef>) -> ProviderResult<TreeResult> {
         #[derive(serde::Deserialize)]
-        struct R {
+        struct RepositoryTreeReply {
             #[serde(default)]
             entries: Vec<Entry>,
             #[serde(default)]
@@ -115,9 +119,10 @@ impl Provider for StdioProvider {
         fn main() -> String {
             "main".into()
         }
-        let r: R = de(self.request("repo/tree", json!({ "repo": repo, "ref": ref_ }))?)?;
+        let reply: RepositoryTreeReply =
+            de(self.request("repo/tree", json!({ "repo": repo, "ref": ref_ }))?)?;
         Ok(TreeResult {
-            entries: r
+            entries: reply
                 .entries
                 .into_iter()
                 .map(|e| TreeNode {
@@ -127,20 +132,20 @@ impl Provider for StdioProvider {
                     size: e.size,
                 })
                 .collect(),
-            truncated: r.truncated,
-            branch: r.branch,
+            truncated: reply.truncated,
+            branch: reply.branch,
         })
     }
 
     fn fetch_blob(&self, repo: &RepoId, sha: &Sha) -> ProviderResult<Vec<u8>> {
         #[derive(serde::Deserialize)]
-        struct R {
+        struct BlobReply {
             bytes_b64: String,
         }
-        let r: R = de(self.request("repo/blob", json!({ "repo": repo, "sha": sha }))?)?;
+        let reply: BlobReply = de(self.request("repo/blob", json!({ "repo": repo, "sha": sha }))?)?;
         use base64::Engine;
         base64::engine::general_purpose::STANDARD
-            .decode(r.bytes_b64)
+            .decode(reply.bytes_b64)
             .map_err(|e| ProviderError::other(format!("provider blob base64: {e}")))
     }
 
@@ -154,32 +159,32 @@ impl Provider for StdioProvider {
         is_file: bool,
     ) -> ProviderResult<String> {
         #[derive(serde::Deserialize)]
-        struct R {
+        struct RepositoryUrlReply {
             url: String,
         }
-        let r: R = de(self.request(
+        let reply: RepositoryUrlReply = de(self.request(
             "repo/web_url",
             json!({ "repo": repo, "path": path, "branch": branch.map(GitRef::as_str).unwrap_or(""), "line": line, "end_line": end, "is_file": is_file }),
         )?)?;
-        Ok(r.url)
+        Ok(reply.url)
     }
 
     fn org_url(&self, org: &str) -> ProviderResult<String> {
         #[derive(serde::Deserialize)]
-        struct R {
+        struct OrganizationUrlReply {
             url: String,
         }
-        let r: R = de(self.request("org/url", json!({ "org": org }))?)?;
-        Ok(r.url)
+        let reply: OrganizationUrlReply = de(self.request("org/url", json!({ "org": org }))?)?;
+        Ok(reply.url)
     }
 
     fn clone_url(&self, repo: &RepoId) -> ProviderResult<String> {
         #[derive(serde::Deserialize)]
-        struct R {
+        struct CloneUrlReply {
             clone_url: String,
         }
-        let r: R = de(self.request("repo/clone_url", json!({ "repo": repo }))?)?;
-        Ok(r.clone_url)
+        let reply: CloneUrlReply = de(self.request("repo/clone_url", json!({ "repo": repo }))?)?;
+        Ok(reply.clone_url)
     }
 
     fn search_code(&self, q: &str) -> ProviderResult<SearchCodeResult> {
@@ -226,7 +231,7 @@ impl Provider for StdioProvider {
     /// v1.5 (plans/0016 M1): branches + tags.
     fn refs(&self, repo: &RepoId) -> ProviderResult<RepoRefs> {
         #[derive(serde::Deserialize)]
-        struct R {
+        struct RepositoryRefsReply {
             #[serde(default)]
             branches: Vec<RefEntry>,
             #[serde(default)]
@@ -239,15 +244,15 @@ impl Provider for StdioProvider {
             #[serde(default)]
             default: bool,
         }
-        let r: R = de(self.request("repo/refs", json!({ "repo": repo }))?)?;
+        let reply: RepositoryRefsReply = de(self.request("repo/refs", json!({ "repo": repo }))?)?;
         let map = |e: RefEntry| RefInfo {
             name: e.name,
             sha: e.sha,
             is_default: e.default,
         };
         Ok(RepoRefs {
-            branches: r.branches.into_iter().map(map).collect(),
-            tags: r.tags.into_iter().map(map).collect(),
+            branches: reply.branches.into_iter().map(map).collect(),
+            tags: reply.tags.into_iter().map(map).collect(),
         })
     }
 
@@ -260,17 +265,17 @@ impl Provider for StdioProvider {
         limit: Option<usize>,
     ) -> ProviderResult<(Vec<LogEntry>, bool)> {
         #[derive(serde::Deserialize)]
-        struct R {
+        struct CommitLogReply {
             #[serde(default)]
             items: Vec<LogEntry>,
             #[serde(default)]
             truncated: bool,
         }
-        let r: R = de(self.request(
+        let reply: CommitLogReply = de(self.request(
             "repo/log",
             json!({ "repo": repo, "path": path, "ref": ref_, "limit": limit }),
         )?)?;
-        Ok((r.items, r.truncated))
+        Ok((reply.items, reply.truncated))
     }
 
     /// v1.5: file bytes + content id at path@ref (open-at-commit).
@@ -281,19 +286,19 @@ impl Provider for StdioProvider {
         ref_: Option<&GitRef>,
     ) -> ProviderResult<(Vec<u8>, Sha)> {
         #[derive(serde::Deserialize)]
-        struct R {
+        struct BlobAtRevisionReply {
             bytes_b64: String,
             sha: String,
         }
-        let r: R = de(self.request(
+        let reply: BlobAtRevisionReply = de(self.request(
             "repo/blob_at",
             json!({ "repo": repo, "path": path, "ref": ref_ }),
         )?)?;
         use base64::Engine;
         let bytes = base64::engine::general_purpose::STANDARD
-            .decode(r.bytes_b64)
+            .decode(reply.bytes_b64)
             .map_err(|e| ProviderError::new(ErrorKind::Provider, format!("bad base64: {e}")))?;
-        Ok((bytes, Sha::from(r.sha)))
+        Ok((bytes, Sha::from(reply.sha)))
     }
 
     /// v1.5: blame ranges.
@@ -304,15 +309,15 @@ impl Provider for StdioProvider {
         ref_: Option<&GitRef>,
     ) -> ProviderResult<Vec<BlameRange>> {
         #[derive(serde::Deserialize)]
-        struct R {
+        struct BlameReply {
             #[serde(default)]
             ranges: Vec<BlameRange>,
         }
-        let r: R = de(self.request(
+        let reply: BlameReply = de(self.request(
             "repo/blame",
             json!({ "repo": repo, "path": path, "ref": ref_ }),
         )?)?;
-        Ok(r.ranges)
+        Ok(reply.ranges)
     }
 
     /// v1.6 (plans/0028): one commit's detail — the reply
@@ -410,6 +415,8 @@ fn code_matches(items: &[WireItem]) -> Vec<CodeMatch> {
 }
 #[cfg(test)]
 mod tests {
+    use rootle_provider::CommitDetail;
+
     /// The v1.1 `located` default: absent means located (verified
     /// placement); only an explicit false flags a stale hit.
     #[test]
@@ -428,28 +435,20 @@ mod tests {
         assert!(!stale.located);
     }
 
-    /// The v1.6 `repo/commit` reply deserializes straight into the
-    /// seam type: absent optionals (parents, counts, patch,
-    /// previous_path) default; unknown statuses stay legal wire.
     #[test]
-    fn commit_reply_deserializes_straight_into_detail() {
-        let reply = r#"{
-            "sha": "6dcb09b5",
-            "author": "octocat",
-            "date": "2026-09-06T10:00:00Z",
-            "message": "Fix the race",
+    fn commit_unknown_status_and_missing_counts_remain_honest() {
+        let detail: CommitDetail = super::de(serde_json::json!({
+            "sha": "id", "author": "author", "date": "2026-09-06", "message": "message",
             "files": [
-                {"path": "src/lib.rs", "status": "modified", "additions": 2,
-                 "deletions": 1, "patch": "@@ -1 +1 @@\n-old\n+new"}
+                {"path": "one", "status": "future-status", "additions": 4294967295u64, "deletions": 0},
+                {"path": "two", "status": "added", "additions": 4294967295u64}
             ]
-        }"#;
-        use super::CommitDetail;
-
-        let d: CommitDetail = serde_json::from_str(reply).unwrap();
-        assert_eq!(d.parents, Vec::<String>::new());
-        assert_eq!(d.files[0].patch.as_deref(), Some("@@ -1 +1 @@\n-old\n+new"));
-        assert_eq!(d.files[0].previous_path, None);
-        assert_eq!(d.files[0].status, rootle_provider::FileStatus::Modified);
-        assert_eq!(d.line_stats(), (2, 1));
+        })).unwrap();
+        assert_eq!(
+            detail.files[0].status,
+            rootle_provider::FileStatus::Modified
+        );
+        assert_eq!(detail.line_stats().additions, Some(8589934590));
+        assert_eq!(detail.line_stats().deletions, None);
     }
 }

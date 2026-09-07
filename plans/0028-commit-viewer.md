@@ -1,10 +1,14 @@
 # 0028 — The commit viewer
 
-Status: **done (2026-09-06)** — v1.6 repo/commit (github/stdio/fs + doc), rootle-diff (typed hunks + the strop emphasis port), the CommitDetail→Diff dive chain with ]f/[f stepping and the Esc ladder, 7 theme diff roles, snapshot surface fields, render + headless e2e tests. ListView migration of older surfaces deferred to 0026's follow-up. Demo-tape beat deferred to the M5 demo rework (roadmap).
-the ListView (0026) and typed identity (0025). Supersedes 0016 M1b's
-"v1 has no diffs" deferral — the owner called it back (2026-09-06):
-inspecting a commit is browsing depth, not git-frontend (the 0016
-boundary holds: no staging, no revert, no push).
+Status: **implemented and verified locally (2026-09-07)** — v1.6
+`repo/commit` across GitHub/stdio/fs, checked `rootle-diff` hunks,
+full-message/file/delta surfaces, real `]f`/`[f` sequences, palette-aware
+diff roles and the Esc ladder. Real Git-backed headless and PTY flows
+passed. The older-list migration deferral is closed by 0029.
+The demo-story rework remains on the roadmap.
+
+Uses the shared list engine (0026) and typed identity (0025).
+Supersedes 0016's no-diff deferral while preserving its read-only boundary.
 
 ## Problem
 
@@ -59,7 +63,7 @@ modified/renamed (renamed carries `previous_path`). Capability
 `commit` (default false — same honest-chip family as refs/log/blame).
 Trait method + types; GitHub impl (GET /commits/{sha}, patch strings
 already in the response); fs_provider.py via `git show` + diff-tree;
-stdio wire row; doc section + method table; conformance FC-100+.
+stdio wire row; protocol method table, adapter gate and real-app coverage.
 
 ### M2 — `rootle-diff` crate
 
@@ -78,13 +82,13 @@ Preview-region surfaces per the 0016 preview-submode doctrine:
   on ListView with `/` filter — house rule);
 - Enter on a file row → **Diff surface** (M2 model through the M4
   renderer); `]f`/`[f` rewrite the delta in place ("label · i/n");
-- blame lens Enter retargets from history-at-commit to CommitDetail
-  at that sha (0016's "no second way to inspect a commit" composes);
+- blame lens Enter reaches the line's commit in history; `d` then
+  uses the same commit-detail path rather than a second viewer;
 - Esc/q unwinds one surface at a time; existing `Enter` on a history
   row (file at commit) unchanged.
 - Keymaps registered in keymap.rs tables (0026 closure); snapshot()
   gains `surface` (kind, cursor, file position) for headless
-  assertions; `Y`/`y` on a commit yanks the commit's web URL.
+  assertions; `Y` yanks the commit's provider-supplied web URL.
 
 ### M4 — renderer
 
@@ -92,7 +96,7 @@ Preview-region surfaces per the 0016 preview-submode doctrine:
 house-style. New `Semantic` roles: `diff_add_fg`, `diff_del_fg`,
 `diff_add_bg`, `diff_del_bg`, `diff_add_strong`, `diff_del_strong`,
 `diff_band` (7 roles; Mocha defaults mirroring strop's quiet/loud
-tiers; every palette gets values or inherits baseline). Gutter
+tiers; other palettes derive suitable tints, and explicit overrides win). Gutter
 `[sign][old][new][content]`, `▸` cursor marker, structural bands,
 scrollbar per house rules; sanitize at the boundary (patch text is
 network text).

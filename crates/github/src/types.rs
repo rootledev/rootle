@@ -93,6 +93,10 @@ pub struct CommitResponse {
     pub parents: Vec<CommitParent>,
     #[serde(default)]
     pub files: Vec<CommitFileItem>,
+    #[serde(default)]
+    pub html_url: Option<String>,
+    #[serde(skip)]
+    pub truncated: bool,
 }
 
 #[derive(Debug, Deserialize)]

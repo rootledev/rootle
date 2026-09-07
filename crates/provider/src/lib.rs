@@ -20,7 +20,10 @@ pub const RENDER_BUDGET: usize = 500;
 
 pub mod id;
 
-pub use id::{Generation, GitRef, RepoId, Sha};
+pub use id::{Generation, GitRef, RepoId, RepoPath, Sha};
+
+mod commit;
+pub use commit::{CommitDetail, CommitFile, CommitStatistics, FileStatus};
 
 /// One repo in an org listing (protocol v1.4): the name plus whatever
 /// metadata the backend reports. Everything past `name` is optional —
@@ -179,87 +182,6 @@ pub struct BlameRange {
     pub sha: String,
     pub author: String,
     pub date: String,
-}
-
-/// v1.6 (plans/0028): one changed file in a commit.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
-pub struct CommitFile {
-    /// Repo-relative path after the change.
-    pub path: String,
-    /// `added` | `removed` | `modified` | `renamed` (wire: those
-    /// lowercase names; unknown values degrade to `modified`).
-    pub status: FileStatus,
-    /// Line counts when the backend reports them (wire optional).
-    #[serde(default)]
-    pub additions: Option<u32>,
-    #[serde(default)]
-    pub deletions: Option<u32>,
-    /// The file's unified hunks (hunk headers + body, no file
-    /// headers), absent for binary files.
-    #[serde(default)]
-    pub patch: Option<String>,
-    /// `renamed` only: the path before the change.
-    #[serde(default)]
-    pub previous_path: Option<String>,
-}
-
-/// A changed file's kind (wire `status`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum FileStatus {
-    #[default]
-    Modified,
-    Added,
-    Removed,
-    Renamed,
-}
-
-impl FileStatus {
-    /// The one-glyph row marker for the changed-files list.
-    pub fn glyph(self) -> &'static str {
-        match self {
-            FileStatus::Modified => "~",
-            FileStatus::Added => "+",
-            FileStatus::Removed => "-",
-            FileStatus::Renamed => "→",
-        }
-    }
-
-    /// The filterable word for the status (`/status:`-ish matching
-    /// rides the plain substring contract).
-    pub fn label(self) -> &'static str {
-        match self {
-            FileStatus::Modified => "modified",
-            FileStatus::Added => "added",
-            FileStatus::Removed => "removed",
-            FileStatus::Renamed => "renamed",
-        }
-    }
-}
-
-/// v1.6: `repo/commit` reply — one commit, inspectable.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
-pub struct CommitDetail {
-    pub sha: String,
-    pub author: String,
-    /// ISO-8601.
-    pub date: String,
-    /// Full commit message (subject + body), sanitized at the UI
-    /// boundary like every network string.
-    pub message: String,
-    /// Parent shas when the backend reports them.
-    #[serde(default)]
-    pub parents: Vec<String>,
-    pub files: Vec<CommitFile>,
-}
-
-impl CommitDetail {
-    /// Total added/deleted lines across files (unknown counts read 0).
-    pub fn line_stats(&self) -> (u32, u32) {
-        self.files.iter().fold((0, 0), |(a, d), f| {
-            (a + f.additions.unwrap_or(0), d + f.deletions.unwrap_or(0))
-        })
-    }
 }
 
 /// Repo/org search result for the launch popup.
