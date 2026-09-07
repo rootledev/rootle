@@ -214,15 +214,15 @@ impl Modeline {
 /// line, rendered directly above the modeline in transient modes
 /// (never in Browse: the catalog would just eat a content row).
 /// Packs whole hints, drops from the tail with an ellipsis.
-pub fn hint_strip_line(mode: Mode, width: usize, theme: &Theme) -> Line<'static> {
+pub fn hint_strip_line(hints: &[keymap::Hint], width: usize, theme: &Theme) -> Line<'static> {
     let sem = &theme.semantic;
     let base = Style::default().bg(sem.mantle);
     let mut spans: Vec<Span> = vec![Span::styled(" ", base)];
     let mut used = 1;
-    for (k, desc) in keymap::hints(mode) {
+    for (k, desc) in hints {
         let needed = UnicodeWidthStr::width(*k) + UnicodeWidthStr::width(*desc) + 5;
         if used + needed > width {
-            if width - used >= 2 {
+            if width.saturating_sub(used) >= 2 {
                 spans.push(Span::styled(" …", base.fg(sem.hint)));
             }
             break;
@@ -377,7 +377,8 @@ mod tests {
         terminal
             .draw(|f| {
                 let area = f.area();
-                let line = hint_strip_line(Mode::Browse, area.width as usize, &theme);
+                let line =
+                    hint_strip_line(keymap::hints(Mode::Browse), area.width as usize, &theme);
                 f.render_widget(ratatui::widgets::Paragraph::new(line), area);
             })
             .unwrap();

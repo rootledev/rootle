@@ -28,8 +28,8 @@ refs, history and blame; no resource implementation depends on the TUI.
 
 Data flow rules (violations get caught in review):
 
-- **Components never call each other.** They emit `Action`s; `App`
-  routes them; cross-component effects flow back through `update`.
+- **Sibling components never call each other.** Parents own and compose
+  children; cross-component effects flow through `Action`s and `App::handle_action`.
 - **Worker results return as `AppEvent`s** with domain-tagged request
   generations. Stale results are rejected by identity; advisory
   cancellation never substitutes for the freshness check.
@@ -51,9 +51,17 @@ Data flow rules (violations get caught in review):
   clone lists, history and commit files consume the same engine.
 - **Bindings own both dispatch and hints.** Typed command tables feed
   input handlers; multi-key sequences retain prefix state, not aliases.
-- **Commit patches are parsed on update**, not during draw.
-  `rootle-diff` owns checked hunks and side-correct emphasis; the
-  component owns file/message/delta navigation and palette-based rendering.
+- **Commit patches are parsed and highlighted on update**, not during draw.
+  `rootle-diff` owns checked hunks and side-correct emphasis; the app's
+  commit component builds each hunk's old/new source fragments for the
+  shared Tree-sitter highlighter. Missing context is not reconstructed.
+  Preview prose, pane chrome, styled range overlays and list/row viewport
+  behavior are shared rather than reimplemented inside the commit viewer.
+- **History requests carry full identity:** repository, optional revision,
+  file/repository scope and a domain-tagged generation. Both successful
+  and failed outcomes must match the current request.
+- **Fresh profiles have no provider suggestions.** Only user recents
+  populate the browser; repository search is the cold-start entry point.
 
 Overlays are exclusive slots on `App` (`popup`, `search_view`, `help`,
 `command_line`, `settings`, `wizard`); dispatch checks them topmost

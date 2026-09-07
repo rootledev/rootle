@@ -39,6 +39,7 @@ pub(super) fn describe_action(action: &Action) -> Value {
         Action::LeaderPreview => json!({"action": "leader_preview"}),
         Action::ExitPreview => json!({"action": "exit_preview"}),
         Action::LeaderHistory => json!({"action": "leader_history"}),
+        Action::LeaderRepositoryHistory => json!({"action": "leader_repository_history"}),
         Action::BlameToggle => json!({"action": "blame_toggle"}),
         Action::PreviewCopy => json!({"action": "preview_copy"}),
         Action::PreviewEnter => json!({"action": "preview_enter"}),

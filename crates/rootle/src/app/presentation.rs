@@ -74,7 +74,11 @@ impl App {
         if strip {
             frame.render_widget(
                 Paragraph::new(crate::components::modeline::hint_strip_line(
-                    mode,
+                    if mode == Mode::History && self.browser.repository_history_active() {
+                        crate::keymap::repository_history_hints()
+                    } else {
+                        crate::keymap::hints(mode)
+                    },
                     rows[1].width as usize,
                     &theme,
                 )),
@@ -160,12 +164,16 @@ impl App {
             "sha": view.sha_short(),
             "repository": view.request().repository.as_str(),
             "request": view.request().generation.to_string(),
-            "delta": view.open_file(),
+            "delta": view.open_file().map(|index| index.get()),
             "files": view.file_count(),
         })
     }
 
     pub fn active_commit_request(&self) -> Option<&crate::request::CommitRequest> {
         self.browser.commit_ref().map(|view| view.request())
+    }
+
+    pub fn active_history_request(&self) -> Option<&crate::request::HistoryRequest> {
+        self.browser.history_request()
     }
 }

@@ -413,9 +413,10 @@ path: search, tree walk, blob preview, code search.
 For backends that should live in the binary, implement `trait Provider`
 (`crates/provider/src/lib.rs`): `name`, `capabilities`, and the calls above
 (`search`, `org_repos`, `fetch_tree`, `fetch_blob`, `search_code`,
-`clone_url`, `web_url`, `org_url`, plus optional `default_orgs` for
-cold-start suggestions), then register it in `provider::build`. The
-same content-id and opaque-repo rules apply.
+`clone_url`, `web_url`, `org_url`), then register the backend in the
+application composition root (`crates/rootle/src/provider/`). Providers
+do not seed the browser with suggested organizations; a fresh profile
+starts with search. The same content-id and opaque-repo rules apply.
 
 Scaffolding: `skills/rootle-provider/SKILL.md` (in this repo) walks
 through building a provider — capability questionnaire and adapter

@@ -45,6 +45,24 @@ impl Default for VimInput {
 }
 
 impl VimInput {
+    /// Two display cells in both modes, so switching never shifts the field.
+    pub fn prompt(
+        &self,
+        focused: bool,
+        theme: &crate::theme::Theme,
+    ) -> ratatui::text::Span<'static> {
+        let glyph = match self.submode {
+            SubMode::Insert => "❯ ",
+            SubMode::Normal => "● ",
+        };
+        let color = if focused {
+            theme.semantic.border_focused
+        } else {
+            theme.semantic.overlay0
+        };
+        ratatui::text::Span::styled(glyph, ratatui::style::Style::default().fg(color))
+    }
+
     /// Diagnostic cursor units are characters, not bytes or terminal columns.
     pub(crate) fn diagnostics(&self, full: bool) -> serde_json::Value {
         serde_json::json!({

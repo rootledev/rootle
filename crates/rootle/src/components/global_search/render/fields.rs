@@ -16,7 +16,7 @@ impl GlobalSearch {
         title: &str,
         value: &str,
         focused: bool,
-        cursor: Option<usize>,
+        input: Option<&crate::components::vim_input::VimInput>,
         styled: bool,
     ) {
         let sem = &theme.semantic;
@@ -34,11 +34,10 @@ impl GlobalSearch {
         let inner = block.inner(area);
         frame.render_widget(block, area);
         let width = inner.width.saturating_sub(2) as usize;
-        let prompt = if focused {
-            Span::styled("❯ ", Style::default().fg(sem.border_focused))
-        } else {
-            Span::styled("❯ ", Style::default().fg(sem.overlay0))
-        };
+        let prompt = input.map_or_else(
+            || Span::styled("❯ ", Style::default().fg(sem.overlay0)),
+            |input| input.prompt(focused, theme),
+        );
         let mut spans = vec![prompt];
         if styled {
             // Grammar eye candy (plans/0012 M1): qualifiers/quoted
@@ -54,8 +53,8 @@ impl GlobalSearch {
             ));
         }
         frame.render_widget(Paragraph::new(Line::from(spans)), inner);
-        if focused && let Some(cursor) = cursor {
-            let x = inner.x + 2 + cursor as u16;
+        if focused && let Some(input) = input {
+            let x = inner.x + 2 + input.cursor() as u16;
             if x < inner.x + inner.width {
                 crate::diagnostics::place_cursor(frame, (x, inner.y));
             }

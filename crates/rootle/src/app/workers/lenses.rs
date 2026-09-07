@@ -188,7 +188,11 @@ impl App {
         });
     }
 
-    pub(crate) fn spawn_log(&self, repo: String, path: String, ref_: Option<String>) {
+    pub(crate) fn spawn_log(&self, request: crate::request::HistoryRequest) {
+        if self.offline {
+            diagnostics::record_job_rejected("log", "offline", || json!({"request": request}));
+            return;
+        }
         let provider = self.provider.clone();
         let tx = self.tx.clone();
         let op = rootle_trace::operation_id();
@@ -196,9 +200,7 @@ impl App {
             rootle_trace::record_with(EventKind::JobStarted, || {
                 json!({
                     "job": "log",
-                    "repo": repo,
-                    "path": path,
-                    "ref": ref_,
+                    "request": request,
                 })
             });
         });
@@ -210,22 +212,25 @@ impl App {
                 // The lens' render budget, per the bounded-compute
                 // contract: past it, `truncated` tells the user to narrow.
                 let limit = Some(rootle_provider::RENDER_BUDGET);
-                let repo_id = RepoId::from(repo);
-                let ref_at = ref_.as_deref().map(GitRef::from);
-                let event = match provider.log(&repo_id, Some(&path), ref_at.as_ref(), limit) {
+                let event = match provider.log(
+                    &request.repository,
+                    request.scope.path(),
+                    request.revision.as_ref(),
+                    limit,
+                ) {
                     Ok((entries, truncated)) => {
                         rootle_trace::record_with(EventKind::JobFinished, || {
                             json!({
                                 "job": "log",
                                 "outcome": "ok",
-                                "path": path,
+                                "request": request,
                                 "entries": entries.len(),
                                 "truncated": truncated,
                                 "duration_us": started.map(|clock| clock.elapsed().as_micros()),
                             })
                         });
                         AppEvent::LogLoaded {
-                            path,
+                            request,
                             entries,
                             truncated,
                         }
@@ -235,12 +240,12 @@ impl App {
                             json!({
                                 "job": "log",
                                 "outcome": "err",
-                                "path": path,
+                                "request": request,
                                 "error": diagnostics::describe_error(&error),
                                 "duration_us": started.map(|clock| clock.elapsed().as_micros()),
                             })
                         });
-                        AppEvent::LogFailed { path, error }
+                        AppEvent::LogFailed { request, error }
                     }
                 };
                 if tx.send(event).is_err() {

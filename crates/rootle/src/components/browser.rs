@@ -12,8 +12,10 @@ mod revision;
 
 mod blobs;
 pub(crate) use blobs::CachedBlob;
-pub(crate) use lenses::{BlameState, History, HistoryDiagnostics};
+pub(crate) use history::{History, HistoryDiagnostics};
+pub(crate) use lenses::BlameState;
 
+mod history;
 pub(crate) mod lenses;
 
 use super::Component;
@@ -67,6 +69,7 @@ pub struct Browser {
     /// plans/0016 M1b: the file-history lens over the preview pane.
     /// Some(_) while active; the preview survives underneath.
     history: Option<History>,
+    history_generation: crate::request::HistoryGeneration,
     /// plans/0016 M1c: blame ranges for the previewed file.
     blame: Option<BlameState>,
     /// plans/0028: the commit viewer over the preview pane, entered
@@ -80,19 +83,13 @@ pub struct Browser {
 
 impl Default for Browser {
     fn default() -> Self {
-        Self::new(&[], &[])
+        Self::new(&[])
     }
 }
 
 impl Browser {
-    pub fn new(recent_orgs: &[String], defaults: &[String]) -> Self {
-        let mut names: Vec<String> = recent_orgs.to_vec();
-        for d in defaults {
-            if !names.iter().any(|n| n == d) {
-                names.push(d.to_string());
-            }
-        }
-        let orgs = names
+    pub fn new(recent_orgs: &[String]) -> Self {
+        let orgs = recent_orgs
             .iter()
             .map(|n| Entry::new(n, EntryKind::Org))
             .collect();
@@ -113,6 +110,7 @@ impl Browser {
             marks: std::collections::HashSet::new(),
             current_ref: None,
             history: None,
+            history_generation: crate::request::HistoryGeneration::default(),
             commit: None,
             blame: None,
             at_commit: None,
@@ -287,7 +285,7 @@ mod tests {
 
     #[test]
     fn restyle_blobs_recolors_cached_lines_without_refetch() {
-        let mut b = Browser::new(&[], &[]);
+        let mut b = Browser::new(&[]);
         let mocha = Highlighter::default();
         let lines = mocha.highlight("lib.rs", "fn main() {}\n");
         b.blob_loaded("sha1", "lib.rs", "rust", "fn main() {}\n".into(), lines);

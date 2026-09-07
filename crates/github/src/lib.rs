@@ -75,13 +75,6 @@ impl Provider for GitHubProvider {
         }
     }
 
-    fn default_orgs(&self) -> Vec<String> {
-        ["ratatui", "tokio-rs", "helix-editor"]
-            .iter()
-            .map(|s| s.to_string())
-            .collect()
-    }
-
     fn search(&self, query: &str) -> ProviderResult<Vec<SearchItem>> {
         self.client.search(query)
     }

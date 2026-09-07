@@ -3,30 +3,26 @@
 use super::{Action, App};
 
 impl App {
-    /// Fetch the open history lens' commits (v1.5): the previewed
-    /// file's log at the browsed revision.
+    /// Repository and file history share the same fully identified request.
     pub(super) fn open_history_fetch(&mut self) {
-        let target = self
-            .browser
-            .repo_coords()
-            .zip(self.browser.history_path().map(str::to_string));
-        if let Some(((owner, name), path)) = target {
-            let ref_ = self.browser.current_ref().map(str::to_string);
-            self.spawn_log(format!("{owner}/{name}"), path, ref_);
+        if let Some(request) = self.browser.history_request().cloned() {
+            self.spawn_log(request);
         }
     }
 
-    /// Re-highlight cached blobs when the effective theme's syntax
-    /// roles change. Cheap no-op per keystroke otherwise (SyntaxSet is
-    /// loaded once; only the color table rebuilds).
+    /// Restyle prepared content at the update boundary, never during drawing.
     pub(super) fn sync_highlight_theme(&mut self) {
         let theme = self.effective_theme();
-        if theme.syntax == self.highlight_syntax {
+        if theme.syntax == self.highlight_syntax && theme.semantic.text == self.highlight_text {
             return;
         }
         self.highlighter.set_theme(&theme);
         self.browser.restyle_blobs(&self.highlighter);
+        if let Some(commit) = self.browser.commit() {
+            commit.set_theme(&theme);
+        }
         self.highlight_syntax = theme.syntax;
+        self.highlight_text = theme.semantic.text;
     }
 
     /// If the selected file's blob isn't loaded, fetch it.

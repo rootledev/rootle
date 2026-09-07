@@ -108,6 +108,8 @@ impl App {
                 // An active `/` session owns the keys until commit.
                 if self.browser.history_filtering() {
                     Action::HistoryFilterKey(key)
+                } else if self.browser.repository_history_active() {
+                    keymap::repository_history(key.code)
                 } else {
                     keymap::history(key.code)
                 }

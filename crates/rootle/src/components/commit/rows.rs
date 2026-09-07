@@ -2,13 +2,14 @@
 
 use super::prepare::{FilePresentation, PatchRow, PreparedLine};
 use crate::components::pane::fit;
+use crate::components::text::{TextColumns, paint_line};
 use crate::theme::Semantic;
 use ratatui::{
-    style::{Color, Style},
+    style::Style,
     text::{Line, Span},
 };
 use rootle_diff::LineOrigin;
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+use unicode_width::UnicodeWidthStr;
 
 pub(super) fn statistics_row(
     label: &str,
@@ -146,64 +147,25 @@ fn content_row(
         number(line.new_line)
     );
     let remaining = width.saturating_sub(1 + gutter.width());
-    let visible = cell_slice(&line.text, horizontal, remaining);
     let mut spans = vec![
         Span::styled(marker, Style::default().fg(foreground)),
         Span::styled(gutter, Style::default().fg(semantic.overlay0)),
     ];
-    let changed = line.changed.as_ref().map(|span| span.range());
-    let start = changed.as_ref().map_or(visible.end, |span| {
-        span.start.clamp(visible.start, visible.end)
-    });
-    let end = changed
+    let overlay = line
+        .changed
         .as_ref()
-        .map_or(visible.end, |span| span.end.clamp(start, visible.end));
-    append_text(
-        &mut spans,
-        &line.text[visible.start..start],
-        semantic.text,
-        background,
+        .map(|changed| (changed.range(), Style::default().bg(emphasis)));
+    let overlays = overlay.as_slice();
+    let content = paint_line(
+        &line.syntax,
+        TextColumns {
+            offset: horizontal,
+            width: remaining,
+        },
+        overlays,
     );
-    append_text(&mut spans, &line.text[start..end], semantic.text, emphasis);
-    append_text(
-        &mut spans,
-        &line.text[end..visible.end],
-        semantic.text,
-        background,
-    );
+    spans.extend(content.spans);
     Line::from(spans).style(Style::default().bg(background))
-}
-
-fn append_text(spans: &mut Vec<Span<'static>>, text: &str, foreground: Color, background: Color) {
-    if !text.is_empty() {
-        spans.push(Span::styled(
-            text.to_string(),
-            Style::default().fg(foreground).bg(background),
-        ));
-    }
-}
-
-fn cell_slice(text: &str, offset: usize, width: usize) -> std::ops::Range<usize> {
-    let mut start = 0;
-    let mut skipped = 0;
-    for (index, character) in text.char_indices() {
-        if skipped >= offset {
-            break;
-        }
-        skipped += character.width().unwrap_or(0);
-        start = index + character.len_utf8();
-    }
-    let mut end = start;
-    let mut used = 0;
-    for character in text[start..].chars() {
-        let cells = character.width().unwrap_or(0);
-        if used + cells > width {
-            break;
-        }
-        used += cells;
-        end += character.len_utf8();
-    }
-    start..end
 }
 
 fn count(count: Option<u64>) -> String {

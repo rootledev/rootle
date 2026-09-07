@@ -22,7 +22,7 @@ fn commit_viewer_dive_chain() {
     app.handle_key(key(KeyCode::Char('p')));
     app.handle_key(key(KeyCode::Char('h')));
     app.handle_app_event(rootle::event::AppEvent::LogLoaded {
-        path: "Cargo.toml".into(),
+        request: app.active_history_request().unwrap().clone(),
         entries: vec![rootle_provider::LogEntry {
             sha: "feedface1234".into(),
             subject: "feat: wire the widget".into(),
@@ -140,4 +140,46 @@ fn commit_viewer_dive_chain() {
         screen.contains("history — Cargo.toml"),
         "history lens intact under the viewer:\n{screen}"
     );
+}
+
+#[test]
+fn repository_history_rejects_stale_successes_and_failures_after_reopening() {
+    let mut app = browsing_app();
+    app.handle_action(rootle::action::Action::LeaderRepositoryHistory);
+    let stale = app.active_history_request().unwrap().clone();
+    app.handle_action(rootle::action::Action::HistoryClose);
+    app.handle_action(rootle::action::Action::LeaderRepositoryHistory);
+    let current = app.active_history_request().unwrap().clone();
+    let status = app.snapshot()["status"].clone();
+    app.handle_app_event(rootle::event::AppEvent::LogLoaded {
+        request: stale.clone(),
+        entries: vec![rootle_provider::LogEntry {
+            sha: "obsolete".into(),
+            subject: "obsolete commit".into(),
+            author: "old".into(),
+            date: "old".into(),
+        }],
+        truncated: false,
+    });
+    app.handle_app_event(rootle::event::AppEvent::LogFailed {
+        request: stale,
+        error: rootle_provider::ProviderError::new(
+            rootle_provider::ErrorKind::Provider,
+            "obsolete error",
+        ),
+    });
+    assert_eq!(app.snapshot()["status"], status);
+    let screen = render(&mut app, 120, 20).join("\n");
+    assert!(screen.contains("loading history"));
+    assert!(!screen.contains("obsolete"));
+    app.handle_app_event(rootle::event::AppEvent::LogFailed {
+        request: current,
+        error: rootle_provider::ProviderError::new(
+            rootle_provider::ErrorKind::Provider,
+            "current history failed",
+        ),
+    });
+    let screen = render(&mut app, 120, 20).join("\n");
+    assert!(screen.contains("current history failed"));
+    assert!(!screen.contains("loading history"));
 }

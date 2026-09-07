@@ -68,6 +68,9 @@ impl Preview {
     pub fn visual_range(&self) -> Option<(u32, u32)> {
         let a = self.visual_anchor?;
         let (lo, hi) = (a.min(self.cursor), a.max(self.cursor));
-        Some((u32::from(lo) + 1, u32::from(hi) + 1))
+        Some((
+            u32::try_from(lo + 1).unwrap_or(u32::MAX),
+            u32::try_from(hi + 1).unwrap_or(u32::MAX),
+        ))
     }
 }

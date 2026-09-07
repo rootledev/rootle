@@ -1,5 +1,5 @@
-//! Read-only commit detail and file deltas. Requests have full identity;
-//! content is prepared on load/open actions, never from the draw path.
+//! Read-only commit composition: shared list mechanics, a persistent files
+//! sidebar, and the shared preview for prose. Patches are prepared on actions.
 
 mod prepare;
 mod render;
@@ -10,9 +10,10 @@ mod tests;
 use crate::action::Action;
 use crate::components::Component;
 use crate::components::list_view::{
-    Boundary, FilterOutcome, ItemIndex, ListCursor, ListFilter, ListMovement, ScrollMovement,
-    Viewport,
+    Boundary, FilterOutcome, ItemIndex, ListCursor, ListFilter, ListMovement, Viewport,
 };
+use crate::components::preview::Preview;
+use crate::highlight::Highlighter;
 use crate::request::CommitRequest;
 use crate::theme::Theme;
 use prepare::CommitContent;
@@ -20,9 +21,9 @@ use ratatui::{Frame, layout::Rect};
 use rootle_provider::CommitDetail;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum DetailFocus {
+enum CommitFocus {
     Files,
-    Message,
+    Preview,
 }
 
 enum CommitLoad {
@@ -43,9 +44,12 @@ pub struct CommitView {
     load: CommitLoad,
     selection: ListCursor,
     viewport: Viewport,
-    message_viewport: Viewport,
+    message: Preview,
+    highlighter: Highlighter,
     filter: ListFilter,
-    focus: DetailFocus,
+    filter_selection: Option<ItemIndex>,
+    filter_preview_open: bool,
+    focus: CommitFocus,
     delta: Option<OpenDelta>,
     keys: crate::keymap::KeySequence,
 }
@@ -57,9 +61,12 @@ impl CommitView {
             load: CommitLoad::Loading,
             selection: ListCursor::new(),
             viewport: Viewport::default(),
-            message_viewport: Viewport::default(),
+            message: Preview::new(),
+            highlighter: Highlighter::default(),
             filter: ListFilter::default(),
-            focus: DetailFocus::Files,
+            filter_selection: None,
+            filter_preview_open: false,
+            focus: CommitFocus::Files,
             delta: None,
             keys: crate::keymap::KeySequence::default(),
         }
@@ -69,7 +76,7 @@ impl CommitView {
         &self.request
     }
 
-    pub fn loaded(&mut self, request: &CommitRequest, detail: CommitDetail) {
+    pub fn loaded(&mut self, request: &CommitRequest, detail: CommitDetail, theme: &Theme) {
         if request != &self.request {
             return;
         }
@@ -79,8 +86,21 @@ impl CommitView {
         }
         self.selection.reset();
         self.viewport.reset();
+        self.filter = ListFilter::default();
+        self.focus = CommitFocus::Files;
         self.delta = None;
-        self.load = CommitLoad::Ready(Box::new(CommitContent::new(detail)));
+        self.highlighter.set_theme(theme);
+        let mut content = CommitContent::new(detail);
+        self.message
+            .set_text("commit message", std::mem::take(&mut content.message));
+        self.load = CommitLoad::Ready(Box::new(content));
+    }
+
+    pub fn set_theme(&mut self, theme: &Theme) {
+        self.highlighter.set_theme(theme);
+        if let CommitLoad::Ready(content) = &mut self.load {
+            content.restyle(&self.highlighter);
+        }
     }
 
     pub fn failed(&mut self, request: &CommitRequest, error: String) {
@@ -93,36 +113,36 @@ impl CommitView {
         let CommitLoad::Ready(content) = &self.load else {
             return;
         };
-        if let Some(delta) = &mut self.delta {
-            let count = content.files[delta.file.get()]
-                .prepared
-                .as_ref()
-                .map_or(0, |patch| patch.rows.len());
-            delta.selection.advance(movement, count, Boundary::Clamp);
-        } else if self.focus == DetailFocus::Message {
-            self.message_viewport.scroll(match movement {
-                ListMovement::Next => ScrollMovement::Down,
-                ListMovement::Previous => ScrollMovement::Up,
-                ListMovement::First => ScrollMovement::Top,
-                ListMovement::Last => ScrollMovement::Bottom,
-            });
+        if self.focus == CommitFocus::Preview {
+            if let Some(delta) = &mut self.delta {
+                let count = content.files[delta.file.get()]
+                    .prepared
+                    .as_ref()
+                    .map_or(0, |patch| patch.rows.len());
+                delta.selection.advance(movement, count, Boundary::Clamp);
+            } else {
+                self.message.scroll_text(movement);
+            }
         } else {
             self.selection
                 .advance(movement, self.visible_files(content).len(), Boundary::Clamp);
+            if self.delta.is_some() {
+                self.refresh_delta();
+            }
         }
     }
 
     pub fn focus_next(&mut self) {
-        if self.delta.is_none() {
-            self.focus = match self.focus {
-                DetailFocus::Files => DetailFocus::Message,
-                DetailFocus::Message => DetailFocus::Files,
-            };
-        }
+        self.focus = match self.focus {
+            CommitFocus::Files => CommitFocus::Preview,
+            CommitFocus::Preview => CommitFocus::Files,
+        };
     }
 
     pub fn horizontal(&mut self, forward: bool) {
-        if let Some(delta) = &mut self.delta {
+        if self.focus == CommitFocus::Preview
+            && let Some(delta) = &mut self.delta
+        {
             delta.horizontal = if forward {
                 delta.horizontal.saturating_add(1)
             } else {
@@ -132,46 +152,50 @@ impl CommitView {
     }
 
     pub fn open_delta(&mut self) {
-        if self.delta.is_some() {
-            return;
+        if let Some(file) = self.selected_file() {
+            self.open_file_at(file);
+            self.focus = CommitFocus::Preview;
         }
-        let CommitLoad::Ready(content) = &self.load else {
-            return;
-        };
-        let Some(&file) = self
-            .visible_files(content)
-            .get(self.selection.selected().get())
-        else {
-            return;
-        };
-        self.open_file_at(ItemIndex::new(file));
     }
 
     pub fn step_file(&mut self, movement: ListMovement) {
         let CommitLoad::Ready(content) = &self.load else {
             return;
         };
-        if content.files.is_empty() {
+        let visible = self.visible_files(content);
+        if visible.is_empty() {
             return;
         }
-        let visible = self.visible_files(content);
-        let current = self.delta.as_ref().map(|delta| delta.file).or_else(|| {
-            visible
-                .get(self.selection.selected().get())
-                .copied()
-                .map(ItemIndex::new)
-        });
-        let mut selection = ListCursor::new();
-        selection.select(current.unwrap_or_default());
-        selection.advance(movement, content.files.len(), Boundary::Wrap);
-        self.open_file_at(selection.selected());
+        self.selection
+            .advance(movement, visible.len(), Boundary::Wrap);
+        self.open_file_at(visible[self.selection.selected().get()]);
+    }
+
+    fn selected_file(&self) -> Option<ItemIndex> {
+        let CommitLoad::Ready(content) = &self.load else {
+            return None;
+        };
+        self.visible_files(content)
+            .get(self.selection.selected().get())
+            .copied()
+    }
+
+    fn refresh_delta(&mut self) {
+        if let Some(file) = self.selected_file() {
+            self.open_file_at(file);
+        } else {
+            self.delta = None;
+        }
     }
 
     fn open_file_at(&mut self, file: ItemIndex) {
+        if self.delta.as_ref().is_some_and(|delta| delta.file == file) {
+            return;
+        }
         let CommitLoad::Ready(content) = &mut self.load else {
             return;
         };
-        content.prepare(file);
+        content.prepare(file, &self.highlighter);
         self.delta = Some(OpenDelta {
             file,
             selection: ListCursor::new(),
@@ -193,19 +217,13 @@ impl CommitView {
     }
 
     pub fn escape(&mut self) -> bool {
-        if let Some(delta) = self.delta.take() {
-            if let CommitLoad::Ready(content) = &self.load {
-                let visible = self.visible_files(content);
-                if let Some(position) = visible.iter().position(|&index| index == delta.file.get())
-                {
-                    self.selection.select(ItemIndex::new(position));
-                }
-            }
+        let selected = self.selected_file();
+        if self.filter.clear() {
+            self.restore_selection(selected);
             return false;
         }
-        if self.filter.clear() {
-            self.selection.reset();
-            self.viewport.reset();
+        if self.delta.take().is_some() {
+            self.focus = CommitFocus::Files;
             return false;
         }
         true
@@ -214,25 +232,60 @@ impl CommitView {
     pub fn filtering(&self) -> bool {
         self.filter.active()
     }
+
     pub fn begin_filter(&mut self) {
-        self.delta = None;
-        self.focus = DetailFocus::Files;
+        self.filter_selection = self.selected_file();
+        self.filter_preview_open = self.delta.is_some();
+        self.focus = CommitFocus::Files;
         self.filter.begin();
     }
+
     pub fn filter_key(&mut self, key: ratatui::crossterm::event::KeyEvent) {
-        if self.filter.handle_key(key) != FilterOutcome::Unchanged {
-            self.selection.reset();
-            self.viewport.reset();
+        let selected = self.selected_file();
+        let outcome = self.filter.handle_key(key);
+        if outcome != FilterOutcome::Unchanged {
+            let preferred = if outcome == FilterOutcome::Restored {
+                self.filter_selection.take()
+            } else {
+                selected
+            };
+            self.restore_selection(preferred);
+            if self.filter_preview_open && self.delta.is_none() {
+                self.refresh_delta();
+            }
+            if matches!(outcome, FilterOutcome::Restored | FilterOutcome::Committed) {
+                self.filter_preview_open = false;
+            }
         }
     }
 
-    fn visible_files(&self, content: &CommitContent) -> Vec<usize> {
-        self.filter.visible(&content.files, |file, filter| {
-            filter.matches(&file.label) || filter.matches(file.status.label())
-        })
+    fn restore_selection(&mut self, preferred: Option<ItemIndex>) {
+        let CommitLoad::Ready(content) = &self.load else {
+            return;
+        };
+        let visible = self.visible_files(content);
+        let position = preferred
+            .and_then(|selected| visible.iter().position(|file| *file == selected))
+            .unwrap_or(0);
+        self.selection.select(ItemIndex::new(position));
+        self.viewport.reset();
+        if self.delta.is_some() {
+            self.refresh_delta();
+        }
     }
-    pub fn open_file(&self) -> Option<usize> {
-        self.delta.as_ref().map(|delta| delta.file.get())
+
+    fn visible_files(&self, content: &CommitContent) -> Vec<ItemIndex> {
+        self.filter
+            .visible(&content.files, |file, filter| {
+                filter.matches(&file.label) || filter.matches(file.status.label())
+            })
+            .into_iter()
+            .map(ItemIndex::new)
+            .collect()
+    }
+
+    pub fn open_file(&self) -> Option<ItemIndex> {
+        self.delta.as_ref().map(|delta| delta.file)
     }
     pub fn delta_open(&self) -> bool {
         self.delta.is_some()

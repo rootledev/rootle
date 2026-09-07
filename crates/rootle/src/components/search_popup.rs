@@ -290,11 +290,7 @@ impl SearchPopup {
             .style(Style::default().bg(sem.base));
         let input_inner = input_block.inner(rows[0]);
         frame.render_widget(input_block, rows[0]);
-        let prompt = if self.focus == Focus::Input {
-            Span::styled("❯ ", Style::default().fg(sem.border_focused))
-        } else {
-            Span::styled("❯ ", Style::default().fg(sem.overlay0))
-        };
+        let prompt = self.input.prompt(self.focus == Focus::Input, theme);
         frame.render_widget(
             Paragraph::new(Line::from(vec![
                 prompt,

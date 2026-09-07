@@ -473,25 +473,35 @@ impl App {
                 self.status = Some(provider_status(&error));
             }
             AppEvent::LogLoaded {
-                path,
+                request,
                 entries,
                 truncated,
             } => {
-                let accepted = self.browser.history_path() == Some(path.as_str());
+                let accepted = self.browser.history_accepts(&request);
                 if accepted {
                     self.browser.history_loaded(entries, truncated);
                 } else {
-                    diagnostics::record_event_rejected(name, "history_path_mismatch", || {
+                    diagnostics::record_event_rejected(name, "stale_history_request", || {
                         json!({
-                            "path": path,
-                            "lens": self.browser.history_path(),
+                            "request": request,
+                            "lens": self.browser.history_request(),
                         })
                     });
                     return;
                 }
             }
-            AppEvent::LogFailed { path: _, error } => {
-                self.status = Some(provider_status(&error));
+            AppEvent::LogFailed { request, error } => {
+                if !self.browser.history_accepts(&request) {
+                    diagnostics::record_event_rejected(
+                        name,
+                        "stale_history_request",
+                        || json!({"request": request}),
+                    );
+                    return;
+                }
+                let message = provider_status(&error);
+                self.browser.history_failed(&message);
+                self.status = Some(message);
             }
             AppEvent::CommitLoaded { request, detail } => {
                 // CommitView verifies the request before preparing display
@@ -500,8 +510,9 @@ impl App {
                     .browser
                     .commit_ref()
                     .is_some_and(|view| view.request() == &request);
+                let theme = self.effective_theme();
                 match detail {
-                    Ok(detail) => self.browser.commit_loaded(&request, detail),
+                    Ok(detail) => self.browser.commit_loaded(&request, detail, &theme),
                     Err(error) => self
                         .browser
                         .commit_failed(&request, provider_status(&error)),

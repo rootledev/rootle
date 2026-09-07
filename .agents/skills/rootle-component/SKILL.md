@@ -5,8 +5,8 @@ description: Scaffold a new rootle UI component following the project's Componen
 
 # Scaffolding a rootle component
 
-All components live in `crates/rootle/src/components/` and implement the shared
-contract from `crates/rootle/src/components/mod.rs`:
+Application UI lives in `crates/rootle/src/components/`. Action-driven
+components use the contract in `crates/rootle/src/components/mod.rs`:
 
 ```rust
 pub trait Component {
@@ -16,6 +16,11 @@ pub trait Component {
     fn render(&mut self, frame: &mut Frame, area: Rect, theme: &Theme);
 }
 ```
+Composites such as `Browser` and `Preview` have contextual APIs; inspect
+the current implementation before designing an integration. Provider
+vocabulary belongs to `rootle-provider`, checked patches to `rootle-diff`,
+and app presentation to `rootle`. Do not move domain parsing into a widget.
+
 
 ## Layout: file per component, sibling submodules
 
@@ -57,15 +62,20 @@ and the existing splits: `global_search/`, `settings_popup/`,
 - A parent (e.g. `Browser`, `SearchPopup`) owns children, tracks focus,
   and forwards `handle_key` only to the focused child.
 - Children never know their parent; cross-component effects go through
-  `Action` and the root dispatcher in `app.rs`.
-- Reuse the library: `VimInput`, `ListView`, `Popup`, `Pane`,
-  `Modeline`, `Preview`. If you're copying one of these, stop — extract
-  a parameter instead.
+  `Action` and `app/actions/`.
+- Reuse actual library primitives: `VimInput`, `ListFilter`, `ListCursor`,
+  `Viewport`, `Pane`, `Modeline`, and `Preview`. There is no generic
+  `ListView` or `Popup` type to scaffold against.
+- `Preview` owns source/prose presentation and shared pane chrome.
+  `components/text.rs` supplies styled byte-range overlays and
+  display-cell clipping for both preview find chips and commit diffs.
+- Query compilation, patch parsing and syntax highlighting belong at
+  update boundaries. Draw only prepares visible terminal rows.
 
 ## Popup specifics
 
-- Wrap content in the `Popup` shell (handles centered rect, `Clear`,
-  border, title, hint row).
+- Use the existing popup pattern: `centered_clamped`, ratatui `Clear`,
+  and a themed `Block` with table-derived hints.
 - `<Esc>` dismisses. If the popup owns a `VimInput` in INSERT mode, the
   first `<Esc>` goes to the input (→ NORMAL), the second dismisses.
 - Closing a popup needs NO `terminal.clear()` — the underlying UI draws
@@ -77,6 +87,6 @@ and the existing splits: `global_search/`, `settings_popup/`,
 
 - `Color::Red`-style hardcoded colors anywhere in `crates/rootle/src/components/`.
 - `match` on keys inside `app.rs` — dispatch belongs to the keymap table.
-- Components calling each other directly or sharing `&mut` state.
+- Sibling components calling each other directly or sharing app state.
 - Rendering with `format!`-padded strings instead of layout-aware
   truncation.

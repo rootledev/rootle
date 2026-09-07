@@ -15,6 +15,7 @@ pub mod preview;
 pub mod refs_popup;
 pub mod search_popup;
 pub mod settings_popup;
+pub(crate) mod text;
 pub mod vim_input;
 
 use crate::action::Action;

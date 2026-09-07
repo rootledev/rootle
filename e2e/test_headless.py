@@ -296,3 +296,16 @@ def test_provider_error_completes_settle(tmp_path, binary):
     (state,) = states(out)
     assert "scripted failure" in (state["status"] or "")
     assert "fn main()" not in out
+
+
+def test_fresh_github_profile_is_empty_and_prompt_tracks_input_mode(tmp_path, binary):
+    output = run_headless(
+        binary,
+        "frame\nkeys <esc>\nframe\nkeys i\nframe\nkeys <esc><esc>\nframe\nstate\n",
+        home=tmp_path / "fresh-home",
+    )
+    insert, normal, insert_again, browser = frames(output)
+    assert "● " not in insert and "● " in normal and "● " not in insert_again
+    assert "orgs" in browser
+    assert all(name not in browser for name in ("ratatui", "tokio-rs", "helix-editor"))
+    assert states(output)[0]["context"] == ""

@@ -5,14 +5,18 @@ reviewed against. Where a plan disagrees, the code wins.
 
 ## Component trait
 
-`crates/rootle/src/components/mod.rs`: a component owns its state, renders into a
-caller-given `Rect`, and never mutates the app directly —
+`crates/rootle/src/components/mod.rs` defines the action-driven component
+contract implemented by action-driven views such as the commit viewer:
 
 ```rust
 fn handle_key(&mut self, key: KeyEvent) -> Action;
 fn update(&mut self, action: &Action);
 fn render(&mut self, frame: &mut Frame, area: Rect, theme: &Theme);
 ```
+
+Composites such as `Browser` and `Preview` expose context-specific APIs.
+Use the actual crate/component interfaces rather than introducing wrappers
+solely to force a composite into this trait.
 
 
 ## Component layout: file per component, sibling submodules
@@ -43,8 +47,9 @@ descendants and see them; nothing outside the component does.
 
 Keys become `Action`s (`crates/rootle/src/action.rs`); `App::handle_action`
 (`crates/rootle/src/app/actions/`) dispatches cross-component app state changes.
-Components return Actions, including follow-ups: `browser.update`
-returns the action the move implies (e.g. selection changed → load
+Parents may own and render children; sibling components communicate through
+actions, never shared mutable app state.
+`Browser::update` returns the action a move implies (selection changed → load
 blob), and `handle_action` routes it. Worker threads never touch the
 UI; results return as `AppEvent`s over an mpsc channel, are converted
 to Actions, and domain-tagged request generations drop stale replies.
@@ -65,6 +70,8 @@ settings field edits), Esc cancels directly, like vim's `/`.
 clears it, Enter submits it unchanged. Cursor shape follows the
 submode: bar in INSERT, block in NORMAL, hidden otherwise
 (`cursor_style()`).
+The shared `VimInput::prompt` renders `❯` in INSERT and `●` in NORMAL,
+with a fixed two-cell prefix so switching modes does not shift the field.
 
 ## `/` filters on every results pane
 
@@ -84,6 +91,11 @@ An item index is not a display-row offset: headers and multi-line rows
 must not alter which entry is selected. Refs, help, settings, clone
 lists, history and commit files share these mechanics. Preserve the
 selected entity, not its former numerical position, when data refreshes.
+
+Commit messages use `Preview`'s cached prose layout; normal preview search
+chips and diff emphasis share `components/text.rs` for UTF-8-safe style
+overlays and cell-width clipping. Diff rows keep their own old/new line
+numbers but use the shared row viewport and preview pane chrome.
 
 ## Scrollbars
 
@@ -170,6 +182,9 @@ content can't inject terminal sequences. Single-line names use
 `sanitize_inline`. Tree-sitter highlighting happens once at the same
 boundary, on the UI thread. Grammar configurations are compiled lazily
 and cached; parser state is reused and rendering never reparses a file.
+Diff syntax is prepared from each hunk's old and new sides separately;
+renamed deletions use the old filename. It is hunk-local highlighting,
+not a claim that unavailable whole-file lexical context was recovered.
 
 ## Width-correct truncation
 
