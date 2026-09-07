@@ -9,15 +9,13 @@ FROM rust:alpine AS builder
 RUN apk add --no-cache musl-dev \
     && rustup component add clippy rustfmt
 WORKDIR /app
-COPY Cargo.toml Cargo.lock ./
-COPY src ./src
-COPY tests ./tests
-COPY examples ./examples
+COPY Cargo.toml Cargo.lock README.md LICENSE ./
+COPY crates ./crates
 
 FROM builder AS test
-RUN cargo fmt --check \
-    && cargo clippy --locked --all-targets -- -D warnings \
-    && cargo test --locked
+RUN cargo fmt --all --check \
+    && cargo clippy --locked --workspace --all-targets -- -D warnings \
+    && cargo test --locked --workspace
 
 # Stripped static release binary.
 FROM builder AS release
@@ -45,3 +43,12 @@ COPY e2e ./e2e
 ENV ROOTLE_E2E_IN_DOCKER=1
 WORKDIR /app/e2e
 CMD ["uv", "run", "--locked", "--no-sync", "pytest"]
+
+# Bounded protocol model: safety, explicitly fair finite-stream progress,
+# and four kept fault classes. Parser/runtime errors never count as a kill.
+FROM eclipse-temurin:21-jre AS model
+ARG TLA_TOOLS_SHA256=b658b4e504fdf0b721caf7066320f6b6fe5805f4dd2f717d0e47baba4097205e
+ADD --checksum=sha256:${TLA_TOOLS_SHA256} https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar /tla/tla2tools.jar
+WORKDIR /work
+COPY specs ./specs
+RUN sh specs/check.sh

@@ -1,0 +1,37 @@
+[package]
+name = "rootle"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Modal TUI for browsing remote source-control systems from the terminal"
+readme = "../../README.md"
+keywords = ["tui", "github", "terminal", "git", "browser"]
+categories = ["command-line-utilities"]
+exclude = ["/tests"]
+
+[dependencies]
+rootle-provider.workspace = true
+rootle-stdio.workspace = true
+rootle-github.workspace = true
+rootle-manager.workspace = true
+rootle-diff.workspace = true
+ratatui = { version = "0.30", features = [] }
+crossterm = "0.29"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1.0.151"
+toml = "1.1"
+unicode-width = "0.2"
+syntect = { version = "5.3.0", default-features = false, features = ["default-fancy", "default-syntaxes"] }
+base64 = "0.23.1"
+sha2 = "0.11"
+signal-hook = "0.4"
+clap = { version = "4.6.6", features = ["derive"] }
+flate2 = "1.1.9"
+tar = "0.4.46"
+sha1 = "0.10"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread"] }
+wiremock = "0.6"

@@ -17,12 +17,12 @@
   <rect width="960" height="470" rx="16" fill="#11111b"/>
   <!-- the seam -->
   <text x="330" y="46" text-anchor="middle" font-size="14" font-weight="bold" fill="#f9e2af">trait Provider</text>
-  <text x="330" y="63" text-anchor="middle" font-size="10" fill="#6c7086">src/provider/mod.rs</text>
+  <text x="330" y="63" text-anchor="middle" font-size="10" fill="#6c7086">crates/provider/src/lib.rs</text>
   <line x1="330" y1="74" x2="330" y2="390" stroke="#585b70" stroke-width="2" stroke-dasharray="6 5"/>
   <!-- TUI -->
   <rect x="28" y="115" width="240" height="210" rx="12" fill="#1e1e2e" stroke="#89b4fa" stroke-width="2.5"/>
   <text x="148" y="145" text-anchor="middle" font-size="16" font-weight="bold" fill="#cdd6f4">rootle TUI</text>
-  <text x="148" y="172" text-anchor="middle" font-size="11" fill="#a6adc8">ratatui frontend</text>
+  <text x="148" y="172" text-anchor="middle" font-size="11" fill="#a6adc8">crates/rootle · ratatui</text>
   <text x="148" y="192" text-anchor="middle" font-size="11" fill="#a6adc8">miller columns · modal</text>
   <text x="148" y="212" text-anchor="middle" font-size="11" fill="#a6adc8">search · grep · clone</text>
   <line x1="52" y1="232" x2="244" y2="232" stroke="#313244" stroke-width="1.5"/>
@@ -33,7 +33,7 @@
   <line x1="272" y1="170" x2="322" y2="170" stroke="#89b4fa" stroke-width="2" marker-end="url(#arr)" marker-start="url(#arr)"/>
   <!-- github in-tree -->
   <rect x="440" y="88" width="280" height="118" rx="12" fill="#1e1e2e" stroke="#a6e3a1" stroke-width="2"/>
-  <text x="580" y="114" text-anchor="middle" font-size="13" font-weight="bold" fill="#a6e3a1">github — in-tree</text>
+  <text x="580" y="114" text-anchor="middle" font-size="13" font-weight="bold" fill="#a6e3a1">rootle-github — in-tree</text>
   <text x="580" y="138" text-anchor="middle" font-size="10.5" fill="#a6adc8">REST client + wire models</text>
   <text x="580" y="156" text-anchor="middle" font-size="10.5" fill="#a6adc8">auth: gh / ROOTLE_TOKEN / anon</text>
   <text x="580" y="174" text-anchor="middle" font-size="10.5" fill="#a6adc8">ETag revalidation · LRU eviction</text>
@@ -45,9 +45,9 @@
   <text x="863" y="154" text-anchor="middle" font-size="9.5" fill="#6c7086">the reference backend</text>
   <!-- stdio child -->
   <rect x="440" y="288" width="280" height="118" rx="12" fill="#1e1e2e" stroke="#fab387" stroke-width="2"/>
-  <text x="580" y="314" text-anchor="middle" font-size="13" font-weight="bold" fill="#fab387">stdio — child process</text>
-  <text x="580" y="338" text-anchor="middle" font-size="10.5" fill="#a6adc8">your adapter, any language</text>
-  <text x="580" y="356" text-anchor="middle" font-size="10.5" fill="#a6adc8">examples/providers/fs_provider.py</text>
+  <text x="580" y="314" text-anchor="middle" font-size="13" font-weight="bold" fill="#fab387">rootle-stdio → child process</text>
+  <text x="580" y="338" text-anchor="middle" font-size="10.5" fill="#a6adc8">crates/stdio/examples/</text>
+  <text x="580" y="356" text-anchor="middle" font-size="10.5" fill="#a6adc8">fs_provider.py · any language</text>
   <text x="580" y="374" text-anchor="middle" font-size="10.5" fill="#a6adc8">NDJSON-RPC 2.0 over pipes</text>
   <text x="580" y="393" text-anchor="middle" font-size="9.5" fill="#6c7086">stderr discarded · dies with rootle</text>
   <line x1="338" y1="330" x2="434" y2="330" stroke="#fab387" stroke-width="2" marker-end="url(#arrp)" marker-start="url(#arrp)"/>

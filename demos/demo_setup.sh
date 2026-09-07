@@ -76,7 +76,7 @@ fi
 cat > "$DEMO/provider.toml" <<EOF
 [provider]
 kind = "stdio"
-command = ["python3", "$PWD/examples/providers/fs_provider.py", "$DEMO/code"]
+command = ["python3", "$PWD/crates/stdio/examples/fs_provider.py", "$DEMO/code"]
 EOF
 
 cat >> "$DEMO/provider.toml" <<EOF

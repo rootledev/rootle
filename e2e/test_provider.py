@@ -1,5 +1,5 @@
 """E2E for the provider seam (plans/0005), headless tier: the full app
-running on an external stdio provider — examples/providers/fs_provider.py
+running on an external stdio provider — crates/stdio/examples/fs_provider.py
 serving a temp directory via `rootle --headless -`. Proves the NDJSON-RPC
 protocol end to end, offline: repo search, tree browsing, blob preview,
 global-scope code search, and the child process lifecycle all go through

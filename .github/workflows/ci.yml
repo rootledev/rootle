@@ -20,6 +20,12 @@ jobs:
       - name: E2E (PTY suite)
         run: docker compose run --build --rm e2e
 
+      # The provider protocol, model-checked with TLC (plans/0027):
+      # base spec clean AND the kept mutant killed by name — the
+      # bridge tests in crates/stdio hold the code to the same faults.
+      - name: Provider protocol model (TLC)
+        run: docker compose run --build --rm model
+
   # plans/0023 M3: behavioral coverage on real macOS — APFS
   # case-insensitivity, symlink topology, BSD-flavored crossterm
   # edges. Native, not docker: macOS runners have no compose story
@@ -60,4 +66,4 @@ jobs:
           python3 -m pip install pytest
           # `run` chdirs into the suite root — the provider path must
           # be absolute.
-          python3 forge-conformance/run -- python3 "$GITHUB_WORKSPACE/examples/providers/fs_provider.py"
+          python3 forge-conformance/run -- python3 "$GITHUB_WORKSPACE/crates/stdio/examples/fs_provider.py"

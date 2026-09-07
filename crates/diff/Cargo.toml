@@ -1,0 +1,10 @@
+[package]
+name = "rootle-diff"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "rootle's typed diff model: unified patch text in, LineOrigin/DiffLine/Hunk/FileDiff out, plus the intra-line emphasis engine"
+
+[dependencies]

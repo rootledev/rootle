@@ -1,11 +1,11 @@
-# The rootle provider protocol, v1.5
+# The rootle provider protocol, v1.6
 
 rootle talks to source-control backends through one seam (`trait
-Provider`, `src/provider/mod.rs`). The built-in `github` provider is
+Provider`, `crates/provider/src/lib.rs`). The built-in `github` provider is
 the reference implementation; any other system is wrapped as a child
 process speaking **NDJSON-RPC 2.0 over stdio** (the LSP model),
-implemented in `src/provider/stdio.rs`. The reference adapter is
-[`examples/providers/fs_provider.py`](../examples/providers/fs_provider.py),
+implemented in `crates/stdio/`. The reference adapter is
+[`crates/stdio/examples/fs_provider.py`](../crates/stdio/examples/fs_provider.py),
 which serves a local directory of repos — use it as a template and as
 documentation-by-example.
 
@@ -27,7 +27,11 @@ else as an NDJSON-RPC stdio child](architecture.svg)
   (`[provider] timeout_ms`, default 30s): a reply that never comes
   fails that one call with a `timeout`-kinded error — the transport
   and the child stay usable, and the late reply is discarded when it
-  finally arrives.
+  finally arrives. It can match nothing: request ids come from a
+  monotonic per-session counter and are **never reused** — not after
+  a timeout, not across a restart — so a late reply (or a duplicate,
+  or one for an unknown id) finds no live slot and the reader drops
+  it (specs/ProviderProtocol.tla, `NoIdReuse` + `CorrelationSafety`).
 - **Progressive results (v1.3):** a request whose params carry
   `"partial": true` opts into `$/partial` notifications — see
   [Progressive results](#progressive-results-v13). For such requests
@@ -43,6 +47,13 @@ else as an NDJSON-RPC stdio child](architecture.svg)
   requests, and the status line notes the restart. Concurrency: at
   most one caller waits out a given rebuild attempt; others either
   ride the validated result or fail fast with the attempt's error.
+  Retry bounds are per caller, not per session: the caller that paid
+  for a failed attempt returns its error — nobody chains into a
+  second sleep — and retries continue for as long as fresh requests
+  arrive (the ladder 1s → 2s → 5s → 30s cap advances only when a
+  rebuild succeeded and the child later died again; a failing streak
+  retries its current rung). The model checks validated admission and
+  fail-closed routing; real-child tests cover the bounded caller wait.
   `timeout_ms` is a per-round-trip read deadline, not an end-to-end
   bound — a request that triggers a rebuild can additionally wait one
   backoff interval plus one handshake round trip before its own
@@ -90,9 +101,10 @@ from names — a provider that declares none renders text-only.
 `capabilities` is optional and defaults to
 everything enabled; the UI degrades on `false`. Known keys: `orgs`,
 `code_search`, `file_search` (v1.3 — absent inherits `code_search`),
-and the v1.5 revision trio `refs`, `log`, `blame` (all default false —
-absent means default-branch-only, since many backends can't answer
-them; a backend that can, says so).
+and the revision capabilities — the v1.5 trio `refs`, `log`, `blame`
+plus v1.6's `commit` (all default false — absent means
+default-branch-only, since many backends can't answer them; a
+backend that can, says so).
 
 **Cache budget (advisory, v1.2):** `cache_bytes` is the user's
 `[cache] max_mb` budget in bytes and `cache_dir` is this provider's
@@ -120,6 +132,7 @@ Optional/missing fields noted per method; everything else is required.
 | `repo/refs` | `{"repo"}` | `{"branches":[…], "tags":[…]}` |
 | `repo/log` | `{"repo","path"?,"ref"?,"limit"?}` | `{"items":[…], "truncated"?}` |
 | `repo/blame` | `{"repo","path","ref"?}` | `{"ranges":[…]}` |
+| `repo/commit` | `{"repo","sha"}` | `{"sha","author","date","message","parents"?,"files":[…]}` |
 | `repo/clone_url` | `{"repo"}` | `{"clone_url":"…"}` |
 | `repo/web_url` | `{"repo","path","branch","line","end_line"?}` | `{"url":"…"}` |
 | `org/url` | `{"org"}` | `{"url":"…"}` |
@@ -170,6 +183,21 @@ Details:
   blame API — `false` there is the honest answer). All three date
   fields feed the UI's history/blame lenses verbatim; rootle never
   re-derives authorship.
+- **Commit detail (v1.6, plans/0028):** `repo/commit` →
+  `{"sha","author","date","message","parents"?,"files":[…],"truncated"?,"web_url"?}`.
+  The message is complete (subject and body), dates are ISO-8601, and
+  `web_url` is a provider-built permalink to this commit. Changes compare
+  against the first parent; root commits compare against the empty tree.
+  Each file carries `{"path","status","additions"?,"deletions"?,"patch"?,
+  "previous_path"?,"binary"?}`. `patch` contains unified hunks with valid
+  counts, no file headers. An absent patch means **unavailable**, not
+  necessarily binary; `binary: true` positively identifies binary content.
+  An empty patch describes a metadata-only change. `status` is lowercase
+  `added` | `removed` | `modified` | `renamed`; unknown statuses remain
+  readable as modified. Renames carry `previous_path`. Missing counts
+  remain unknown, never silently zero. `truncated: true` marks an incomplete
+  file listing; the GitHub adapter aggregates file pages up to its 500-file
+  display budget. Capability `commit` defaults false.
 - `repo/web_url` — build the browser URL for a repo root (`path` empty),
   a path (tree/blob grammar is the provider's), appending a line
   fragment when `line` is a number (`line` is JSON `null` when absent;
@@ -272,8 +300,9 @@ Rules:
   `items` empty, `truncated` authoritative. Without `partial` in
   params the reply carries everything (unchanged v1.2 behavior).
 - The deadline is per-inactivity while streaming (see Transport).
-- `$/cancelRequest` (v1.1) stops the stream; the reply may still
-  arrive and is handled normally.
+- `$/cancelRequest` is advisory: providers SHOULD stop expensive work,
+  but MAY ignore it. Partials and the final reply may still arrive and are
+  handled normally until completion/timeout; cancellation is not terminal.
 - Child death mid-stream: partials already rendered stay; the request
   itself fails ("provider closed its output") per the restart rules.
   Rootle marks the set incomplete rather than discarding it.
@@ -371,7 +400,7 @@ and the GitLab adapter (`rootle-gitlab`) both follow this shape.
 Try the reference adapter against a directory of repos:
 
 ```
-python3 examples/providers/fs_provider.py ~/code   # serves ~/code/* under "local"
+python3 crates/stdio/examples/fs_provider.py ~/code
 rootle --config provider.toml                          # with the [provider] block above
 ```
 
@@ -382,7 +411,7 @@ path: search, tree walk, blob preview, code search.
 ## In-tree providers
 
 For backends that should live in the binary, implement `trait Provider`
-(`src/provider/mod.rs`): `name`, `capabilities`, and the calls above
+(`crates/provider/src/lib.rs`): `name`, `capabilities`, and the calls above
 (`search`, `org_repos`, `fetch_tree`, `fetch_blob`, `search_code`,
 `clone_url`, `web_url`, `org_url`, plus optional `default_orgs` for
 cold-start suggestions), then register it in `provider::build`. The
@@ -417,3 +446,27 @@ ETag (`index/refs/<org>/<repo>/<branch>` — a `304` is free), atomic
 tmp+rename writes, LRU eviction by mtime at startup, orphan sweep
 (trees not referenced by any ref, blobs not referenced by any live
 tree). If your backend can produce the same shape, copy it.
+
+## Model checking (standing rule)
+
+The bounded concurrency model is
+[`specs/ProviderProtocol.tla`](../specs/ProviderProtocol.tla). It checks
+request correlation, unique completion, ordered opted-in partials, deadline
+bounds, validated admission, fail-closed recovery, advisory cancellation,
+non-reused IDs and isolation from old readers.
+
+Two temporal properties are checked separately: admitted requests eventually
+finish **under finite streaming and weakly fair clock/expiry scheduling**;
+started recoveries resolve under weakly fair spawn/handshake scheduling.
+There is no termination claim for an indefinitely streaming provider and no
+claim that a bounded model proves arbitrary Rust code sound or complete.
+
+Four kept mutants must fail with their expected invariant, not a parser or
+runtime error. Generated reference-model traces exercise the production
+router in `crates/stdio/src/routing/tests.rs`; real-child tests exercise
+timeouts, EOF and recovery. These are complementary evidence, not a formal
+refinement proof between TLA+ and Rust.
+
+**Any semantic change to transport, cancellation, streaming or restart
+updates the model and its executable observations in the same PR.** Run
+`docker compose run --build --rm model` together with the Rust/e2e gates.

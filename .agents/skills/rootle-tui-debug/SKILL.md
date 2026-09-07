@@ -13,7 +13,7 @@ headless + frame snapshots; PTY paths only for what a terminal proves:
    steps in, cell-grid frames + state JSON out. Deterministic; the
    fastest way to drive a flow and capture evidence. `-` reads the
    script from stdin; `ROOTLE_HEADLESS_COLS/ROWS` size the viewport.
-2. **Frame snapshots** (`tests/render.rs`, ratatui `TestBackend`) —
+2. **Frame snapshots** (`crates/rootle/tests/render/`, ratatui `TestBackend`) —
    deterministic frame content without a TTY.
 3. **e2e harness** (`e2e/`, uv + pytest + pyte) — scripted PTY runs
    against the real binary with screen reconstruction and assertions.
@@ -78,7 +78,7 @@ for y in 0..buf.area.height {
 
 Rules:
 
-- Every new screen/popup/mode gets a snapshot test in `tests/` or a
+- Every new screen/popup/mode gets a snapshot test in `crates/rootle/tests/` or a
   `#[cfg(test)]` module next to the component.
 - After a popup closes, re-render and assert the cells under the popup
   match the pre-popup frame (catches lingering-text regressions).
@@ -111,7 +111,7 @@ For any change touching render code, verify:
 1. Popup open → close: no residue (snapshot test §2).
 2. Editor/child-process resume path: full `terminal.clear()` happened.
 3. File content with ESC/control bytes renders stripped (see
-   `src/sanitize.rs`); binary blob shows the placeholder, not bytes.
+   `crates/rootle/src/sanitize.rs`); binary blob shows the placeholder, not bytes.
 4. Wide chars (CJK) truncate by display width, not byte/char count.
 5. Resize while a popup is open: popup recenters, modeline intact.
 

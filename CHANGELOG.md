@@ -3,6 +3,46 @@
 User-visible changes per release. Protocol archaeology lives in
 `plans/`; this file is for "what's new for me".
 
+## [0.10.0] — 2026-09-07
+
+### Commit inspection and shared foundations
+
+- **Six-crate workspace** — `rootle` owns the application;
+  `rootle-provider` owns the seam and identities; `rootle-stdio` the
+  transport; `rootle-github` REST/cache; `rootle-manager` installation;
+  `rootle-diff` checked patches. All publish in dependency order.
+- **Stable identity** — typed repo/sha/ref values, domain-tagged
+  request generations, and entity-scoped VISUAL marks replace
+  ambiguous strings and unrelated counter comparisons.
+- **One list engine** — refs, keybindings, settings, clone lists,
+  history and commit files share filtering, selection and scrolling.
+  Multi-line entries and headers no longer masquerade as item indices.
+  Binding tables supply dispatch and hints, including real multi-key
+  sequences; modeline modes follow the current input owner.
+- **Checked provider lifecycle** — ten safety invariants, type
+  correctness and two fairness-qualified temporal properties in the
+  bounded TLA+ model. Four kept faults must violate their expected
+  invariant. Generated production-router checks and real-child tests
+  bridge the model to Rust; this is not an unbounded refinement proof.
+- **Transport fixes** — unsolicited partials cannot extend an ordinary
+  call's read deadline; progressive search uses the recovery gate;
+  stale readers cannot damage a replacement; failed handshakes stop
+  the child before joining its reader; waiters do not ride repeated
+  rebuilds indefinitely.
+- **The commit viewer** (protocol v1.6 `repo/commit`) — from the
+  history lens, `d` inspects the commit itself: full message,
+  changed files with `/` filtering, per-file unified deltas with
+  old/new line gutters, origin-tinted rows, intra-line emphasis,
+  `]f`/`[f` file stepping, and the Esc ladder back to history.
+  Blame `Enter` still composes. Everything read-only, per the 0016
+  boundary.
+- **Palette-correct diffs** — light and dark palettes derive quiet row
+  tints and stronger changed spans; explicit color overrides win.
+- **Rendering polish** — full commit messages scroll independently;
+  Unicode emphasis respects both sides; malformed/truncated patches
+  remain explicit; help binding counts are width-fitted rather than
+  clipped after one digit.
+
 ## [0.9.3] — 2026-09-04
 
 ### Fixed
@@ -246,6 +286,7 @@ User-visible changes per release. Protocol archaeology lives in
 - Chrome: powerline modeline (Nerd Font opt-in), bat-style gutters,
   fzf prompts, `[ui] border` / `[ui] nerd_font`.
 
+[0.10.0]: https://github.com/rootledev/rootle/releases/tag/v0.10.0
 [0.9.3]: https://github.com/rootledev/rootle/releases/tag/v0.9.3
 [0.9.2]: https://github.com/rootledev/rootle/releases/tag/v0.9.2
 [0.9.1]: https://github.com/rootledev/rootle/releases/tag/v0.9.1
