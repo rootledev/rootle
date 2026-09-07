@@ -59,7 +59,7 @@ per-release notes are on the GitHub releases page:
   (v1.6), checked deltas and the detail → file-delta chain. **Implemented.**
 - [0029-polish-release-integration](plans/0029-polish-release-integration.md)
   — final integration, evidence, green CI and verified v0.10.0 release.
-  **Executing; published-release status lives here.**
+  **Released as v0.10.0; published evidence lives here.**
 
 
 Source comments referencing `plans/0005` mean this file.
