@@ -10,6 +10,9 @@ use rootle_provider::{ErrorKind, ProviderError, ProviderResult};
 pub(super) mod lenses;
 pub(super) mod lifecycle;
 pub(super) mod search;
+pub(super) mod tracker;
+
+pub(crate) use tracker::Outstanding;
 
 /// Blobs over 1 MiB never enter the app, whatever the provider: the
 /// preview pane rejects them anyway, and no backend (in-tree or stdio)
@@ -39,7 +42,7 @@ fn fetch_blob_capped(
 }
 
 impl App {
-    /// Style raw hits at the UI boundary: syntect highlight + grep
+    /// Style raw hits at the UI boundary: Tree-sitter highlight + grep
     /// match chips (plans/0002 §5). Runs on mock and real hits alike.
     pub(super) fn finish_hits(
         &self,

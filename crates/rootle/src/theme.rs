@@ -107,9 +107,9 @@ pub struct Semantic {
     pub diff_band: Color,
 }
 
-/// Syntax-highlight roles, consumed by `highlight.rs` to build the
-/// syntect theme. Kept separate from `Semantic` — chrome colors and
-/// code colors evolve on different axes.
+/// Syntax-highlight roles mapped from Tree-sitter captures in `highlight/`.
+/// Kept separate from `Semantic` — chrome colors and code colors evolve
+/// on different axes.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Syntax {
     pub keyword: Color,

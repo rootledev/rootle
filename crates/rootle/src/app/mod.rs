@@ -98,6 +98,12 @@ pub struct App {
     /// every context request; a timer thread fires only if its
     /// generation is still current when the cursor rests.
     context_debounce_gen: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    /// Live worker count (workers/tracker.rs): every spawn counts in
+    /// before its thread starts and the ticket counts out after the
+    /// worker's last event send. Drivers that need quiescence
+    /// (headless `settle`) wait on this — zero plus a drained queue,
+    /// never a status-string guess.
+    outstanding: workers::Outstanding,
     /// One-line status shown in the modeline (searching/loading/error).
     status: Option<String>,
     /// Offline apps (tests) never spawn workers.
@@ -281,6 +287,7 @@ impl App {
             commit_generation: CommitGeneration::default(),
             pending_context_sha: None,
             context_debounce_gen: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            outstanding: workers::Outstanding::default(),
             status: None,
             offline,
             should_quit: false,
@@ -289,6 +296,14 @@ impl App {
             pending_clipboard: None,
             trace_failure: None,
         }
+    }
+
+    /// The outstanding-worker handle: drivers that wait on quiescence
+    /// (headless `settle`) poll `count()` — spawns bump it before
+    /// their thread starts, ticket drops lower it after the last
+    /// event send. Offline apps sit at zero by construction.
+    pub(crate) fn outstanding_workers(&self) -> workers::Outstanding {
+        self.outstanding.clone()
     }
 
     /// Test hooks (0022): simulate a fallback outcome. (Integration

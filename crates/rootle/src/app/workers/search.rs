@@ -40,7 +40,9 @@ impl App {
                 })
             });
         });
+        let ticket = self.outstanding.track();
         std::thread::spawn(move || {
+            let _ticket = ticket;
             rootle_trace::in_operation(op, || {
                 let started = rootle_trace::enabled().then(Instant::now);
                 // Streamed batches go straight to the event loop as they
@@ -139,7 +141,9 @@ impl App {
                 })
             });
         });
+        let ticket = self.outstanding.track();
         std::thread::spawn(move || {
+            let _ticket = ticket;
             rootle_trace::in_operation(op, || {
                 let started = rootle_trace::enabled().then(Instant::now);
                 let event = match provider.search(&query) {
@@ -202,7 +206,9 @@ impl App {
                 })
             });
         });
+        let ticket = self.outstanding.track();
         std::thread::spawn(move || {
+            let _ticket = ticket;
             rootle_trace::in_operation(op, || {
                 let started = rootle_trace::enabled().then(Instant::now);
                 let sha = hit.sha.clone();
@@ -303,7 +309,9 @@ impl App {
                 })
             });
         });
+        let ticket = self.outstanding.track();
         std::thread::spawn(move || {
+            let _ticket = ticket;
             rootle_trace::in_operation(op, || {
                 let started = rootle_trace::enabled().then(Instant::now);
                 let sha = hit.sha.clone();

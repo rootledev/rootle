@@ -8,7 +8,10 @@ what only a terminal proves (byte parsing, terminal restore).
 
 from __future__ import annotations
 
-from headless import frames, fs_config, run_headless, states
+import json
+from pathlib import Path
+
+from headless import fs_config, frames, run_headless, run_headless_exit, states
 
 
 def test_browse_search_drill_yank(tmp_path, binary):
@@ -213,3 +216,83 @@ def test_tarball_kind_health_no_retry(tmp_path, binary):
     assert "provider health" in out
     assert "g browse github" in out
     assert "r retry" not in out
+
+
+# --- Real-quiescence settle (tracked workers) --------------------------------
+#
+# The old 400ms quiet window called a half-loaded tree "settled": a
+# provider slower than the window left scripts driving a loading
+# frame (and `--help` never mentioned the wait). settle now waits on
+# real outstanding-worker tracking — every spawn counts in before its
+# thread starts, its ticket counts out after the last event — so slow
+# chains land, and a stalled provider fails the run at its bound.
+
+SLOW_PROVIDER = Path(__file__).parent / "slow_provider.py"
+
+
+def slow_config(tmp: Path, *spec: str) -> Path:
+    """A stdio config over the scripted provider (delay/error/hang per
+    method, e2e/slow_provider.py)."""
+    command = json.dumps(["python3", str(SLOW_PROVIDER), *spec])
+    config = tmp / "slow.toml"
+    config.write_text(f'[provider]\nkind = "stdio"\ncommand = {command}\n')
+    return config
+
+
+def test_slow_tree_blob_chain_settles_for_real(tmp_path, binary):
+    """Tree and blob each take 700ms — past any quiet window. settle
+    must span the real outstanding workers and their cascade; the
+    captured frame shows the file, the state shows no loading."""
+    config = slow_config(tmp_path, "repo/tree=delay:700", "repo/blob=delay:700")
+    out = run_headless(
+        binary,
+        "keys alpha\n"
+        "keys <cr>\n"  # submit the search
+        "settle\n"
+        "keys <cr>\n"  # open local/alpha — the tree takes 700ms
+        "settle\n"  # tree completion starts the preview blob worker
+        "frame\n"
+        "state\n",
+        "--config",
+        str(config),
+        home=tmp_path / "home",
+        cols=140,
+    )
+    assert "hello slow chain" in out  # the blob reached the frame
+    (state,) = states(out)
+    assert not (state["status"] or "").startswith("loading")
+
+
+def test_settle_deadline_fails_the_run(tmp_path, binary):
+    """A provider that never replies: settle 400 exits nonzero with a
+    diagnostic naming the outstanding worker, and the script stops —
+    no frame pretends the tree loaded."""
+    config = slow_config(tmp_path, "repo/tree=hang")
+    rc, out, err = run_headless_exit(
+        binary,
+        "keys alpha\nkeys <cr>\nsettle\nkeys <cr>\nsettle 400\nframe\n",
+        "--config",
+        str(config),
+        home=tmp_path / "home",
+    )
+    assert rc != 0
+    assert "settle timed out after 400ms" in err
+    assert "still outstanding" in err
+    assert "─── frame" not in out
+
+
+def test_provider_error_completes_settle(tmp_path, binary):
+    """A failing tree fetch still counts its worker out: settle
+    completes (exit 0) with the honest error on the status line —
+    never a wedged script, never a fake loading state."""
+    config = slow_config(tmp_path, "repo/tree=error")
+    out = run_headless(
+        binary,
+        "keys alpha\nkeys <cr>\nsettle\nkeys <cr>\nsettle\nframe\nstate\n",
+        "--config",
+        str(config),
+        home=tmp_path / "home",
+    )
+    (state,) = states(out)
+    assert "scripted failure" in (state["status"] or "")
+    assert "fn main()" not in out

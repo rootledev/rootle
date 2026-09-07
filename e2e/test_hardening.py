@@ -112,8 +112,7 @@ def test_dead_child_respawns_and_session_recovers(tmp_path, binary):
         "settle\n"  # the closed-output error surfaces
         "frame\n"
         "keys <cr>\n"  # retry: ensure_alive respawns (1s backoff + handshake)
-        "wait 2500\n"  # the backoff gap outlives settle's quiet window
-        "settle\n"  # the new generation serves tree + blob
+        "settle\n"  # tracked: spans the backoff, handshake, tree + blob
         "frame\n",
         "--config",
         str(config),

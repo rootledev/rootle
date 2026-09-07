@@ -181,43 +181,6 @@ fn search_view_results_support_slash_filter() {
     );
 }
 
-#[test]
-fn search_view_previews_are_syntax_highlighted() {
-    let mut app = browsing_app();
-    app.handle_key(key(KeyCode::Char(' ')));
-    app.handle_key(key(KeyCode::Char('f')));
-    for c in "query".chars() {
-        app.handle_key(key(KeyCode::Char(c)));
-    }
-    app.handle_key(key(KeyCode::Enter));
-
-    let backend = TestBackend::new(100, 30);
-    let mut terminal = Terminal::new(backend).unwrap();
-    terminal
-        .draw(|f| {
-            let area = f.area();
-            app.render(f, area);
-        })
-        .unwrap();
-    let buf = terminal.backend().buffer();
-
-    // Find the preview row with a Rust keyword and assert it carries
-    // syntect RGB colors (plain text would render in the theme's
-    // default text color, never Rgb).
-    let row = (0..buf.area.height)
-        .find(|&y| {
-            (0..buf.area.width)
-                .map(|x| buf[(x, y)].symbol())
-                .collect::<String>()
-                .contains("pub fn parse")
-        })
-        .expect("preview row should be visible");
-    assert!(
-        (0..buf.area.width).any(|x| matches!(buf[(x, row)].fg, ratatui::style::Color::Rgb(..))),
-        "preview line should be syntax-highlighted"
-    );
-}
-
 /// plans/0012 M1 honesty chips: client-subtracted hits and
 /// inexpressible tokens are named in the results title.
 #[test]

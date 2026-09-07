@@ -9,8 +9,8 @@
 //! ```text
 //! keys <text>   feed keys; token forms: <esc> <cr> <bs> <tab>
 //!               <space> <up> <down> <left> <right>
-//! settle        drain provider/worker events to quiescence
-//!               (400ms quiet window, 10s bound)
+//! settle [ms]   wait for all workers and their queued follow-ups
+//!               (default 10000ms); timeout fails the run
 //! wait <ms>     drain events for N ms — real providers reply on
 //!               their own clock
 //! frame         dump the cell grid
@@ -38,16 +38,15 @@ pub use frame::buffer_text;
 pub const DEFAULT_COLS: u16 = 100;
 pub const DEFAULT_ROWS: u16 = 30;
 
-/// `settle`'s quiet window: provider workers deliver in chains
-/// (tree → blob → last-commit); the channel must stay quiet this long
-/// before the step returns. Sized for a cold local-provider round
-/// trip under CI load — work *in flight* is invisible to the
-/// channel, so the window is the only signal (strop's "zero timing"
-/// ideal bends the same way for real data sources).
-const SETTLE_QUIET: Duration = Duration::from_millis(400);
-/// …but never longer than this — a stalled provider must not wedge
-/// the driver (0020 §4's honesty rule applies to scripts too).
+/// `settle`'s default bound — a stalled provider must fail the run
+/// explicitly (0020 §4's honesty rule applies to scripts) instead of
+/// wedging the driver or half-loading a frame. `settle <ms>` tightens
+/// (or widens) it per step.
 const SETTLE_BOUND: Duration = Duration::from_secs(10);
+/// Poll cadence while workers are outstanding. The ticket drop is
+/// the real signal; this only paces the drain loop (and keeps an
+/// empty-queue wait cheap).
+const SETTLE_POLL: Duration = Duration::from_millis(5);
 
 pub struct Headless {
     app: App,
@@ -119,25 +118,47 @@ impl Headless {
         }
     }
 
-    /// Drain until the channel stays quiet for `SETTLE_QUIET`,
-    /// bounded by `SETTLE_BOUND`.
-    fn settle(&mut self) {
-        let deadline = Instant::now() + SETTLE_BOUND;
-        let mut quiet_since = Instant::now();
+    /// Drain to real quiescence — no quiet-window guessing, no
+    /// status-string reading. A worker's ticket outlives its last
+    /// `send` (workers/tracker.rs), so a zero outstanding count means
+    /// every finished worker's events are already queued; the drain
+    /// that follows picks them up (and any cascade spawns they
+    /// trigger keep the loop alive). Done = count zero AND a full
+    /// drain that found nothing. Bounded: a stalled provider fails
+    /// the run instead of wedging it.
+    fn settle(&mut self, bound: Duration) -> std::io::Result<()> {
+        let started = Instant::now();
+        let workers = self.app.outstanding_workers();
         loop {
-            if self.drain() {
-                quiet_since = Instant::now();
+            if workers.count() == 0 {
+                // Everything already sent is queued; drain until a
+                // pass comes back empty (events drained here can
+                // spawn follow-up workers and keep us waiting).
+                if !self.drain() {
+                    return Ok(());
+                }
+                continue;
             }
-            if Instant::now() >= deadline && quiet_since.elapsed() < SETTLE_QUIET {
-                rootle_trace::record_with(
-                    rootle_trace::EventKind::Error,
-                    || serde_json::json!({"operation":"headless_settle","reason":"deadline","bound_ms":SETTLE_BOUND.as_millis()}),
-                );
+            if started.elapsed() >= bound {
+                let outstanding = workers.count();
+                rootle_trace::record_with(rootle_trace::EventKind::Error, || {
+                    serde_json::json!({
+                        "operation":"headless_settle",
+                        "reason":"deadline",
+                        "bound_ms":bound.as_millis(),
+                        "outstanding":outstanding,
+                    })
+                });
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    format!(
+                        "settle timed out after {}ms — {outstanding} worker(s) still outstanding",
+                        bound.as_millis(),
+                    ),
+                ));
             }
-            if quiet_since.elapsed() >= SETTLE_QUIET || Instant::now() >= deadline {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(10));
+            self.drain();
+            std::thread::sleep(SETTLE_POLL);
         }
     }
 
@@ -168,8 +189,9 @@ impl Headless {
     }
 
     /// Interpret a script (module docs describe the language),
-    /// writing frames/states to `out`.
-    pub fn run_script(&mut self, script: &str, out: &mut dyn Write) {
+    /// writing frames/states to `out`. A `settle` that hits its bound
+    /// stops the run: later frames would capture a half-loaded lie.
+    pub fn run_script(&mut self, script: &str, out: &mut dyn Write) -> std::io::Result<()> {
         for line in script.lines() {
             let line = line.trim_end();
             if line.is_empty() || line.starts_with('#') {
@@ -183,8 +205,8 @@ impl Headless {
                     self.app.handle_key(key);
                 }
                 self.drain();
-            } else if line == "settle" {
-                self.settle();
+            } else if let Some(bound) = settle_bound(line) {
+                self.settle(bound?)?;
             } else if let Some(ms) = line.strip_prefix("wait ") {
                 self.wait(ms.trim().parse().unwrap_or(500));
             } else if line == "frame" {
@@ -196,7 +218,22 @@ impl Headless {
                 let _ = writeln!(out, "─── state {}", self.state_json());
             }
         }
+        Ok(())
     }
+}
+
+/// A malformed timeout must not silently skip the requested wait.
+fn settle_bound(line: &str) -> Option<std::io::Result<Duration>> {
+    if line == "settle" {
+        return Some(Ok(SETTLE_BOUND));
+    }
+    let ms = line.strip_prefix("settle ")?;
+    Some(ms.trim().parse().map(Duration::from_millis).map_err(|_| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "settle expects a timeout in milliseconds (for example: settle 10000)",
+        )
+    }))
 }
 
 /// Script text → key events. `<token>` forms are the special keys
@@ -287,11 +324,15 @@ pub fn run_cli(cli: &crate::cli::Cli) -> std::io::Result<()> {
         dim("ROOTLE_HEADLESS_COLS", DEFAULT_COLS),
         dim("ROOTLE_HEADLESS_ROWS", DEFAULT_ROWS),
     );
-    // Let the launch flow warm (recents/repos fetch) before step one.
-    driver.settle();
+    // Let the launch flow warm (recents/repos fetch) before step one —
+    // the same real tracking and bound as any `settle` step: a launch
+    // that wedges fails the run instead of scripting into a loading
+    // frame.
+    driver.settle(SETTLE_BOUND)?;
     let mut out = std::io::stdout().lock();
-    driver.run_script(&script, &mut out);
-    out.flush()
+    let result = driver.run_script(&script, &mut out);
+    out.flush()?;
+    result
 }
 
 #[cfg(test)]
@@ -344,7 +385,7 @@ mod tests {
     fn frame_renders_launch_popup() {
         let mut driver = offline_driver((80, 24));
         let mut out = Vec::new();
-        driver.run_script("frame\n", &mut out);
+        driver.run_script("frame\n", &mut out).unwrap();
         let out = String::from_utf8(out).unwrap();
         assert!(out.contains("─── frame 80×24"), "banner: {out}");
         // Fresh offline state opens the repo search popup.
@@ -358,7 +399,9 @@ mod tests {
         // The launch popup opens in INSERT; Esc Esc closes it
         // (INSERT→NORMAL→close — headless feeds discrete key events,
         // the PTY's byte-merging caveat doesn't exist here).
-        driver.run_script("state\nkeys <esc><esc>\nstate\n", &mut out);
+        driver
+            .run_script("state\nkeys <esc><esc>\nstate\n", &mut out)
+            .unwrap();
         let out = String::from_utf8(out).unwrap();
         let states: Vec<&str> = out.lines().filter(|l| l.starts_with("─── state")).collect();
         assert_eq!(states.len(), 2, "{out}");
@@ -374,7 +417,9 @@ mod tests {
         let mut out = Vec::new();
         // Esc Esc closes the launch popup, q quits; the trailing
         // frame/state must never render.
-        driver.run_script("keys <esc><esc>\nkeys q\nframe\nstate\n", &mut out);
+        driver
+            .run_script("keys <esc><esc>\nkeys q\nframe\nstate\n", &mut out)
+            .unwrap();
         let out = String::from_utf8(out).unwrap();
         assert!(!out.contains("─── frame"), "frame after quit: {out}");
         assert!(!out.contains("─── state"), "state after quit: {out}");
@@ -396,8 +441,47 @@ mod tests {
         // ␣ y with the offline provider: no URL exists, and the
         // status line must say so honestly (recording coverage with
         // real URLs lives in e2e/test_headless.py over fs_provider).
-        driver.run_script("keys <space>y\nstate\n", &mut out);
+        driver
+            .run_script("keys <space>y\nstate\n", &mut out)
+            .unwrap();
         let out = String::from_utf8(out).unwrap();
         assert!(out.contains("nothing to yank"), "status in state: {out}");
+    }
+
+    #[test]
+    fn settle_deadline_fails_with_outstanding_count() {
+        // A worker that never finishes: settle fails at its bound,
+        // names the stuck count, and the script stops there — the
+        // trailing frame must never render.
+        let mut driver = offline_driver((80, 24));
+        let ticket = driver.app.outstanding_workers().track();
+        let (release, released) = std::sync::mpsc::channel::<()>();
+        let parked = std::thread::spawn(move || {
+            let _held = ticket; // in flight until the test ends
+            let _ = released.recv();
+        });
+        let mut out = Vec::new();
+        let failure = driver
+            .run_script("settle 25\nframe\n", &mut out)
+            .unwrap_err();
+        assert_eq!(failure.kind(), std::io::ErrorKind::TimedOut);
+        let out = String::from_utf8(out).unwrap();
+        assert!(
+            !out.contains("─── frame"),
+            "frame after settle failure: {out}"
+        );
+        drop(release);
+        let _ = parked.join();
+    }
+
+    #[test]
+    fn malformed_settle_timeout_stops_before_sampling() {
+        let mut driver = offline_driver((80, 24));
+        let mut out = Vec::new();
+        let failure = driver
+            .run_script("settle nope\nstate\n", &mut out)
+            .unwrap_err();
+        assert_eq!(failure.kind(), std::io::ErrorKind::InvalidInput);
+        assert!(out.is_empty());
     }
 }

@@ -37,10 +37,23 @@ pub struct Cli {
     #[arg(long, requires = "update")]
     pub check: bool,
 
-    /// Scripted, deterministic driver (plans/0023 M1): keys in, cell
-    /// grid frames + state JSON out — no PTY, no raw mode. `-` reads
-    /// the script from stdin. Viewport: ROOTLE_HEADLESS_COLS/ROWS.
-    #[arg(long, value_name = "SCRIPT")]
+    /// Run a script without a terminal; `-` reads stdin. Viewport: ROOTLE_HEADLESS_COLS/ROWS.
+    ///
+    /// Directives, one per line (blank lines and lines starting with # are ignored):
+    ///   keys <text>   send keys; tokens: <esc> <cr> <bs> <tab> <space>
+    ///                 <up> <down> <left> <right>
+    ///   settle [ms]   wait for all workers and their queued follow-ups
+    ///                 (default 10000ms); timeout stops the script and exits nonzero
+    ///   wait <ms>     process events for a fixed duration
+    ///   frame         print the rendered cell grid
+    ///   state         print one JSON state record
+    ///
+    /// Startup waits for outstanding loads (up to 10000ms) before step one.
+    /// After navigation, use settle before sampling frame or state.
+    /// Settled means work finished, not success: inspect state for provider errors.
+    ///
+    /// Example: printf 'settle\nframe\nstate\n' | rootle owner/repo --headless -
+    #[arg(long, value_name = "SCRIPT", verbatim_doc_comment)]
     pub headless: Option<PathBuf>,
 
     /// Record all diagnostic categories in a new session file.

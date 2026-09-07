@@ -3,7 +3,18 @@
 User-visible changes per release. Protocol archaeology lives in
 `plans/`; this file is for "what's new for me".
 
-## Unreleased
+## [0.11.0] — 2026-09-07
+
+### Syntax highlighting and headless waits
+
+- Replaced Syntect with statically linked Tree-sitter grammars. Whole-file
+  parsing preserves multiline context; Markdown fences and HTML scripts
+  highlight their embedded languages. Palette changes recolor cached files
+  without recompiling grammar queries. TOML, YAML and TSX are supported.
+- `--headless` now documents its directives in `--help`. `settle [ms]`
+  tracks workers and queued follow-ups instead of guessing from 400ms of
+  silence. The default bound is 10 seconds; timeouts fail the run with a
+  nonzero exit before later frames or state records are sampled.
 
 ### Diagnostic sessions
 
@@ -306,6 +317,7 @@ User-visible changes per release. Protocol archaeology lives in
 - Chrome: powerline modeline (Nerd Font opt-in), bat-style gutters,
   fzf prompts, `[ui] border` / `[ui] nerd_font`.
 
+[0.11.0]: https://github.com/rootledev/rootle/releases/tag/v0.11.0
 [0.10.0]: https://github.com/rootledev/rootle/releases/tag/v0.10.0
 [0.9.3]: https://github.com/rootledev/rootle/releases/tag/v0.9.3
 [0.9.2]: https://github.com/rootledev/rootle/releases/tag/v0.9.2

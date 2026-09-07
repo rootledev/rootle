@@ -186,7 +186,9 @@ impl App {
                         })
                     });
                 });
+                let ticket = self.outstanding.track();
                 std::thread::spawn(move || {
+                    let _ticket = ticket;
                     rootle_trace::in_operation(op, || {
                         std::thread::sleep(std::time::Duration::from_millis(200));
                         let still_current =

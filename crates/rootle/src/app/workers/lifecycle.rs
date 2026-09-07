@@ -36,7 +36,9 @@ impl App {
                 })
             });
         });
+        let ticket = self.outstanding.track();
         std::thread::spawn(move || {
+            let _ticket = ticket;
             rootle_trace::in_operation(op, || {
                 let started = rootle_trace::enabled().then(Instant::now);
                 let mut repos: Vec<rootle_provider::RepoInfo> = repos
@@ -95,7 +97,9 @@ impl App {
         rootle_trace::in_operation(op, || {
             rootle_trace::record_with(EventKind::JobStarted, || json!({"job": "update_check"}));
         });
+        let ticket = self.outstanding.track();
         std::thread::spawn(move || {
+            let _ticket = ticket;
             rootle_trace::in_operation(op, || {
                 let started = rootle_trace::enabled().then(Instant::now);
                 let event = if let Some(tag) = crate::selfupdate::latest_known()
@@ -147,7 +151,9 @@ impl App {
                 })
             });
         });
+        let ticket = self.outstanding.track();
         std::thread::spawn(move || {
+            let _ticket = ticket;
             rootle_trace::in_operation(op, || {
                 let started = rootle_trace::enabled().then(Instant::now);
                 let r = rootle_manager::ProviderReference {
@@ -215,7 +221,9 @@ impl App {
                 })
             });
         });
+        let ticket = self.outstanding.track();
         std::thread::spawn(move || {
+            let _ticket = ticket;
             rootle_trace::in_operation(op, || {
                 let started = rootle_trace::enabled().then(Instant::now);
                 let mut ok = Vec::new();
@@ -303,7 +311,9 @@ impl App {
                 || json!({"job": "org_repos", "org": org}),
             );
         });
+        let ticket = self.outstanding.track();
         std::thread::spawn(move || {
+            let _ticket = ticket;
             rootle_trace::in_operation(op, || {
                 let started = rootle_trace::enabled().then(Instant::now);
                 let event = match provider.org_repos(&org) {
@@ -357,7 +367,9 @@ impl App {
                 })
             });
         });
+        let ticket = self.outstanding.track();
         std::thread::spawn(move || {
+            let _ticket = ticket;
             rootle_trace::in_operation(op, || {
                 let started = rootle_trace::enabled().then(Instant::now);
                 let repo_id = RepoId::from(format!("{owner}/{name}"));

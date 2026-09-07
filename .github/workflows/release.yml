@@ -66,8 +66,11 @@ jobs:
           tmp="$(mktemp -d)"
           tar -xzf rootle-*-${{ matrix.target }}.tar.gz -C "$tmp"
           bin="$(find "$tmp" -type f -name rootle | head -1)"
-          file "$bin"
-          ! ldd "$bin" 2>&1 | grep -q "=>"
+          file "$bin" | grep -qE "static-pie linked|statically linked"
+          readelf -d "$bin" > "$tmp/dynamic"
+          if grep -q '(NEEDED)' "$tmp/dynamic"; then
+            echo "::error::Linux binary has shared-library dependencies"; exit 1
+          fi
           # plans/0023 M2: behavioral smoke — the binary doesn't just
           # link, it renders. Headless needs no terminal (no PTY on a
           # runner) and no network (offline orgs, update check off).
@@ -83,8 +86,13 @@ jobs:
           tar -xzf rootle-*-${{ matrix.target }}.tar.gz -C "$tmp"
           bin="$(find "$tmp" -type f -name rootle | head -1)"
           file "$bin"
-          otool -L "$bin"
-          ! otool -L "$bin" | grep -qvE "libSystem|libiconv|CoreFoundation|Security|SystemConfiguration"
+          otool -L "$bin" > "$tmp/libraries"
+          cat "$tmp/libraries"
+          # Ignore otool's filename header, then allow only macOS system libraries.
+          sed '1d' "$tmp/libraries" > "$tmp/dependencies"
+          if grep -qvE '^[[:space:]]+(/usr/lib/lib(System|iconv|c\+\+|c\+\+abi)[^/]*\.dylib|/System/Library/Frameworks/(CoreFoundation|Security|SystemConfiguration)\.framework/)' "$tmp/dependencies"; then
+            echo "::error::macOS binary has non-system dependencies"; exit 1
+          fi
           "$bin" --version
           # Same headless smoke as the linux verify (plans/0023 M2).
           HOME="$tmp" "$bin" --headless <(printf 'frame\n') | grep -q "orgs"

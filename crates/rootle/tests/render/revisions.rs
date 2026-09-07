@@ -248,9 +248,8 @@ fn preview_submode_zoom_blame_history() {
     assert!(screen.contains("PREVIEW"), "back in the zoomed pane");
     // The regression from the demo: at-commit content highlights by
     // the real path — the "@ sha" marker has no known extension.
-    // (Language evidence lives in e2e/test_revisions.py, where the
-    // fixture file is real rust; syntect's fancy set has no TOML, so
-    // this frame's footer honestly reads "text".)
+    // Language evidence lives in e2e/test_revisions.py, whose fixture
+    // is real Rust; this frame exercises the same path with TOML.
     app.handle_key(key(KeyCode::Esc));
     let screen = render(&mut app, 200, 30).join("\n");
     assert!(

@@ -6,7 +6,7 @@
 # for native arm builds with zero cross config.
 
 FROM rust:alpine AS builder
-RUN apk add --no-cache musl-dev \
+RUN apk add --no-cache build-base file \
     && rustup component add clippy rustfmt
 WORKDIR /app
 COPY Cargo.toml Cargo.lock README.md LICENSE ./
@@ -17,11 +17,14 @@ RUN cargo fmt --all --check \
     && cargo clippy --locked --workspace --all-targets -- -D warnings \
     && cargo test --locked --workspace
 
-# Stripped static release binary.
+# Tree-sitter's C/C++ grammars are compiled into the native musl binary.
+# Static PIE may appear dynamic to ldd; ELF dependencies are the real gate.
 FROM builder AS release
 RUN cargo build --release --locked \
     && strip target/release/rootle \
-    && ldd target/release/rootle 2>&1 | grep -q "Not a valid dynamic program\|not a dynamic executable" \
+    && readelf -d target/release/rootle > /tmp/rootle-dynamic \
+    && ! grep -q '(NEEDED)' /tmp/rootle-dynamic \
+    && file target/release/rootle | grep -qE "static-pie linked|statically linked" \
     && echo "static: ok"
 
 # Shipping image: just the binary.
