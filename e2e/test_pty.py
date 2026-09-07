@@ -8,6 +8,7 @@ editor suspend/resume, and resize redraw.
 
 from __future__ import annotations
 
+import json
 import fcntl
 import os
 import struct
@@ -94,7 +95,8 @@ def test_editor_suspend_resume_roundtrip(tmp_path: Path) -> None:
 
 
 def test_resize_redraws_every_cell(tmp_path: Path) -> None:
-    tui = provider_tui(tmp_path, cols=100, rows=30)
+    trace = tmp_path / "resize.jsonl"
+    tui = provider_tui(tmp_path, cols=100, rows=30, env_extra={"ROOTLE_TRACE": str(trace)})
     try:
         dismiss_launch_popup(tui)
         fcntl.ioctl(
@@ -111,6 +113,14 @@ def test_resize_redraws_every_cell(tmp_path: Path) -> None:
         stream.feed(tui.raw())
         last_row = screen.display[19]
         assert "BROWSE" in last_row, f"modeline not on the new last row: {screen.display!r}"
+        tui.send("q")
+        assert tui.wait_exit() == 0
+        records = [json.loads(line) for line in trace.read_text().splitlines()]
+        assert any(record["event"] == "resize"
+                   and record["fields"].get("source") == "render"
+                   and (record["fields"]["columns"], record["fields"]["rows"]) == (72, 20)
+                   for record in records), "actual draw geometry must be observable"
+        assert records[-1]["event"] == "trace_end" and records[-1]["fields"]["complete"]
     finally:
         tui.stop()
 

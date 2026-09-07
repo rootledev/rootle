@@ -88,6 +88,28 @@ impl History {
         )
         .map(|&i| &self.entries[i])
     }
+
+    /// Counts/cursor summary for session traces (plans/0030).
+    pub(crate) fn diagnostics(&self) -> HistoryDiagnostics {
+        HistoryDiagnostics {
+            entries: self.entries.len(),
+            visible: self.visible().len(),
+            selected: self.selection.selected().get(),
+            loading: self.loading,
+            truncated: self.truncated,
+        }
+    }
+}
+
+/// Diagnostic summary of the history lens (plans/0030 session
+/// traces): counts and cursor only, no commit text.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct HistoryDiagnostics {
+    pub(crate) entries: usize,
+    pub(crate) visible: usize,
+    pub(crate) selected: usize,
+    pub(crate) loading: bool,
+    pub(crate) truncated: bool,
 }
 
 /// Blame lens state (plans/0016 M1c): ranges for one path, fetched on
@@ -144,11 +166,7 @@ impl Browser {
     /// Ranges landed (identity-checked by the caller); apply when the
     /// lens is open on this path.
     pub fn blame_store(&mut self, path: String, ranges: Vec<rootle_provider::BlameRange>) {
-        let active = self
-            .blame
-            .as_ref()
-            .map(|b| b.loading && b.path == path)
-            .unwrap_or(false);
+        let active = self.blame_awaiting(&path);
         self.blame = Some(BlameState {
             path,
             ranges,

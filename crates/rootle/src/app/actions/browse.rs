@@ -2,7 +2,8 @@
 //! (moved from app/mod.rs, plans/0021 M1 — a pure move, zero behavior
 //! change).
 
-use super::super::{App, provider_status, trace};
+use super::super::diagnostics;
+use super::super::{App, provider_status};
 use crate::action::Action;
 use crate::components::pane::EntryKind;
 use crate::mode::Mode;
@@ -34,7 +35,6 @@ impl App {
                 true
             }
             Action::RepoSelected { owner, name } => {
-                trace(&format!("RepoSelected {owner}/{name}"));
                 self.state.record_repo(&owner, &name);
                 self.state.save();
                 self.browser.set_repo(&owner, &name);
@@ -44,7 +44,6 @@ impl App {
                 true
             }
             Action::OrgSelected(org) => {
-                trace(&format!("OrgSelected {org}"));
                 self.state.record_org(&org);
                 self.state.save();
                 self.browser.select_org(&org);
@@ -336,13 +335,44 @@ impl App {
                         if let (Some((path, sha)), Some((owner, repo))) =
                             (self.browser.selected_file(), self.browser.repo_coords())
                         {
-                            match crate::editor::prepare(
-                                &self.config,
-                                self.provider.as_ref(),
-                                &format!("{owner}/{repo}"),
-                                &path,
-                                &sha,
-                            ) {
+                            // 0030: the blocking blob fetch is a
+                            // synchronous job — record it and let the
+                            // backend's transport records correlate.
+                            let op = rootle_trace::operation_id();
+                            let job = rootle_trace::in_operation(op, || {
+                                rootle_trace::record_with(
+                                    rootle_trace::EventKind::JobStarted,
+                                    || {
+                                        serde_json::json!({
+                                            "job": "editor_prepare",
+                                            "repo": format!("{owner}/{repo}"),
+                                            "path": path,
+                                            "sha": sha,
+                                        })
+                                    },
+                                );
+                                let started = rootle_trace::enabled().then(std::time::Instant::now);
+                                let prepared = crate::editor::prepare(
+                                    &self.config,
+                                    self.provider.as_ref(),
+                                    &format!("{owner}/{repo}"),
+                                    &path,
+                                    &sha,
+                                );
+                                rootle_trace::record_with(
+                                    rootle_trace::EventKind::JobFinished,
+                                    || {
+                                        serde_json::json!({
+                                            "job": "editor_prepare",
+                                            "outcome": if prepared.is_ok() { "ok" } else { "err" },
+                                            "error": prepared.as_ref().err().map(|e| diagnostics::text(e)),
+                                            "duration_us": started.map(|clock| clock.elapsed().as_micros()),
+                                        })
+                                    },
+                                );
+                                prepared
+                            });
+                            match job {
                                 Ok(job) => self.pending_editor = Some(job),
                                 Err(message) => self.status = Some(format!("editor: {message}")),
                             }

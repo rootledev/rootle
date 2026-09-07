@@ -50,6 +50,17 @@ impl Default for SearchPopup {
 }
 
 impl SearchPopup {
+    pub(crate) fn diagnostics(&self, full: bool) -> serde_json::Value {
+        serde_json::json!({
+            "focus":match self.focus { Focus::Input => "input", Focus::Results => "results" },
+            "input":self.input.diagnostics(full), "results":self.results.diagnostics(),
+            "filter":self.filter.diagnostics(full), "filtering":self.filtering,
+            "pending":self.pending, "submitted":self.submitted_once,
+            "error_bytes":self.error.as_ref().map(String::len),
+            "error":if full { self.error.as_deref() } else { None },
+        })
+    }
+
     pub fn new() -> Self {
         Self::with_prefill(None)
     }
@@ -296,7 +307,7 @@ impl SearchPopup {
         if self.focus == Focus::Input {
             let x = input_inner.x + 2 + self.input.cursor() as u16;
             if x < input_inner.x + input_inner.width {
-                frame.set_cursor_position((x, input_inner.y));
+                crate::diagnostics::place_cursor(frame, (x, input_inner.y));
             }
         }
 

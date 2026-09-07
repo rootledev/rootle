@@ -3,7 +3,7 @@
 //! (PLAN.md §6). Same `impl App` as `mod.rs` — a file split, not a
 //! design split.
 
-use super::{App, trace};
+use super::App;
 use crate::components::global_search::SearchKind;
 use rootle_provider::{ErrorKind, ProviderError, ProviderResult};
 

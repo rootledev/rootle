@@ -21,6 +21,9 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 pub struct GitHubClient {
     http: reqwest::blocking::Client,
     token: Option<String>,
+    /// How the token was resolved (env var name or `gh auth token`) —
+    /// diagnostics record this label, never a value.
+    auth_source: &'static str,
     blame_cache: Mutex<HashMap<blame::BlameCacheKey, Vec<rootle_provider::BlameRange>>>,
 }
 
@@ -32,15 +35,16 @@ impl Default for GitHubClient {
 
 impl GitHubClient {
     pub fn new() -> Self {
-        Self::build(auth::token())
+        let (token, auth_source) = auth::token();
+        Self::build(token, auth_source)
     }
 
     /// No environment or credential process; useful for anonymous browsing.
     pub fn anonymous() -> Self {
-        Self::build(None)
+        Self::build(None, "anonymous")
     }
 
-    fn build(token: Option<String>) -> Self {
+    fn build(token: Option<String>, auth_source: &'static str) -> Self {
         let http = reqwest::blocking::Client::builder()
             .user_agent(concat!("rootle/", env!("CARGO_PKG_VERSION")))
             .timeout(REQUEST_TIMEOUT)
@@ -50,6 +54,7 @@ impl GitHubClient {
         Self {
             http,
             token,
+            auth_source,
             blame_cache: Mutex::new(HashMap::new()),
         }
     }

@@ -47,6 +47,11 @@ pub struct KeybindsPopup {
 }
 
 impl KeybindsPopup {
+    pub(crate) fn diagnostics(&self, full: bool) -> serde_json::Value {
+        serde_json::json!({"mode":MODES[self.mode].chip(), "viewport":self.viewport.diagnostics(),
+            "filter":self.filter.diagnostics(full)})
+    }
+
     pub fn effective_mode(&self) -> Mode {
         if self.filter.active() {
             Mode::Search

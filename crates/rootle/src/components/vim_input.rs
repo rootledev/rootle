@@ -45,6 +45,17 @@ impl Default for VimInput {
 }
 
 impl VimInput {
+    /// Diagnostic cursor units are characters, not bytes or terminal columns.
+    pub(crate) fn diagnostics(&self, full: bool) -> serde_json::Value {
+        serde_json::json!({
+            "characters":self.chars.len(), "cursor_character":self.cursor,
+            "mode":match self.submode { SubMode::Insert => "insert", SubMode::Normal => "normal" },
+            "modal":self.modal, "replace_on_edit":self.replace_on_edit,
+            "pending_delete":self.pending_delete,
+            "text":full.then(||self.value()),
+        })
+    }
+
     pub fn new() -> Self {
         Self {
             chars: Vec::new(),

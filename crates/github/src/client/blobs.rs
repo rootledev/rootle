@@ -42,25 +42,55 @@ impl GitHubClient {
     pub fn source_tarball(&self, repo: &str) -> ProviderResult<Vec<u8>> {
         const CAP: u64 = 64 * 1024 * 1024;
         let url = format!("{API}/repos/{repo}/tarball");
+        let trace = super::transport::HttpTrace::begin(&url, self.auth_source, false);
         let mut req = self.http.get(&url);
         if let Some(token) = &self.token {
             req = req.bearer_auth(token);
         }
-        let mut resp = req.send().map_err(classify_send)?;
+        let mut resp = match req.send() {
+            Ok(resp) => resp,
+            Err(error) => {
+                if let Some(trace) = &trace {
+                    trace.fail(if error.is_timeout() {
+                        "timeout"
+                    } else {
+                        "network"
+                    });
+                }
+                return Err(classify_send(error));
+            }
+        };
         if !resp.status().is_success() {
+            if let Some(trace) = &trace {
+                trace.finish(resp.status().as_u16(), 0);
+            }
             return Err(classify_status(resp));
         }
         if let Some(len) = resp.content_length()
             && len > CAP
         {
+            if let Some(trace) = &trace {
+                trace.finish(resp.status().as_u16(), 0);
+                trace.rejected("content_length_over_cap");
+            }
             return Err(ProviderError::other(format!(
                 "tarball too large for local grep ({len} bytes)"
             )));
         }
+        // Status is captured before the body borrow; the byte count is
+        // whatever actually arrived under the cap.
+        let status = resp.status().as_u16();
         let mut bytes = Vec::new();
         let mut capped = std::io::Read::take(&mut resp, CAP);
-        std::io::Read::read_to_end(&mut capped, &mut bytes)
-            .map_err(|e| ProviderError::other(e.to_string()))?;
+        std::io::Read::read_to_end(&mut capped, &mut bytes).map_err(|error| {
+            if let Some(trace) = &trace {
+                trace.fail("body_read");
+            }
+            ProviderError::other(error.to_string())
+        })?;
+        if let Some(trace) = &trace {
+            trace.finish(status, bytes.len() as u64);
+        }
         Ok(bytes)
     }
 

@@ -43,6 +43,14 @@ pub struct SettingsPopup {
 }
 
 impl SettingsPopup {
+    pub(crate) fn diagnostics(&self, full: bool) -> serde_json::Value {
+        // Observe the editor, never the complete working configuration.
+        serde_json::json!({"section":self.section, "selected":self.selection.selected().get(),
+            "dirty":self.dirty, "viewport":self.viewport.diagnostics(),
+            "filter":self.filter.diagnostics(full),
+            "editing":self.editing.as_ref().map(|input|input.diagnostics(full))})
+    }
+
     /// The palette being live-previewed (after a theme-row commit),
     /// if different from the app's committed theme.
     pub fn preview_theme(&self) -> Option<Theme> {

@@ -101,8 +101,44 @@ ground-truth view, use the uv-managed harness in `e2e/` (pyte-backed):
   window size with `fcntl.ioctl(slave, termios.TIOCSWINSZ, …)` before
   spawn — a 0×0 PTY makes ratatui draw nothing at all (looks like a
   hang). Write keys with sleeps, read output with `select`.
-- Worker/backend events: set `ROOTLE_TRACE=/tmp/rootle_trace.log` in the
-  child env — spawn/results/selection lines with timestamps.
+- Session diagnostics: build the current checkout, then pass
+  `--log-file /tmp/new-session.jsonl` (or explicit `env_extra` with
+  `ROOTLE_TRACE`). Existing files are refused. The e2e environment clears a
+  developer's inherited `ROOTLE_TRACE`; tests must opt in deliberately.
+
+### Diagnostic capture and investigation
+
+Use the same invocation for interactive and headless repros:
+
+```sh
+rootle --headless steps.txt --log-file issue.jsonl
+rootle --headless steps.txt --log-file issue-full.jsonl --log-content
+```
+
+`--log` / `--log=ALL` prints a new auto-selected XDG-state log path before
+raw mode. `--log=PATH` / `--log-file PATH` override the environment. Use a
+new filename, not an existing `mktemp` file. Files are private (0600).
+
+Start by checking the final `trace_end` record. Missing marker, partial
+JSON, `complete:false`, a panic or capture-limit/failure means the trace is
+not complete; do not infer absent events from it. `session_end.outcome`
+is separate: a failed provider command can have a complete capture.
+
+Then inspect `job_rejected`/`error`, correlate jobs by `operation_id`,
+and match RPC tx/rx by provider session + request ID. State observations
+follow common input/action/event handlers and include modes, focus,
+filters, character cursors, list selections, row viewports and generations.
+`render` records actual cells/cursor/geometry, not inferred app state;
+consecutive headless frames use a persistent terminal.
+
+Metadata omits typed text, source text, glyphs and provider stderr. Full
+capture adds explicit sensitive input/UI/stderr, **not** env/argv vectors,
+authorization headers or raw RPC/HTTP bodies. Even metadata can reveal
+private paths/repos. Inspect any trace before sharing it.
+
+See `doc/development.md#diagnostic-sessions` for JSONL queries and the compact
+cell-run schema. Do not replay commands from logs automatically: provider
+results/timing and external side effects are not reproduced by input alone.
 
 ## 4. Rendering-integrity checklist
 

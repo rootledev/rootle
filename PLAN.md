@@ -60,6 +60,9 @@ per-release notes are on the GitHub releases page:
 - [0029-polish-release-integration](plans/0029-polish-release-integration.md)
   — final integration, evidence, green CI and verified v0.10.0 release.
   **Released as v0.10.0; published evidence lives here.**
+- [0030-session-diagnostics](plans/0030-session-diagnostics.md) —
+  private bounded JSONL sessions, UI/service observations and diagnostic
+  controls adapted from strop. **Implemented and verified; unreleased.**
 
 
 Source comments referencing `plans/0005` mean this file.

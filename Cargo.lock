@@ -89,6 +89,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "arc-swap"
+version = "1.9.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c049c0be4daef0b145cb3555416b3b8ef5b7888a38aea1a3a155801fe7b0810b"
+dependencies = [
+ "rustversion",
+]
+
+[[package]]
 name = "assert-json-diff"
 version = "2.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2143,6 +2152,7 @@ dependencies = [
  "rootle-manager",
  "rootle-provider",
  "rootle-stdio",
+ "rootle-trace",
  "serde",
  "serde_json",
  "sha1",
@@ -2168,6 +2178,7 @@ dependencies = [
  "filetime",
  "reqwest",
  "rootle-provider",
+ "rootle-trace",
  "serde",
  "serde_json",
 ]
@@ -2179,6 +2190,7 @@ dependencies = [
  "flate2",
  "reqwest",
  "rootle-provider",
+ "rootle-trace",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -2204,8 +2216,21 @@ dependencies = [
  "base64 0.23.1",
  "parking_lot",
  "rootle-provider",
+ "rootle-trace",
+ "rustix",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "rootle-trace"
+version = "0.10.0"
+dependencies = [
+ "arc-swap",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
 ]
 
 [[package]]

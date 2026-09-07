@@ -8,7 +8,12 @@ use std::io::Write;
 /// Copy `text`. Never fails the caller: every path is best-effort.
 pub fn copy(text: &str) {
     if let Ok(path) = std::env::var("ROOTLE_CLIPBOARD") {
-        let _ = std::fs::write(path, text);
+        let outcome = std::fs::write(path, text);
+        rootle_trace::record_with(rootle_trace::EventKind::ExternalCommand, || {
+            serde_json::json!({"operation":"clipboard_file", "phase":"finished", "bytes":text.len(),
+                "success":outcome.is_ok(),
+                "error_kind":outcome.as_ref().err().map(|error|format!("{:?}",error.kind()))})
+        });
         return;
     }
     osc52(text);
@@ -22,8 +27,13 @@ fn osc52(text: &str) {
     use base64::Engine;
     let encoded = base64::engine::general_purpose::STANDARD.encode(text);
     let mut out = std::io::stdout();
-    let _ = write!(out, "\x1b]52;c;{encoded}\x07");
-    let _ = out.flush();
+    let written = write!(out, "\x1b]52;c;{encoded}\x07");
+    let flushed = out.flush();
+    rootle_trace::record_with(rootle_trace::EventKind::ExternalCommand, || {
+        serde_json::json!({"operation":"clipboard_osc52", "phase":"written", "bytes":text.len(),
+            "success":written.is_ok() && flushed.is_ok(),
+            "error_kind":written.as_ref().err().or_else(||flushed.as_ref().err()).map(|error|format!("{:?}",error.kind()))})
+    });
 }
 
 /// Wayland/X/macOS clipboard tools, when present. Errors are ignored —
@@ -43,21 +53,27 @@ fn local_tool(text: &str) {
                 cmd.arg("clipboard");
             }
         }
-        if cmd
+        let outcome = cmd
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
             .and_then(|mut child| {
-                let _ = child
-                    .stdin
-                    .as_mut()
-                    .expect("piped")
-                    .write_all(text.as_bytes());
+                let written = child.stdin.as_mut().expect("piped").write_all(text.as_bytes());
+                rootle_trace::record_with(rootle_trace::EventKind::ExternalCommand, || {
+                    serde_json::json!({"operation":"clipboard_tool", "program":program, "phase":"input",
+                        "bytes":text.len(), "success":written.is_ok(),
+                        "error_kind":written.as_ref().err().map(|error|format!("{:?}",error.kind()))})
+                });
                 child.wait()
-            })
-            .is_ok()
-        {
+            });
+        rootle_trace::record_with(rootle_trace::EventKind::ExternalCommand, || {
+            serde_json::json!({"operation":"clipboard_tool", "program":program, "phase":"finished",
+                "success":outcome.as_ref().is_ok_and(|status|status.success()),
+                "exit_code":outcome.as_ref().ok().and_then(|status|status.code()),
+                "error_kind":outcome.as_ref().err().map(|error|format!("{:?}",error.kind()))})
+        });
+        if outcome.is_ok() {
             return; // first tool that runs wins
         }
     }

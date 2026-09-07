@@ -27,15 +27,12 @@ impl GitHubClient {
             return self.fetch_tree_on(owner, repo, r);
         }
         // Cache-first branch resolution: a repo we've opened before
-        // costs zero extra calls here (no GET /repos/{o}/{r}).
+        // costs zero extra calls here (no GET /repos/{o}/{r}). The
+        // hit/miss decision is recorded by `cache::cached_branch`.
         let cached_branch = crate::cache::cached_branch(owner, repo);
         let branch = match &cached_branch {
-            Some(b) => {
-                rootle_provider::trace(&format!("tree branch cached {owner}/{repo} {b}"));
-                b.clone()
-            }
+            Some(b) => b.clone(),
             None => {
-                rootle_provider::trace(&format!("tree branch meta-fetch {owner}/{repo}"));
                 let meta: RepoMeta = self.get(&format!("{API}/repos/{owner}/{repo}"))?;
                 meta.default_branch
             }
@@ -80,9 +77,15 @@ impl GitHubClient {
                         // unconditionally — the cache is only an
                         // optimization, and this re-stores the tree
                         // and ref, healing both.
-                        rootle_provider::trace(&format!(
-                            "304 but tree {sha} missing from cache; refetching"
-                        ));
+                        rootle_trace::record_with(rootle_trace::EventKind::Cache, || {
+                            serde_json::json!({
+                                "op": "tree_missing_after_304",
+                                "owner": owner,
+                                "repo": repo,
+                                "branch": branch,
+                                "sha": sha,
+                            })
+                        });
                         let Conditional::Fresh { body, etag } =
                             self.get_conditional::<TreeResponse>(&url, None)?
                         else {

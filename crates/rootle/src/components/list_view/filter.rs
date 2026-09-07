@@ -30,6 +30,14 @@ impl Default for ListFilter {
 }
 
 impl ListFilter {
+    pub(crate) fn diagnostics(&self, full: bool) -> serde_json::Value {
+        serde_json::json!({"active":self.active(), "bytes":self.text.len(),
+            "baseline_bytes":self.baseline.as_ref().map(String::len),
+            "text":full.then_some(self.text.as_str()),
+            "baseline":if full { self.baseline.as_deref() } else { None },
+            "input":self.active().then(||self.input.diagnostics(full))})
+    }
+
     pub fn text(&self) -> &str {
         &self.text
     }

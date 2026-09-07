@@ -336,9 +336,12 @@ impl Provider for StdioProvider {
             return;
         }
         let line = cancel_notification(id);
+        let session = self.shared.routing.lock().session;
         let mut process = self.process.lock();
-        let _ = writeln!(process.stdin, "{line}");
-        let _ = process.stdin.flush();
+        let written = writeln!(process.stdin, "{line}")
+            .and_then(|()| process.stdin.flush())
+            .is_ok();
+        crate::trace::tx_cancel(session, id, line.len() as u64 + 1, written);
     }
 
     /// One-shot restart notice for the status line (plans/0008 §5).

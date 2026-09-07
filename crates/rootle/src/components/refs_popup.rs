@@ -33,6 +33,12 @@ pub struct RefsPopup {
 }
 
 impl RefsPopup {
+    pub(crate) fn diagnostics(&self, full: bool) -> serde_json::Value {
+        serde_json::json!({"selected":self.selection.selected().get(),
+            "loaded":self.rows.is_some(), "entries":self.rows.as_ref().map(Vec::len),
+            "viewport":self.viewport.diagnostics(), "filter":self.filter.diagnostics(full)})
+    }
+
     pub fn effective_mode(&self) -> crate::mode::Mode {
         if self.filter.active() {
             crate::mode::Mode::Search

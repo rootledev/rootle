@@ -151,7 +151,7 @@ impl SettingsPopup {
             let x = inner.x + (GUTTER + LABEL) as u16 + head.width() as u16;
             let y = inner.y.saturating_add(pos.saturating_sub(scroll) as u16);
             if y < inner.y + inner.height && x < inner.x + inner.width {
-                frame.set_cursor_position((x, y));
+                crate::diagnostics::place_cursor(frame, (x, y));
             }
         }
     }

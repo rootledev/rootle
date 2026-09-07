@@ -139,6 +139,13 @@ and state JSON out — the deterministic surface for tests, reviews, and
 agent-driven stress runs. See `crates/rootle/src/headless.rs`'s module docs for the
 script language.
 
+Development builds support opt-in session diagnostics:
+`rootle --log` selects a new private log under the XDG state directory;
+`--log-file issue.jsonl` selects a new file. Add `--log-content` only when
+you need sensitive typed text, visible cells and provider stderr.
+The same flags work with `--headless`; see the
+[diagnostic workflow](doc/development.md#diagnostic-sessions) before sharing logs.
+
 CI runs the Rust, e2e, provider-conformance and protocol-model gates.
 The `demo` workflow re-renders all palettes when the app or its tooling
 changes and publishes the GIFs to the site repository.

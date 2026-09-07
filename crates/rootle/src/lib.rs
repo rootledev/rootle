@@ -5,6 +5,7 @@ pub mod clipboard;
 pub mod commands;
 pub mod components;
 pub mod config;
+pub mod diagnostics;
 pub mod editor;
 pub mod event;
 

@@ -143,9 +143,8 @@ jobs:
             echo "::error::workspace crates carry differing versions"; exit 1; }
           test "v$versions" = "$GITHUB_REF_NAME" || {
             echo "::error::tag $GITHUB_REF_NAME != crate version v$versions"; exit 1; }
-          # Dependency order: provider first (everything path-depends
-          # on it), the app crate last (plans/0024 M6).
-          for crate in rootle-provider rootle-diff rootle-stdio rootle-github rootle-manager rootle; do
+          # Sink and vocabulary precede implementations; the app comes last.
+          for crate in rootle-trace rootle-provider rootle-diff rootle-stdio rootle-github rootle-manager rootle; do
             cargo publish -p "$crate"
           done
 

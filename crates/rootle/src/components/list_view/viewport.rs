@@ -55,6 +55,10 @@ pub struct RowLayout {
 }
 
 impl Viewport {
+    pub(crate) fn diagnostics(&self) -> serde_json::Value {
+        serde_json::json!({"offset_row":self.offset.get(), "visible_rows":self.height, "total_rows":self.total})
+    }
+
     pub fn offset(&self) -> RowIndex {
         self.offset
     }

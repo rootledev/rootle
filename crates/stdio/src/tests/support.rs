@@ -268,6 +268,13 @@ fn fake_provider_child() {
                     std::process::exit(0);
                 }
             }
+            // 0030 trace regressions: a stderr marker line before each
+            // reply — visible only to a Full-content capture pipe.
+            "chatty-stderr" => {
+                eprintln!("rootle-fake-stderr-marker id={id}");
+                writeln!(stdout, r#"{{"jsonrpc":"2.0","id":{id},"result":{{}}}}"#).unwrap();
+                stdout.flush().unwrap();
+            }
             _ => {
                 writeln!(stdout, r#"{{"jsonrpc":"2.0","id":{id},"result":{{}}}}"#).unwrap();
                 stdout.flush().unwrap();

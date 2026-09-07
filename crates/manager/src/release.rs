@@ -41,6 +41,98 @@ fn http() -> reqwest::blocking::Client {
         .expect("http client")
 }
 
+/// One request/body boundary for release metadata and artifacts. Payloads stay
+/// in memory for their consumer; diagnostics retain only safe endpoint metadata.
+fn fetch<T>(
+    url: &str,
+    release_metadata: bool,
+    decode: impl FnOnce(&[u8]) -> Result<T>,
+) -> Result<T> {
+    let request_id = rootle_trace::operation_id();
+    let started = rootle_trace::enabled().then(std::time::Instant::now);
+    rootle_trace::record_with(rootle_trace::EventKind::HttpRequest, || {
+        let endpoint = reqwest::Url::parse(url).ok();
+        serde_json::json!({
+            "client":"manager", "request_id":request_id, "method":"GET",
+            "resource":if release_metadata { "release_metadata" } else { "artifact" },
+            "scheme":endpoint.as_ref().map(reqwest::Url::scheme),
+            "host":endpoint.as_ref().and_then(reqwest::Url::host_str),
+            "port":endpoint.as_ref().and_then(reqwest::Url::port),
+        })
+    });
+    let mut request = http().get(url);
+    if release_metadata {
+        request = request.header("Accept", "application/vnd.github+json");
+    }
+    let response = request.send().map_err(|error| {
+        record_http(request_id, started, None, None, http_error_kind(&error));
+        ManagerError::Network(error.to_string())
+    })?;
+    let status = response.status().as_u16();
+    let response = response.error_for_status().map_err(|error| {
+        record_http(request_id, started, Some(status), None, "http_error");
+        let source = if release_metadata {
+            "github api"
+        } else {
+            "download"
+        };
+        ManagerError::Network(format!("{source}: {error}"))
+    })?;
+    let bytes = response.bytes().map_err(|error| {
+        record_http(
+            request_id,
+            started,
+            Some(status),
+            None,
+            http_error_kind(&error),
+        );
+        ManagerError::Network(error.to_string())
+    })?;
+    let result = decode(&bytes);
+    record_http(
+        request_id,
+        started,
+        Some(status),
+        Some(bytes.len()),
+        if result.is_ok() {
+            "success"
+        } else {
+            "decode_error"
+        },
+    );
+    result
+}
+
+fn record_http(
+    request_id: Option<rootle_trace::OperationId>,
+    started: Option<std::time::Instant>,
+    status: Option<u16>,
+    bytes: Option<usize>,
+    outcome: &'static str,
+) {
+    rootle_trace::record_with(rootle_trace::EventKind::HttpResponse, || {
+        serde_json::json!({"client":"manager", "request_id":request_id, "status":status,
+            "body_bytes":bytes, "outcome":outcome,
+            "duration_us":started.map(|started|started.elapsed().as_micros())})
+    });
+}
+
+fn http_error_kind(error: &reqwest::Error) -> &'static str {
+    if error.is_timeout() {
+        "timeout"
+    } else if error.is_connect() {
+        "connect"
+    } else if error.is_builder() {
+        "request"
+    } else if error.is_body() {
+        "body"
+    } else if error.is_decode() {
+        "decode"
+    } else {
+        "transport"
+    }
+}
+
 pub fn latest_release(repo: &str) -> Result<Release> {
     latest_release_at("https://api.github.com", repo)
 }
@@ -48,29 +140,19 @@ pub fn latest_release(repo: &str) -> Result<Release> {
 /// Tests point this at a loopback host.
 pub fn latest_release_at(api: &str, repo: &str) -> Result<Release> {
     let url = format!("{api}/repos/{repo}/releases/latest");
-    http()
-        .get(&url)
-        .header("Accept", "application/vnd.github+json")
-        .send()
-        .map_err(|e| ManagerError::Network(e.to_string()))?
-        .error_for_status()
-        .map_err(|e| ManagerError::Network(format!("github api: {e}")))?
-        .json()
-        .map_err(|e| ManagerError::Network(format!("github api decode: {e}")))
+    fetch(&url, true, |bytes| {
+        serde_json::from_slice(bytes)
+            .map_err(|error| ManagerError::Network(format!("github api decode: {error}")))
+    })
 }
 
 /// Tests point this at a loopback host.
 pub fn release_by_tag_at(api: &str, repo: &str, tag: &str) -> Result<Release> {
     let url = format!("{api}/repos/{repo}/releases/tags/{tag}");
-    http()
-        .get(&url)
-        .header("Accept", "application/vnd.github+json")
-        .send()
-        .map_err(|e| ManagerError::Network(e.to_string()))?
-        .error_for_status()
-        .map_err(|e| ManagerError::Network(format!("github api: {e}")))?
-        .json()
-        .map_err(|e| ManagerError::Network(format!("github api decode: {e}")))
+    fetch(&url, true, |bytes| {
+        serde_json::from_slice(bytes)
+            .map_err(|error| ManagerError::Network(format!("github api decode: {error}")))
+    })
 }
 
 /// Pick the asset for this platform: `<anything>-<target>.tar.gz`,
@@ -111,15 +193,7 @@ pub fn checksum_sidecar<'a>(release: &'a Release, asset: &Asset) -> Result<&'a A
 }
 
 pub fn download_bytes(url: &str) -> Result<Vec<u8>> {
-    http()
-        .get(url)
-        .send()
-        .map_err(|e| ManagerError::Network(e.to_string()))?
-        .error_for_status()
-        .map_err(|e| ManagerError::Network(format!("download: {e}")))?
-        .bytes()
-        .map(|b| b.to_vec())
-        .map_err(|e| ManagerError::Network(e.to_string()))
+    fetch(url, false, |bytes| Ok(bytes.to_vec()))
 }
 
 /// Extract the binary from the tarball: find the single executable
@@ -172,6 +246,10 @@ pub fn verify_checksum(tarball: &[u8], sidecar_url: &str) -> Result<()> {
         .unwrap_or_default()
         .to_lowercase();
     let got = sha256_hex(tarball);
+    rootle_trace::record_with(
+        rootle_trace::EventKind::ExternalCommand,
+        || serde_json::json!({"operation":"checksum_verify", "bytes":tarball.len(), "matched":got == expected}),
+    );
     if got != expected {
         return Err(ManagerError::User(format!(
             "checksum mismatch: expected {expected}, got {got}"

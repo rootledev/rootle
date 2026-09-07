@@ -73,6 +73,9 @@ def hermetic_env(home: Path, extra: dict[str, str] | None = None) -> dict[str, s
         https_proxy="http://127.0.0.1:9",
     )
     env.pop("ROOTLE_CONFIG", None)
+    # Diagnostics are session-scoped and exclusive; a developer's trace path
+    # must not leak into unrelated test subprocesses. Tests opt in explicitly.
+    env.pop("ROOTLE_TRACE", None)
     env.update(extra or {})
     return env
 

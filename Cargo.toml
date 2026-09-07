@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/rootle", "crates/provider", "crates/stdio", "crates/github", "crates/manager", "crates/diff"]
+members = ["crates/rootle", "crates/provider", "crates/stdio", "crates/github", "crates/manager", "crates/diff", "crates/trace"]
 default-members = ["crates/rootle"]
 resolver = "2"
 
@@ -16,6 +16,7 @@ rootle-stdio = { path = "crates/stdio", version = "=0.10.0" }
 rootle-github = { path = "crates/github", version = "=0.10.0" }
 rootle-manager = { path = "crates/manager", version = "=0.10.0" }
 rootle-diff = { path = "crates/diff", version = "=0.10.0" }
+rootle-trace = { path = "crates/trace", version = "=0.10.0" }
 
 [profile.release]
 lto = "fat"

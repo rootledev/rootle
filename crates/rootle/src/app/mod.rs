@@ -5,6 +5,7 @@
 //! `App::with` constructs an **offline** app for tests: no workers are
 //! spawned; backend outcomes are injected via `handle_action`.
 
+mod diagnostics;
 mod effects;
 mod input;
 mod presentation;
@@ -111,6 +112,10 @@ pub struct App {
     /// Queued yank (␣ y): the main loop writes it to the clipboard
     /// outside the draw path (plans/0003 §1).
     pending_clipboard: Option<String>,
+    /// 0030: a session-trace capture failure surfaced once by the
+    /// session owner — a sticky status suffix, never a replacement
+    /// for a primary status or degraded notice.
+    trace_failure: Option<String>,
 }
 
 /// Render a provider error for the status line (plans/0008 §2):
@@ -143,7 +148,29 @@ fn forge_name(config: &Config, provider: &dyn Provider) -> String {
 
 impl App {
     pub fn new(tx: AppTx, config: Config, theme: Theme) -> Self {
-        let (provider, outcome) = provider::build(&config);
+        // 0030: provider composition is a lifecycle event; the
+        // operation id correlates any transport records the build
+        // itself emits.
+        let op = rootle_trace::operation_id();
+        let (provider, outcome) = rootle_trace::in_operation(op, || {
+            rootle_trace::record_with(
+                rootle_trace::EventKind::ProviderLifecycle,
+                || serde_json::json!({"stage": "compose"}),
+            );
+            let built = provider::build(&config);
+            rootle_trace::record_with(rootle_trace::EventKind::ProviderLifecycle, || {
+                serde_json::json!({
+                    "stage": "compose",
+                    "outcome": match &built.1 {
+                        provider::BuildOutcome::Ready => "ready",
+                        provider::BuildOutcome::Warn(_) => "warn",
+                        provider::BuildOutcome::Health(_) => "health",
+                        provider::BuildOutcome::Missing(_) => "missing",
+                    },
+                })
+            });
+            built
+        });
         let mut app = Self::build(State::load(), tx, provider, false, config, theme);
         match outcome {
             provider::BuildOutcome::Ready => {}
@@ -260,6 +287,7 @@ impl App {
             force_redraw: false,
             pending_editor: None,
             pending_clipboard: None,
+            trace_failure: None,
         }
     }
 
@@ -273,8 +301,23 @@ impl App {
     pub fn clear_status_for_test(&mut self) {
         self.status = None;
     }
+
+    /// Surface a session-trace capture failure (plans/0030): the
+    /// session owner reports it once; it sticks as a suffix on the
+    /// status line and never displaces a primary status or degraded
+    /// notice. Exceptional behavior, confined to requested tracing.
+    pub fn report_trace_failure(&mut self, message: String) {
+        self.trace_failure.get_or_insert(message);
+    }
+
+    /// Authoritative post-transition state observation (plans/0030),
+    /// shared by the app's own handlers and the frame recorder. This
+    /// records State events only — actual-grid Render events belong
+    /// to the frame owner.
+    pub fn record_trace_state(&self, reason: &'static str) {
+        diagnostics::record_state(self, reason);
+    }
 }
-use rootle_provider::trace;
 
 #[cfg(test)]
 mod tests {

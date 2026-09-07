@@ -18,6 +18,7 @@ crates/stdio/    request routing, reader epochs, handshake/recovery and RPC wire
 crates/github/   provider implementation, cache, resource-oriented HTTP client
 crates/manager/  provider binary installation, receipts and CLI output
 crates/diff/     checked unified-patch parsing and side-correct changed spans
+crates/trace/    private bounded JSONL sessions, correlation, failure and completion
 ```
 
 `crates/rootle/src/provider/` is the composition root, not the provider
@@ -71,8 +72,8 @@ docker compose run --build --rm -e VERSION=0.10.0 release # static musl tarball 
 CI (`.github/workflows/ci.yml`) runs the gate and the e2e service on
 every push; tags build the release artifact via `release.yml`.
 
-All six packages share `workspace.package.version`. Release publishing
-orders provider/diff before their consumers and the app last. The model
+All seven packages share `workspace.package.version`. Release publishing
+orders trace/provider/diff before their consumers and the app last. The model
 checks ten safety invariants plus type correctness and two
 fairness-qualified temporal properties; four kept faults must violate
 their named invariant. The executable routing model and real-child tests
@@ -110,6 +111,79 @@ cheapest tier that exercises it (plans/0023):
    for what a terminal proves: alternate-screen enter/leave, exit
    code, merged-ESC byte parsing, $EDITOR suspend/resume, resize
    redraw, TERM=dumb.
+
+## Diagnostic sessions
+
+Build the current checkout before investigating: an older installed release
+may not have the diagnostic switches. Logging is opt-in and never writes
+records to stdout/stderr or the active TUI.
+
+```sh
+rootle --log
+rootle --log-file issue.jsonl owner/repo
+rootle --headless steps.txt --log-file issue-full.jsonl --log-content
+rootle provider list --json --log-file provider-list.jsonl
+```
+
+`--log` / `--log=ALL` chooses a new file under the state directory's
+`rootle/logs/`. `--log=PATH` and `--log-file PATH` select a native path;
+explicit CLI selection overrides `ROOTLE_TRACE=PATH`. The environment
+knob is retained, but now writes JSONL rather than legacy text appends.
+Files are exclusively created with Unix mode 0600; automatic directories
+are 0700 where newly created. **Use a new filename for every run.**
+Do not point at an existing `mktemp` file: create a temporary directory
+and choose a filename inside it. Startup refuses existing files/symlinks
+and missing explicit parent directories before entering raw mode.
+
+### What to read
+
+- `session_start` identifies version, driver, content policy and limits.
+  `session_end.outcome` describes the command; final `trace_end.complete`
+  describes capture completeness. Missing/malformed terminal records mean
+  incomplete, including fatal aborts or storage failures.
+- Input/action/state records share the application handlers in both
+  drivers. State includes input-owner modes, overlays, input character
+  cursors, filter sessions, selected items, display-row offsets and request
+  generations. No whole-action/config Debug dumps.
+- Worker `operation_id` connects job start/outcome with synchronous backend
+  traffic. Match RPC tx/rx using `fields.session` + `fields.id`; UI receipt,
+  acceptance and `job_rejected` records retain generation/identity reasons.
+- HTTP records identify safe endpoints, status, duration and body byte
+  counts, not bodies or authorization. Cache records distinguish hits,
+  misses, revalidation and corrupt-data fallback.
+- `render` records the actual grid and requested hardware cursor, with
+  dimensions, frame number, draw microseconds and a SHA-256 cell/style hash.
+  Resize records distinguish terminal notifications from observed draw
+  geometry. Full captures add per-row cell runs:
+  `[repeat, glyph, foreground, background, underline, modifiers, diff_option]`.
+  Colors are reset=0, basic=1–16, indexed=256+index, RGB=`0x01000000|rgb`;
+  diff options are none=0, skip=1, always-update=2, forced-width=`0x10000|width`.
+- Config, update, editor/clipboard and provider lifecycle records explain
+  side effects and errors without logging command argument vectors.
+
+```sh
+jq -c 'select(.event == "job_rejected" or .event == "error" or .event == "panic")' issue.jsonl
+jq -c 'select(.operation_id == 7)' issue.jsonl
+jq -c 'select(.event == "rpc_message") | {seq, thread, fields}' issue.jsonl
+jq -c 'select(.event == "render") | .fields | del(.cells)' issue.jsonl
+```
+
+### Privacy and failure
+
+Metadata is **not anonymous**: repository/path/revision identities and timing
+can still be sensitive. Input text, query/command/status text, file text,
+visible glyphs and stderr require `--log-content`; that mode can contain
+secrets typed or displayed in the app. Inspect before sharing. Neither mode
+automatically records env values, argv vectors, authorization headers or
+raw HTTP/RPC bodies.
+
+The default hard bounds are 64 MiB, 100,000 events and 256 KiB per record,
+with a bounded queue and reserved terminal marker. Overflow/caps/I/O failures
+stop recording, report once in the status path and fail finalization after
+terminal restoration. Finishing and panic flushing wait at most five
+seconds; abrupt failure may leave no marker. A marker's success does not
+mean a provider request succeeded. This is evidence for the existing
+headless driving workflow, not a replay of external services or timing.
 
 ## The e2e harness (`e2e/`)
 

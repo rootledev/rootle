@@ -1,55 +1,120 @@
 //! Worker-event routing: AppEvent → state (moved from app/mod.rs,
 //! plans/0021 M1 — a pure move, zero behavior change).
+//!
+//! 0030: every worker event is traced at receipt, and either lands
+//! (`accepted`) or is dropped by an identity guard (`rejected`, with
+//! the guard's reason and both sides of the comparison).
 
-use super::provider_status;
-use super::{App, provider};
+use super::diagnostics;
+use super::{App, provider, provider_status};
 use crate::action::Action;
 use crate::components::clone_wizard::CloneWizard;
 use crate::event::AppEvent;
 use crate::mode::Mode;
+use serde_json::json;
 
 impl App {
     pub fn handle_app_event(&mut self, event: AppEvent) {
+        rootle_trace::in_operation(rootle_trace::operation_id(), || {
+            self.apply_app_event(event);
+            diagnostics::record_state(self, "post_event");
+        });
+    }
+
+    fn apply_app_event(&mut self, event: AppEvent) {
+        let name = diagnostics::event_name(&event);
+        diagnostics::record_event_received(&event);
         match event {
             AppEvent::SearchResults { gen_id, items } => {
                 if !self.search_gen.is_current(gen_id) {
+                    diagnostics::record_event_rejected(name, "stale_search_generation", || {
+                        json!({
+                            "gen": gen_id,
+                            "current": self.search_gen,
+                        })
+                    });
                     return; // stale submission
                 }
                 self.clear_loading_status(&["searching"]);
                 if let Some(popup) = &mut self.popup {
                     popup.update(&Action::SearchResults { items });
+                } else {
+                    diagnostics::record_event_rejected(
+                        name,
+                        "search_popup_closed",
+                        || json!({"gen":gen_id}),
+                    );
+                    return;
                 }
             }
             AppEvent::SearchFailed { gen_id, error } => {
                 if !self.search_gen.is_current(gen_id) {
+                    diagnostics::record_event_rejected(name, "stale_search_generation", || {
+                        json!({
+                            "gen": gen_id,
+                            "current": self.search_gen,
+                        })
+                    });
                     return;
                 }
                 self.clear_loading_status(&["searching"]);
                 if let Some(popup) = &mut self.popup {
                     popup.update(&Action::SearchFailed { error });
+                } else {
+                    diagnostics::record_event_rejected(
+                        name,
+                        "search_popup_closed",
+                        || json!({"gen":gen_id}),
+                    );
+                    return;
                 }
             }
             AppEvent::OrgReposLoaded { org, repos } => {
+                let accepted = self.browser.org_repos_would_accept(&org);
                 self.clear_loading_status(&["loading ", "reloading org repos"]);
                 self.browser.org_repos_loaded(&org, repos);
+                if !accepted {
+                    diagnostics::record_event_rejected(name, "org_mismatch", || {
+                        json!({
+                            "org": org,
+                            "selected": self.browser.selected_org(),
+                        })
+                    });
+                    return;
+                }
             }
             AppEvent::OrgReposFailed { org, error } => {
                 self.status = Some(format!("{org}: {}", provider_status(&error)));
             }
             AppEvent::TreeLoaded {
                 owner,
-                name,
+                name: repo,
                 entries,
                 truncated,
                 branch,
             } => {
+                let accepted = self.browser.tree_would_accept(&owner, &repo);
+                // Rejection identity, allocated only while tracing.
+                let requested = rootle_trace::enabled().then(|| format!("{owner}/{repo}"));
                 self.handle_action(Action::TreeLoaded {
                     owner,
-                    name,
+                    name: repo,
                     entries,
                     truncated,
                     branch,
                 });
+                if !accepted {
+                    diagnostics::record_event_rejected(name, "repo_mismatch", || {
+                        json!({
+                            "requested": requested,
+                            "open": self
+                                .browser
+                                .repo_coords()
+                                .map(|(owner, repo)| format!("{owner}/{repo}")),
+                        })
+                    });
+                    return;
+                }
             }
             AppEvent::BlobLoaded { sha, name, bytes } => {
                 self.handle_action(Action::BlobLoaded { sha, name, bytes });
@@ -62,9 +127,20 @@ impl App {
             }
             AppEvent::GlobalSearchDelta { gen_id, hits } => {
                 if !self.view_gen.is_current(gen_id) {
+                    diagnostics::record_event_rejected(name, "stale_view_generation", || {
+                        json!({
+                            "gen": gen_id,
+                            "current": self.view_gen,
+                        })
+                    });
                     return; // stale batch — a newer submission owns the view
                 }
                 let Some(view) = &self.search_view else {
+                    diagnostics::record_event_rejected(
+                        name,
+                        "search_view_closed",
+                        || json!({"gen": gen_id}),
+                    );
                     return;
                 };
                 let (kind, query) = (view.kind(), view.query.value());
@@ -94,10 +170,21 @@ impl App {
                 unfiltered,
             } => {
                 if !self.view_gen.is_current(gen_id) {
+                    diagnostics::record_event_rejected(name, "stale_view_generation", || {
+                        json!({
+                            "gen": gen_id,
+                            "current": self.view_gen,
+                        })
+                    });
                     return; // stale submission
                 }
                 self.clear_loading_status(&["searching code"]);
                 let Some(view) = &self.search_view else {
+                    diagnostics::record_event_rejected(
+                        name,
+                        "search_view_closed",
+                        || json!({"gen": gen_id}),
+                    );
                     return;
                 };
                 let (kind, query) = (view.kind(), view.query.value());
@@ -127,11 +214,24 @@ impl App {
             }
             AppEvent::GlobalSearchFailed { gen_id, error } => {
                 if !self.view_gen.is_current(gen_id) {
+                    diagnostics::record_event_rejected(name, "stale_view_generation", || {
+                        json!({
+                            "gen": gen_id,
+                            "current": self.view_gen,
+                        })
+                    });
                     return;
                 }
                 self.clear_loading_status(&["searching code"]);
                 if let Some(view) = &mut self.search_view {
                     view.update(&Action::GlobalSearchFailed { error });
+                } else {
+                    diagnostics::record_event_rejected(
+                        name,
+                        "search_view_closed",
+                        || json!({"gen":gen_id}),
+                    );
+                    return;
                 }
             }
             AppEvent::HitContextDebounceFired {
@@ -147,12 +247,24 @@ impl App {
             }
             AppEvent::HitContextMissing { gen_id, sha } => {
                 if !self.view_gen.is_current(gen_id) {
+                    diagnostics::record_event_rejected(name, "stale_view_generation", || {
+                        json!({
+                            "gen": gen_id,
+                            "current": self.view_gen,
+                        })
+                    });
                     return; // view moved on
                 }
                 self.handle_action(Action::HitContextMissing { sha });
             }
             AppEvent::HitContextFailed { gen_id, sha, error } => {
                 if !self.view_gen.is_current(gen_id) {
+                    diagnostics::record_event_rejected(name, "stale_view_generation", || {
+                        json!({
+                            "gen": gen_id,
+                            "current": self.view_gen,
+                        })
+                    });
                     return;
                 }
                 self.handle_action(Action::HitContextFailed { sha, error });
@@ -168,12 +280,23 @@ impl App {
                 query,
             } => {
                 if !self.view_gen.is_current(gen_id) {
+                    diagnostics::record_event_rejected(name, "stale_view_generation", || {
+                        json!({
+                            "gen": gen_id,
+                            "current": self.view_gen,
+                        })
+                    });
                     return; // view moved on
                 }
                 if self.pending_context_sha.as_deref() == Some(sha.as_str()) {
                     self.pending_context_sha = None;
                 }
                 let Some(view) = &self.search_view else {
+                    diagnostics::record_event_rejected(
+                        name,
+                        "search_view_closed",
+                        || json!({"gen": gen_id}),
+                    );
                     return;
                 };
                 let kind = view.kind();
@@ -207,6 +330,12 @@ impl App {
                 bytes,
             } => {
                 if !self.view_gen.is_current(gen_id) {
+                    diagnostics::record_event_rejected(name, "stale_view_generation", || {
+                        json!({
+                            "gen": gen_id,
+                            "current": self.view_gen,
+                        })
+                    });
                     return; // view moved on — drop the stale blob
                 }
                 // 0019 polish: the expanded pane's band rides the same
@@ -277,6 +406,12 @@ impl App {
             }
             AppEvent::HitFileFailed { gen_id, sha, error } => {
                 if !self.view_gen.is_current(gen_id) {
+                    diagnostics::record_event_rejected(name, "stale_view_generation", || {
+                        json!({
+                            "gen": gen_id,
+                            "current": self.view_gen,
+                        })
+                    });
                     return;
                 }
                 // Auth/throttle surface a status line; other kinds
@@ -324,6 +459,14 @@ impl App {
             AppEvent::RefsLoaded { repo: _, refs } => {
                 if let Some(popup) = &mut self.refs_popup {
                     popup.set_refs(refs);
+                } else {
+                    // No switcher open: the fetch outlived its popup.
+                    diagnostics::record_event_rejected(
+                        name,
+                        "refs_popup_closed",
+                        || json!({"branches": refs.branches.len(), "tags": refs.tags.len()}),
+                    );
+                    return;
                 }
             }
             AppEvent::RefsFailed { repo: _, error } => {
@@ -334,8 +477,17 @@ impl App {
                 entries,
                 truncated,
             } => {
-                if self.browser.history_path() == Some(path.as_str()) {
+                let accepted = self.browser.history_path() == Some(path.as_str());
+                if accepted {
                     self.browser.history_loaded(entries, truncated);
+                } else {
+                    diagnostics::record_event_rejected(name, "history_path_mismatch", || {
+                        json!({
+                            "path": path,
+                            "lens": self.browser.history_path(),
+                        })
+                    });
+                    return;
                 }
             }
             AppEvent::LogFailed { path: _, error } => {
@@ -344,18 +496,44 @@ impl App {
             AppEvent::CommitLoaded { request, detail } => {
                 // CommitView verifies the request before preparing display
                 // strings; raw repo/path/content identities are never sanitized.
+                let accepted = self
+                    .browser
+                    .commit_ref()
+                    .is_some_and(|view| view.request() == &request);
                 match detail {
                     Ok(detail) => self.browser.commit_loaded(&request, detail),
                     Err(error) => self
                         .browser
                         .commit_failed(&request, provider_status(&error)),
                 }
+                if !accepted {
+                    // The open viewer is a different request — the
+                    // landing is dropped by its identity check.
+                    diagnostics::record_event_rejected(name, "stale_commit_request", || {
+                        json!({
+                            "gen": request.generation,
+                            "open": self.browser.commit_ref().map(|view| {
+                                view.request().generation
+                            }),
+                        })
+                    });
+                    return;
+                }
             }
             AppEvent::BlameLoaded { path, ranges } => {
-                if let Some(view) = &mut self.search_view
-                    && view.blame_loading_for(&path)
-                {
-                    view.blame_store(path, ranges);
+                // Which surface takes the landing; the browser applies
+                // the ranges only when its lens awaits this path (the
+                // identity check inside blame_store).
+                let search_takes = self
+                    .search_view
+                    .as_ref()
+                    .is_some_and(|view| view.blame_loading_for(&path));
+                let browser_applies = !search_takes && self.browser.blame_awaiting(&path);
+                let path_len = path.len();
+                if search_takes {
+                    if let Some(view) = &mut self.search_view {
+                        view.blame_store(path, ranges);
+                    }
                 } else {
                     self.browser.blame_store(path, ranges);
                 }
@@ -363,6 +541,14 @@ impl App {
                 // but never erase a NEWER status (scoped compare).
                 if self.status.as_deref() == Some("blame…") {
                     self.status = None;
+                }
+                if !search_takes && !browser_applies {
+                    diagnostics::record_event_rejected(
+                        name,
+                        "blame_not_awaiting",
+                        || json!({"path_len": path_len}),
+                    );
+                    return;
                 }
             }
             AppEvent::LastCommitLoaded { repo, path, entry } => {
@@ -424,6 +610,11 @@ impl App {
                 // present-day blob, so refresh_preview would revert it.
                 if crate::sanitize::is_binary(&bytes) {
                     self.status = Some("binary file at that commit".into());
+                    diagnostics::record_event_rejected(
+                        name,
+                        "binary_blob",
+                        || json!({"sha": sha, "bytes": bytes.len()}),
+                    );
                     return;
                 }
                 let text = crate::sanitize::sanitize(&bytes);
@@ -466,7 +657,29 @@ impl App {
             AppEvent::DeclarationInstalled { name } => {
                 self.consent = None;
                 self.degraded = None;
-                match provider::spawn_installed(&self.config, &name) {
+                // 0030: the hot swap is a provider lifecycle event;
+                // the operation id correlates transport records from
+                // the spawned child.
+                let op = rootle_trace::operation_id();
+                let swap = rootle_trace::in_operation(op, || {
+                    rootle_trace::record_with(rootle_trace::EventKind::ProviderLifecycle, || {
+                        json!({
+                            "stage": "hot_swap",
+                            "name": name,
+                        })
+                    });
+                    let swapped = provider::spawn_installed(&self.config, &name);
+                    rootle_trace::record_with(rootle_trace::EventKind::ProviderLifecycle, || {
+                        json!({
+                            "stage": "hot_swap",
+                            "name": name,
+                            "outcome": if swapped.is_ok() { "ok" } else { "err" },
+                            "error_len": swapped.as_ref().err().map(|e| e.len()),
+                        })
+                    });
+                    swapped
+                });
+                match swap {
                     Ok(p) => {
                         self.provider = p;
                         self.status = Some(format!("{name} ready"));
@@ -490,5 +703,6 @@ impl App {
                 }
             }
         }
+        diagnostics::record_event_accepted(name);
     }
 }

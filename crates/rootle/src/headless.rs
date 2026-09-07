@@ -54,6 +54,7 @@ pub struct Headless {
     rx: AppRx,
     cols: u16,
     rows: u16,
+    terminal: Terminal<TestBackend>,
     /// Editor invocations the TUI would suspend for; recorded, never
     /// run (no terminal to suspend).
     editor_jobs: Vec<String>,
@@ -68,6 +69,7 @@ impl Headless {
             rx,
             cols,
             rows,
+            terminal: Terminal::new(TestBackend::new(cols, rows)).expect("test backend"),
             editor_jobs: Vec::new(),
             yanks: Vec::new(),
         }
@@ -81,6 +83,9 @@ impl Headless {
             self.app.handle_app_event(event);
             drained = true;
         }
+        if let Some(failure) = rootle_trace::take_failure() {
+            self.app.report_trace_failure(failure);
+        }
         self.collect_side_effects();
         drained
     }
@@ -91,6 +96,10 @@ impl Headless {
     /// plain file write, not a terminal escape — honored for fidelity.
     fn collect_side_effects(&mut self) {
         if let Some(job) = self.app.take_editor_job() {
+            rootle_trace::record_with(
+                rootle_trace::EventKind::ExternalCommand,
+                || serde_json::json!({"operation":"editor","phase":"recorded","executed":false,"argument_count":job.args.len()}),
+            );
             let mut cmd = job.program;
             if !job.args.is_empty() {
                 cmd.push(' ');
@@ -99,6 +108,10 @@ impl Headless {
             self.editor_jobs.push(cmd);
         }
         if let Some(text) = self.app.take_clipboard() {
+            rootle_trace::record_with(rootle_trace::EventKind::ExternalCommand, || {
+                serde_json::json!({"operation":"clipboard","phase":"recorded","bytes":text.len(),
+                    "executed":std::env::var_os("ROOTLE_CLIPBOARD").is_some()})
+            });
             if std::env::var_os("ROOTLE_CLIPBOARD").is_some() {
                 crate::clipboard::copy(&text);
             }
@@ -114,6 +127,12 @@ impl Headless {
         loop {
             if self.drain() {
                 quiet_since = Instant::now();
+            }
+            if Instant::now() >= deadline && quiet_since.elapsed() < SETTLE_QUIET {
+                rootle_trace::record_with(
+                    rootle_trace::EventKind::Error,
+                    || serde_json::json!({"operation":"headless_settle","reason":"deadline","bound_ms":SETTLE_BOUND.as_millis()}),
+                );
             }
             if quiet_since.elapsed() >= SETTLE_QUIET || Instant::now() >= deadline {
                 break;
@@ -135,15 +154,10 @@ impl Headless {
     }
 
     pub fn frame_string(&mut self) -> String {
-        let backend = TestBackend::new(self.cols, self.rows);
-        let mut terminal = Terminal::new(backend).expect("test backend");
-        terminal
-            .draw(|f| {
-                let area = f.area();
-                self.app.render(f, area);
-            })
+        self.terminal
+            .draw(|frame| crate::diagnostics::draw(&mut self.app, frame))
             .expect("draw");
-        buffer_text(terminal.backend().buffer())
+        buffer_text(self.terminal.backend().buffer())
     }
 
     pub fn state_json(&self) -> String {
@@ -266,6 +280,7 @@ pub fn run_cli(cli: &crate::cli::Cli) -> std::io::Result<()> {
             .and_then(|v| v.parse().ok())
             .unwrap_or(default)
     };
+    app.record_trace_state("startup");
     let mut driver = Headless::new(
         app,
         rx,

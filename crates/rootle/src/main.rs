@@ -15,63 +15,55 @@ use rootle::config::Config;
 use std::io::{self, stdout};
 use std::time::Duration;
 
-fn main() -> io::Result<()> {
-    // clap handles --version/-V (release pipeline smoke check) and --help.
+mod terminal;
+
+fn main() -> std::process::ExitCode {
     let cli = Cli::parse();
-
-    // Provider manager (plans/0010 M3): subcommands run and exit —
-    // the TUI never starts.
-    if let Some(cmd) = &cli.provider {
-        run_provider(cmd);
-        return Ok(());
-    }
-
-    // Self-update (plans/0017 M2, 0018 M1, 0019 M1): run-and-exit —
-    // app half then the provider sweep, all output owned by the flow
-    // (stages on stderr, outcome lines on stdout).
-    if cli.update {
-        if let Err(e) = rootle::selfupdate::update(cli.check) {
-            eprintln!("update: {e}");
-            std::process::exit(1);
+    terminal::install_panic_hook();
+    let session = match rootle::diagnostics::Session::start(&cli) {
+        Ok(session) => session,
+        Err(error) => {
+            eprintln!("trace: {error}");
+            return std::process::ExitCode::FAILURE;
         }
-        return Ok(());
+    };
+    let result = rootle_trace::in_operation(rootle_trace::operation_id(), || execute(cli));
+    let result = match session {
+        Some(session) => session.finish(result),
+        None => result,
+    };
+    match result {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("{error}");
+            std::process::ExitCode::FAILURE
+        }
     }
+}
 
-    // Headless driver (plans/0023 M1): scripted, deterministic —
-    // run-and-exit before any terminal setup, like the subcommands.
+fn execute(cli: Cli) -> io::Result<()> {
+    if let Some(command) = &cli.provider {
+        return run_provider(command)
+            .map_err(|error| io::Error::other(format!("rootle provider: {error}")));
+    }
+    if cli.update {
+        return rootle::selfupdate::update(cli.check)
+            .map_err(|error| io::Error::other(format!("update: {error}")));
+    }
     if cli.headless.is_some() {
         return rootle::headless::run_cli(&cli);
     }
 
-    // A full-screen TUI's colors are semantic (mode chips, dirs vs
-    // files), not decoration — ignore NO_COLOR like vim/helix do.
+    // TUI colors carry meaning; only noninteractive CLI output honors NO_COLOR.
     ratatui::crossterm::style::Colored::set_ansi_color_disabled(false);
-
-    enable_raw_mode()?;
-    stdout().execute(EnterAlternateScreen)?;
+    let mut restore = terminal::Restore::enter()?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
-
-    // On panic: restore the terminal first, then let the hook print.
-    let default_hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |info| {
-        let _ = disable_raw_mode();
-        let _ = stdout().execute(SetCursorStyle::DefaultUserShape);
-        let _ = stdout().execute(LeaveAlternateScreen);
-        default_hook(info);
-    }));
-
     let result = run(&mut terminal, cli);
-
-    disable_raw_mode()?;
-    // Restore the user's cursor shape — never leave it mutated (PLAN.md §5).
-    stdout().execute(SetCursorStyle::DefaultUserShape)?;
-    stdout().execute(LeaveAlternateScreen)?;
-    // 0018 M3: the restart trace lands on the real screen, after the
-    // alternate screen is gone.
-    match result {
-        Ok(Some(line)) => println!("{line}"),
-        Ok(None) => {}
-        Err(e) => return Err(e),
+    let restored = restore.restore();
+    let note = result?;
+    restored?;
+    if let Some(note) = note {
+        println!("{note}");
     }
     Ok(())
 }
@@ -110,24 +102,31 @@ fn run(
         }
         app.handle_action(rootle::action::Action::RepoSelected { owner, name });
     }
+    app.record_trace_state("startup");
     let mut last_cursor_style: Option<SetCursorStyle> = None;
     loop {
+        if terminal::panicked() {
+            return Err(io::Error::other(
+                "worker thread panicked; terminal restored",
+            ));
+        }
         // Drain worker outcomes before drawing so a completed fetch
         // renders on this frame, not the next.
         while let Ok(event) = rx.try_recv() {
             app.handle_app_event(event);
+        }
+        if let Some(failure) = rootle_trace::take_failure() {
+            app.report_trace_failure(failure);
         }
         // Full clear must precede the draw: Terminal::clear resets the
         // diff buffers, so the next draw re-renders every cell. Clearing
         // after a draw would leave the screen blank until the next event.
         if app.force_redraw {
             app.force_redraw = false;
+            terminal::record_state("full_redraw_requested", true);
             terminal.clear()?;
         }
-        terminal.draw(|frame| {
-            let area = frame.area();
-            app.render(frame, area);
-        })?;
+        terminal.draw(|frame| rootle::diagnostics::draw(&mut app, frame))?;
         // Cursor shape follows input mode (bar=INSERT, block=NORMAL).
         // Emit only on CHANGE — repeating it every frame spams the
         // stream and races ratatui's own hide/show bookkeeping.
@@ -156,10 +155,32 @@ fn run(
         }
 
         if event::poll(Duration::from_millis(250))? {
-            // Resize: ratatui resizes its buffers automatically; the
-            // next draw rewrites every cell. No manual clear (blink).
-            if let Event::Key(key) = event::read()? {
-                app.handle_key(key);
+            match event::read()? {
+                Event::Key(key) => app.handle_key(key),
+                Event::Resize(columns, rows) => {
+                    rootle_trace::record_with(
+                        rootle_trace::EventKind::Resize,
+                        || serde_json::json!({"columns":columns,"rows":rows,"source":"terminal"}),
+                    );
+                }
+                ignored => {
+                    // Keep existing dispatch behavior; diagnostics explain ignored input.
+                    rootle_trace::record_with(rootle_trace::EventKind::Input, || match ignored {
+                        Event::Paste(text) => serde_json::json!({
+                            "source":"terminal", "kind":"paste", "handled":false,
+                            "bytes":text.len(),
+                            "text":rootle_trace::capture_content().then_some(text.as_str()),
+                        }),
+                        Event::FocusGained => {
+                            serde_json::json!({"kind":"focus_gained","handled":false})
+                        }
+                        Event::FocusLost => {
+                            serde_json::json!({"kind":"focus_lost","handled":false})
+                        }
+                        Event::Mouse(_) => serde_json::json!({"kind":"mouse","handled":false}),
+                        Event::Key(_) | Event::Resize(..) => unreachable!(),
+                    });
+                }
             }
         }
 
@@ -176,6 +197,11 @@ fn run(
         }
 
         if app.should_quit || terminated_flag().load(std::sync::atomic::Ordering::Relaxed) {
+            rootle_trace::record_with(rootle_trace::EventKind::State, || {
+                serde_json::json!({"scope":"terminal","phase":"exit_requested",
+                    "app_quit":app.should_quit,
+                    "termination_signal":terminated_flag().load(std::sync::atomic::Ordering::Relaxed)})
+            });
             // 0018 M3: compare the on-disk binary once, post-update
             // sessions only — main prints it after terminal restore.
             return Ok(app.update_exit_note());
@@ -191,23 +217,32 @@ fn run_editor(
     disable_raw_mode()?;
     stdout().execute(LeaveAlternateScreen)?;
     stdout().execute(SetCursorStyle::DefaultUserShape)?;
+    terminal::record_state("suspended", true);
+    let started = rootle_trace::enabled().then(std::time::Instant::now);
+    rootle_trace::record_with(
+        rootle_trace::EventKind::ExternalCommand,
+        || serde_json::json!({"operation":"editor","phase":"started","argument_count":job.args.len()}),
+    );
 
     let status = std::process::Command::new(&job.program)
         .args(&job.args)
         .status();
-    rootle_provider::trace(&format!(
-        "editor {} exited: {}",
-        job.program,
-        status
-            .map(|s| s.to_string())
-            .unwrap_or_else(|e| e.to_string())
-    ));
+    rootle_trace::record_with(rootle_trace::EventKind::ExternalCommand, || {
+        serde_json::json!({
+            "operation":"editor", "phase":"finished",
+            "success":status.as_ref().is_ok_and(|status| status.success()),
+            "exit_code":status.as_ref().ok().and_then(|status| status.code()),
+            "error_kind":status.as_ref().err().map(|error|format!("{:?}",error.kind())),
+            "duration_us":started.map(|started|started.elapsed().as_micros()),
+        })
+    });
 
     // Resume: raw mode + alternate screen again, then a full clear —
     // the editor scribbled on the screen, so the diff is unusable.
     enable_raw_mode()?;
     stdout().execute(EnterAlternateScreen)?;
     terminal.clear()?;
+    terminal::record_state("resumed", true);
 
     // Drain input queued while suspended (editor residue, resizes).
     while event::poll(Duration::from_millis(0))? {
@@ -217,16 +252,28 @@ fn run_editor(
 }
 
 /// Dispatch the provider subcommand tree (plans/0010 M3).
-fn run_provider(cmd: &ProviderCommand) {
+fn run_provider(cmd: &ProviderCommand) -> Result<(), rootle_manager::ManagerError> {
+    rootle_trace::record_with(
+        rootle_trace::EventKind::ExternalCommand,
+        || serde_json::json!({"operation":"provider_command","phase":"started"}),
+    );
+    let result = execute_provider(cmd);
+    rootle_trace::record_with(rootle_trace::EventKind::ExternalCommand, || {
+        let error_kind = result.as_ref().err().map(|error| match error {
+            rootle_manager::ManagerError::User(_) => "user",
+            rootle_manager::ManagerError::Network(_) => "network",
+            rootle_manager::ManagerError::Io(_) => "io",
+        });
+        serde_json::json!({"operation":"provider_command","phase":"finished",
+            "success":result.is_ok(),"error_kind":error_kind})
+    });
+    result
+}
+
+fn execute_provider(cmd: &ProviderCommand) -> Result<(), rootle_manager::ManagerError> {
     use rootle_manager::{Manager, ProviderReference};
 
-    let manager = match Manager::new() {
-        Ok(m) => m,
-        Err(e) => {
-            eprintln!("rootle provider: {e}");
-            std::process::exit(1);
-        }
-    };
+    let manager = Manager::new()?;
 
     let result: std::result::Result<(), rootle_manager::ManagerError> = match cmd {
         ProviderCommand::Install {
@@ -240,18 +287,11 @@ fn run_provider(cmd: &ProviderCommand) {
                 // install .` model); ref_ carries the name.
                 manager.install_path(ref_, path).map(|_| ())
             } else {
-                let mut r = match ProviderReference::parse(ref_) {
-                    Ok(r) => r,
-                    Err(e) => {
-                        eprintln!("{e}");
-                        std::process::exit(1);
-                    }
-                };
+                let r = ProviderReference::parse(ref_)?;
                 if *pin && r.tag.is_none() {
                     // Pin to the latest at install time.
                     eprintln!("--pin without @tag: pinning to the latest release");
                 }
-                r.tag = r.tag.take(); // no-op, keeps the Option alive
                 manager.install(&r, *force).map(|_| ())
             }
         }
@@ -275,7 +315,7 @@ fn run_provider(cmd: &ProviderCommand) {
                 let ui = rootle_manager::progress::ProgressOutput::new();
                 if installed.is_empty() {
                     ui.empty_hint();
-                    return;
+                    return Ok(());
                 }
                 for i in &installed {
                     ui.row(
@@ -312,8 +352,9 @@ fn run_provider(cmd: &ProviderCommand) {
         } => {
             let target = if *all { None } else { name.as_deref() };
             if !*all && name.is_none() {
-                eprintln!("specify a provider name or --all");
-                std::process::exit(1);
+                return Err(rootle_manager::ManagerError::User(
+                    "specify a provider name or --all".into(),
+                ));
             }
             manager.upgrade(target, *dry_run, *force)
         }
@@ -325,8 +366,5 @@ fn run_provider(cmd: &ProviderCommand) {
         }
     };
 
-    if let Err(e) = result {
-        eprintln!("rootle provider: {e}");
-        std::process::exit(1);
-    }
+    result
 }
