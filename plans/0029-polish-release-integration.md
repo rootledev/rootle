@@ -1,10 +1,11 @@
 # 0029 — Complete the polish wave and release it
 
-Status: **executing** — owner's follow-up: finish 0026, put application
-code in the workspace crates, land green CI, and publish the release.
-This supersedes the deferral of list migrations in 0026/0028. Earlier
-"shipped" status means local implementation, not a published release;
-release status will be updated only after the artifacts are verified.
+Status: **done — released as v0.10.0 (2026-09-07)**. Implementation
+merged in [#145](https://github.com/rootledev/rootle/pull/145), with
+Linux/macOS CI green. Four platform artifacts and all six crates are
+published; checksums, provenance, installed behavior, Homebrew and the
+live site are verified below. This closes the earlier list-migration
+deferral without calling bounded model checking an unbounded proof.
 
 ## Acceptance
 
@@ -90,7 +91,27 @@ release shipped before its workflow completes.
   The yanked transitive `chacha20` 0.10.1 was updated to 0.10.2 only.
 - Site build reads `workspace.package.version` with TOML parsing;
   commit settings, protocol summary, roadmap and changelog are built
-  from the real source tree. Publication is held for the release.
+  from the real source tree; the published pages were checked after deployment.
 
-CI, merge and published artifact evidence will be attached to the PR
-and release; this section does not claim they have completed.
+## Published evidence
+
+- [Implementation CI](https://github.com/rootledev/rootle/actions/runs/34070495900):
+  `test`, `e2e-macos` and `forge-conformance` all passed before the owner merge.
+- [Release workflow](https://github.com/rootledev/rootle/actions/runs/34071055219)
+  passed all four build/verification jobs and publication.
+  [v0.10.0](https://github.com/rootledev/rootle/releases/tag/v0.10.0)
+  tags commit `8c0db3b0318177060003a313e1d3f117b4edf03d`.
+- Downloaded all four tarballs: every SHA-256 sidecar matched and every
+  GitHub/Sigstore attestation verified against `rootledev/rootle`.
+  The Linux x86_64 executable is stripped and static-PIE linked.
+- A fresh `cargo install rootle --version 0.10.0 --locked --registry
+  crates-io` downloaded all six published packages and built the app.
+  Both this installation and the downloaded Linux binary passed the
+  real Git → stdio provider → history → commit detail → delta smoke.
+- [Homebrew checks](https://github.com/rootledev/homebrew-tap/actions/runs/34071417726)
+  passed on Ubuntu and macOS after the automatic formula/cask update.
+- [Site deployment](https://github.com/rootledev/rootledev.github.io/actions/runs/34071854231)
+  passed. The live [roadmap](https://rootle.dev/docs/roadmap.html),
+  [commit documentation](https://rootle.dev/docs/settings.html#commit-inspection)
+  and [changelog](https://rootle.dev/changelog/) show the released work
+  and preserve the deferred scope.
