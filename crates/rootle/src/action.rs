@@ -222,11 +222,11 @@ pub enum Action {
     OrgSelected(String),
     LoadOrgRepos(String),
     OrgReposLoaded {
-        org: String,
+        request: crate::request::OwnerListRequest,
         repos: Vec<rootle_provider::RepoInfo>,
     },
     OrgReposFailed {
-        org: String,
+        request: crate::request::OwnerListRequest,
         error: rootle_provider::ProviderError,
     },
 
@@ -236,15 +236,13 @@ pub enum Action {
         name: String,
     },
     TreeLoaded {
-        owner: String,
-        name: String,
+        request: crate::request::TreeRequest,
         entries: Vec<rootle_provider::TreeNode>,
         truncated: bool,
         branch: String,
     },
     TreeFailed {
-        owner: String,
-        name: String,
+        request: crate::request::TreeRequest,
         error: rootle_provider::ProviderError,
     },
 

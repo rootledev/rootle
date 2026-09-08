@@ -31,6 +31,8 @@ impl GlobalSearch {
             " j/k move · enter done · esc revert ".into()
         } else if self.finding {
             keymap::hint_row(keymap::hints(Mode::Find))
+        } else if self.focus == super::Focus::Error {
+            keymap::hint_row(keymap::search_error())
         } else if self.focus == super::Focus::Facets {
             keymap::hint_row(keymap::search_facets())
         } else if self.expanded.is_some() {

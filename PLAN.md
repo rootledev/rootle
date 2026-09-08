@@ -62,7 +62,10 @@ per-release notes are on the GitHub releases page:
   **Released as v0.10.0; published evidence lives here.**
 - [0030-session-diagnostics](plans/0030-session-diagnostics.md) —
   private bounded JSONL sessions, UI/service observations and diagnostic
-  controls adapted from strop. **Implemented and verified; unreleased.**
+  controls adapted from strop. **Released as v0.11.0.**
+- [0031-provider-feedback-reliability](plans/0031-provider-feedback-reliability.md)
+  — accepted-state readiness, owner-aware startup, durable search failures and
+  compatibility documentation. **P1 implemented and verified for v0.12.2.**
 
 
 Source comments referencing `plans/0005` mean this file.

@@ -15,7 +15,6 @@ fn renders_three_panes_modeline_and_popup() {
     assert!(screen.contains("tab focus"), "popup hint row missing");
 
     // Browser visible behind the popup: orgs column + repos column.
-    assert!(screen.contains("orgs"), "orgs pane missing");
     assert!(screen.contains("ratatui/"), "repos pane missing");
 
     // Print the frame for eyeballing (cargo test -- --nocapture).
@@ -99,9 +98,9 @@ fn h_moves_focus_to_parent_and_browsing_it_cascades() {
         !screen.contains("Cargo.toml"),
         "no child column before the tree arrives"
     );
+    app.handle_key(key(KeyCode::Char('l')));
     app.handle_action(rootle::action::Action::TreeLoaded {
-        owner: "ratatui".into(),
-        name: "ratatui-website".into(),
+        request: app.tree_request().unwrap().clone(),
         entries: ratatui_tree(),
         truncated: false,
         branch: "main".into(),
@@ -128,8 +127,9 @@ fn h_moves_focus_to_parent_and_browsing_it_cascades() {
 
     // l on an org triggers LoadOrgRepos; the response installs the
     // repos level — no stale ratatui entries.
+    app.handle_key(key(KeyCode::Char('l')));
     app.handle_action(rootle::action::Action::OrgReposLoaded {
-        org: "tokio-rs".into(),
+        request: app.owner_request().unwrap().clone(),
         repos: vec![
             "tokio".into(),
             "axum".into(),
@@ -177,7 +177,6 @@ fn org_level_folds_to_single_pane() {
     let screen = rows.join("\n");
 
     // Single folded pane: orgs visible, no repo column border beside it.
-    assert!(screen.contains("orgs"));
     assert!(screen.contains("tokio-rs/"));
     // A folded single pane spans nearly full width: orgs title starts at
     // the left edge and its right border sits at the far right.

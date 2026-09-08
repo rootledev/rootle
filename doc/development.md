@@ -127,7 +127,7 @@ cheapest tier that exercises it (plans/0023):
    `<up|down|left|right>` tokens), `settle [ms]` (wait for all tracked
    workers and queued follow-ups; default 10000ms), `wait <ms>`,
    `frame` (cell-grid dump), `state` (JSON:
-   mode/overlays/context/status/yanks/editor_jobs). `-` reads the
+   mode/overlays/context/status plus request-scoped browser/search outcomes). `-` reads the
    script from stdin; viewport via `ROOTLE_HEADLESS_COLS/ROWS`
    (default 100×30). This is also the review/stress surface for
    agents: pipe a script in, read frames out — no PTY, no timing
@@ -135,8 +135,8 @@ cheapest tier that exercises it (plans/0023):
    Startup uses the same tracked wait with a 10-second bound. After
    navigation, put `settle` before `frame`/`state`; channel silence
    alone is not completion. A deadline or malformed settle timeout
-   fails the run rather than sampling a half-loaded surface. Provider
-   errors still complete their work: inspect the resulting status.
+   fails the run rather than sampling a half-loaded surface. Provider errors
+   still complete their work: inspect the current request's phase/error.
    State is real: reuse a HOME across runs and the second run starts
    warm (recents, no launch popup) — scripts that need the launch
    popup must use a fresh HOME (the round-1 breaker hit this).
@@ -144,6 +144,34 @@ cheapest tier that exercises it (plans/0023):
    for what a terminal proves: alternate-screen enter/leave, exit
    code, merged-ESC byte parsing, $EDITOR suspend/resume, resize
    redraw, TERM=dumb.
+
+### Headless readiness contract
+
+`state_schema_version: 1` is additive: existing root fields remain. For a direct
+repository load, run `settle`, then inspect `browser.tree`: `phase` is
+`idle | loading | ready | failed`; `request` carries the exact repository,
+requested revision (`null` for default) and generation. A ready tree's
+`entry_count` counts the accepted recursive provider entries, including directory
+entries, independently of filtering or viewport size. Empty success is `ready`
+with count `0`; loading/failure counts are `null`. `truncated`, `branch` and typed
+`error` accompany the current outcome. `displayed` separately identifies retained
+prior data and marks it stale during a failed/pending replacement.
+
+`browser.pane` reports depth/path, immediate entry count and filtered-visible
+count. `browser.owner_list` owns its separate outcome. `search` is null when
+closed; otherwise it exposes phase, frozen submitted request, retained/visible
+hit counts, known truncation and typed error (`kind`, bounded sanitized `message`,
+`retry_after_s`). Edited input is not a newly submitted request. Failed streams
+retain partial hits, not a successful-empty result. Capability declarations are
+reported separately; repo-local file find can work from the tree without global
+file-search support.
+
+Check the requested repository/ref and phase/count/truncation, not a universally
+fixed entry count, `status == null`, or `job_finished` alone. A finished worker
+may produce a stale reply that the UI rejects. `state` does not wait by itself;
+accepted readiness does not prove a frame was painted or no overlay obscures it.
+Session diagnostics use the same outcome projection while redacting query/error
+text in metadata-only capture.
 
 ## Diagnostic sessions
 

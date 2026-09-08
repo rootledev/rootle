@@ -95,10 +95,11 @@ impl GlobalSearch {
         })
     }
 
-    /// The query text (raw, as typed) — the app chips the expanded
-    /// pane's lines with it, the same chip the results list wears.
+    /// Frozen submitted text: editing a field cannot restyle already accepted results.
     pub fn query_text(&self) -> String {
-        self.query.value()
+        self.submitted_request()
+            .map(|request| request.query.clone())
+            .unwrap_or_default()
     }
 
     pub fn is_grep(&self) -> bool {

@@ -81,6 +81,10 @@ opaque_id!(
     OrgId,
     "An opaque organization or group identity, independent of its displayed caption."
 );
+opaque_id!(
+    OwnerId,
+    "An opaque repository namespace; it does not imply a personal account or organization."
+);
 
 impl Sha {
     pub fn short(&self) -> String {

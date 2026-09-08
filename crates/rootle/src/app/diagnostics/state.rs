@@ -34,6 +34,7 @@ fn describe_state(app: &App, reason: &'static str) -> Value {
         "settings":app.settings.as_ref().map(|popup|popup.diagnostics(full)),
         "clone":app.wizard.as_ref().map(|wizard|wizard.diagnostics(full)),
         "browser": {
+            "loads": browser_outcomes(app, full),
             "focus": browser.focus,
             "columns":browser.columns,
             "visual": browser.visual,
@@ -73,6 +74,7 @@ fn describe_state(app: &App, reason: &'static str) -> Value {
         "search": app.search_view.as_ref().map(|view| {
             let d = view.diagnostics();
             json!({
+                "outcome": redact_outcome(view.observation(), full),
                 "kind": d.kind,
                 "input":view.query.diagnostics(full),
                 "scope": d.scope,
@@ -105,4 +107,25 @@ fn describe_state(app: &App, reason: &'static str) -> Value {
         "should_quit": app.should_quit,
         "offline": app.offline,
     })
+}
+
+fn browser_outcomes(app: &App, full: bool) -> Value {
+    let mut observed = app.browser.observation();
+    for name in ["tree", "owner_list"] {
+        observed[name] = redact_outcome(observed[name].take(), full);
+    }
+    observed
+}
+
+fn redact_outcome(mut observed: Value, full: bool) -> Value {
+    if !full {
+        for pointer in ["/error/message", "/request/query", "/request/extension"] {
+            if let Some(value) = observed.pointer_mut(pointer)
+                && let Some(text) = value.as_str()
+            {
+                *value = super::text_with(false, text);
+            }
+        }
+    }
+    observed
 }

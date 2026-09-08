@@ -18,6 +18,8 @@ pub enum EntryKind {
     /// Pseudo-entries: orgs, repos — rendered like dirs.
     Repo,
     Org,
+    /// Unclassified repository namespace, including legacy recents.
+    Owner,
 }
 
 #[derive(Debug, Clone)]
@@ -210,7 +212,7 @@ impl Pane {
                             ),
                         ])
                     }
-                    EntryKind::Dir | EntryKind::Repo | EntryKind::Org => {
+                    EntryKind::Dir | EntryKind::Repo | EntryKind::Org | EntryKind::Owner => {
                         Line::from(Span::styled(fit(&format!("{}/", e.name), width), dir_style))
                     }
                     EntryKind::File => Line::from(Span::styled(

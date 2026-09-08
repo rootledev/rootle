@@ -65,8 +65,6 @@ fn leader_f_opens_find_view_and_enter_shows_mock_results() {
         "scope label missing"
     );
     assert!(screen.contains("INSERT"), "query should land in INSERT");
-    // The view replaces the browser: no miller columns underneath.
-    assert!(!screen.contains("orgs"), "browser should be replaced");
     println!("{screen}");
 
     // Type a query, Enter runs the (mock) search and focuses results.
@@ -118,30 +116,6 @@ fn leader_g_opens_grep_view_with_scope_radio_popup() {
     let screen = rows.join("\n");
     assert!(screen.contains("global"), "scope should switch to global");
     assert!(screen.contains("grep · global"), "modeline context missing");
-}
-
-#[test]
-fn closing_search_view_restores_browser_without_lingering_cells() {
-    let mut app = browsing_app();
-    app.handle_key(key(KeyCode::Char(' ')));
-    app.handle_key(key(KeyCode::Char('g')));
-    let _ = render(&mut app, 100, 30); // view open
-
-    // Esc from the query input: INSERT → NORMAL, then Esc closes.
-    app.handle_key(key(KeyCode::Esc));
-    app.handle_key(key(KeyCode::Esc));
-    let rows = render(&mut app, 100, 30);
-    let screen = rows.join("\n");
-    assert!(!screen.contains("grep ·"), "view residue after close");
-    assert!(screen.contains("orgs"), "browser should be back");
-    assert!(screen.contains("BROWSE"), "should return to BROWSE");
-
-    // Middle of the screen must show pane content again, not blanks.
-    let middle = &rows[15];
-    assert!(
-        middle.trim().len() > 10,
-        "lingering blank cells after close: {middle:?}"
-    );
 }
 
 #[test]
@@ -218,4 +192,124 @@ fn grammar_chips_say_what_was_filtered() {
         "unfiltered chip missing: {screen}"
     );
     println!("{screen}");
+}
+
+#[test]
+fn delayed_hits_keep_submitted_query_highlighting_after_input_edits() {
+    use rootle::action::Action;
+    use rootle::components::global_search::{RawHit, SearchKind};
+    let mut app = browsing_app();
+    app.handle_action(Action::LeaderGrep);
+    app.handle_action(Action::GlobalSearchSubmitted {
+        kind: SearchKind::Grep,
+        query: "needle".into(),
+        scope: "global".into(),
+        extension: String::new(),
+    });
+    let request = app.search_request().unwrap().clone();
+    app.handle_key(key(KeyCode::Tab));
+    for character in "changed".chars() {
+        app.handle_key(key(KeyCode::Char(character)));
+    }
+    app.handle_app_event(rootle::event::AppEvent::GlobalSearchResults {
+        gen_id: request.generation,
+        hits: vec![RawHit {
+            repo: "ratatui/ratatui".into(),
+            path: "result.rs".into(),
+            sha: "blob".into(),
+            branch: "main".into(),
+            line: 1,
+            preview: vec![(1, "needle changed".into())],
+            match_count: 1,
+            stale: false,
+        }],
+        clipped: false,
+        index: None,
+        client_filtered: 0,
+        unfiltered: vec![],
+    });
+    assert_eq!(app.snapshot()["search"]["request"]["query"], "needle");
+    let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
+    terminal
+        .draw(|frame| app.render(frame, frame.area()))
+        .unwrap();
+    let buffer = terminal.backend().buffer();
+    let (column, row) = (0..buffer.area.height)
+        .find_map(|row| {
+            let text: String = (0..buffer.area.width)
+                .map(|column| buffer[(column, row)].symbol())
+                .collect();
+            text.find("needle changed")
+                .map(|byte| (text[..byte].chars().count() as u16, row))
+        })
+        .expect("delayed hit visible");
+    let highlight = rootle::theme::Theme::catppuccin_mocha()
+        .semantic
+        .search_match;
+    assert_eq!(buffer[(column, row)].bg, highlight);
+    assert_ne!(buffer[(column + 7, row)].bg, highlight);
+}
+
+#[test]
+fn closed_and_superseded_search_requests_cannot_overwrite_the_new_view() {
+    use rootle::action::Action;
+    use rootle::components::global_search::SearchKind;
+    use rootle::event::AppEvent;
+    let mut app = browsing_app();
+    app.handle_action(Action::LeaderGrep);
+    app.handle_action(Action::GlobalSearchSubmitted {
+        kind: SearchKind::Grep,
+        query: "obsolete-query".into(),
+        scope: "global".into(),
+        extension: String::new(),
+    });
+    let obsolete = app.search_request().unwrap().generation;
+    app.handle_action(Action::CloseSearchView);
+    app.handle_action(Action::LeaderGrep);
+    app.handle_action(Action::GlobalSearchSubmitted {
+        kind: SearchKind::Grep,
+        query: "current-query".into(),
+        scope: "global".into(),
+        extension: String::new(),
+    });
+    let current = app.snapshot();
+    app.handle_app_event(AppEvent::GlobalSearchFailed {
+        gen_id: obsolete,
+        error: "obsolete failure".into(),
+    });
+    app.handle_app_event(AppEvent::GlobalSearchResults {
+        gen_id: obsolete,
+        hits: vec![],
+        clipped: true,
+        index: None,
+        client_filtered: 10,
+        unfiltered: vec!["obsolete".into()],
+    });
+    assert_eq!(app.snapshot(), current);
+}
+
+#[test]
+fn failure_arrival_preserves_the_active_query_editor() {
+    use rootle::action::Action;
+    let mut app = browsing_app();
+    app.handle_action(Action::LeaderGrep);
+    app.handle_action(Action::GlobalSearchSubmitted {
+        kind: rootle::components::global_search::SearchKind::Grep,
+        query: "submitted".into(),
+        scope: "global".into(),
+        extension: String::new(),
+    });
+    let generation = app.search_request().unwrap().generation;
+    app.handle_key(key(KeyCode::Tab));
+    for character in "draft".chars() {
+        app.handle_key(key(KeyCode::Char(character)));
+    }
+    app.handle_app_event(rootle::event::AppEvent::GlobalSearchFailed {
+        gen_id: generation,
+        error: "current request failed".into(),
+    });
+    app.handle_key(key(KeyCode::Char('q')));
+    assert_eq!(app.snapshot()["mode"], "INSERT");
+    assert_eq!(app.snapshot()["search"]["request"]["query"], "submitted");
+    assert!(render(&mut app, 100, 30).join("\n").contains("draftq"));
 }

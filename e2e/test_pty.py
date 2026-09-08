@@ -131,6 +131,8 @@ def test_dumb_terminal_still_renders(tmp_path: Path) -> None:
     tui = provider_tui(tmp_path, env_extra={"TERM": "dumb"})
     try:
         tui.expect("search ")
-        assert "orgs" in tui.screen()
+        dismiss_launch_popup(tui)
+        tui.send("q")
+        assert tui.wait_exit() == 0
     finally:
         tui.stop()

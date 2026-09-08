@@ -16,6 +16,14 @@ Ground truth (read before scaffolding, cite them to the user):
 - Rust transport/parser: `crates/stdio/src/`
 - Trait/vocabulary: `crates/provider/src/lib.rs`; GitHub implementation: `crates/github/`
 
+**Compatibility evidence:** record the tested rootle/adapter package pairs and
+target runtimes; do not invent a supported range from one successful run.
+JSON-RPC envelope `2.0`, application `protocol: 1` and additive spec v1.6
+are separate axes. Return integer `1`, declare capabilities explicitly, and
+document external tools/auth requirements in help or operator docs. Defaults
+are orgs/code-search true, file-search inherited, refs/log/blame/commit false.
+A handshake alone does not prove every advertised feature is operational.
+
 ## 1. Grill the implementer — STOP until every block is answered
 
 Do not scaffold on vague answers. Go through every block; for each,

@@ -98,7 +98,7 @@ impl App {
                 rows[1],
             );
         }
-        let mut status = self.status.clone().or_else(|| self.degraded.clone());
+        let mut status = self.effective_status().or_else(|| self.degraded.clone());
         // 0030: a failed requested trace rides along as a sticky
         // suffix — it must never displace the primary status.
         if let Some(note) = &self.trace_failure {
@@ -141,11 +141,47 @@ impl App {
         }
     }
 
+    fn effective_status(&self) -> Option<String> {
+        // Explicit user confirmations can replace progress, not a foreground failure.
+        if self.search_view.is_none() && self.browser.load_failed() {
+            return self.browser.load_status();
+        }
+        self.status.clone().or_else(|| {
+            self.search_view
+                .is_none()
+                .then(|| self.browser.load_status())
+                .flatten()
+        })
+    }
+
+    pub fn tree_request(&self) -> Option<&crate::request::TreeRequest> {
+        self.browser.tree_request()
+    }
+
+    pub fn owner_request(&self) -> Option<&crate::request::OwnerListRequest> {
+        self.browser.owner_request()
+    }
+
+    pub fn search_request(&self) -> Option<&crate::request::ContentSearchRequest> {
+        self.search_view
+            .as_ref()
+            .and_then(|view| view.submitted_request())
+    }
+
     /// Headless state dump (plans/0023 M1): one JSON object per
     /// `state` step — what a scripted reviewer needs to assert on
     /// without parsing the frame.
     pub fn snapshot(&self) -> serde_json::Value {
+        let capabilities = self.provider.capabilities();
         serde_json::json!({
+            "state_schema_version": 1,
+            "browser": self.browser.observation(),
+            "search": self.search_view.as_ref().map(|view| view.observation()),
+            "capabilities": {
+                "orgs": capabilities.orgs,
+                "code_search": capabilities.code_search,
+                "file_search": capabilities.file_search,
+            },
             "mode": self.effective_mode().chip(),
             "context": self.browser.context(),
             "ref": self.browser.current_ref(),
@@ -158,7 +194,7 @@ impl App {
             "wizard": self.wizard.is_some(),
             "refs_popup": self.refs_popup.is_some(),
             "consent": self.consent.is_some(),
-            "status": self.status,
+            "status": self.effective_status(),
             "degraded": self.degraded,
             "update_tag": self.update_tag,
             "should_quit": self.should_quit,

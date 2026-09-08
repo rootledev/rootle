@@ -50,7 +50,8 @@ CMD ["uv", "run", "--locked", "--no-sync", "pytest"]
 # Bounded protocol model: safety, explicitly fair finite-stream progress,
 # and four kept fault classes. Parser/runtime errors never count as a kill.
 FROM eclipse-temurin:21-jre AS model
-ARG TLA_TOOLS_SHA256=b658b4e504fdf0b721caf7066320f6b6fe5805f4dd2f717d0e47baba4097205e
+# Upstream asset 551007111 was rebuilt 2026-09-08; digest verified against its release API.
+ARG TLA_TOOLS_SHA256=4c7bb1f6b050d56c197ee9ddd6e57fe521eae175f5043c9fb98b169f7b2d5407
 ADD --checksum=sha256:${TLA_TOOLS_SHA256} https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar /tla/tla2tools.jar
 WORKDIR /work
 COPY specs ./specs

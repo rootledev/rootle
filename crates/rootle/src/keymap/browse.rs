@@ -114,7 +114,7 @@ pub(super) static LEADER: LazyLock<Table<Action>> = LazyLock::new(|| {
         ),
         Binding::new("y", "yank url", LeaderYank, &[Key::Code(Char('y'))]),
         Binding::new("c", "clear marks", ClearMarks, &[Key::Code(Char('c'))]),
-        Binding::new("d", "del org", DeleteMarked, &[Key::Code(Char('d'))]),
+        Binding::new("d", "del owner", DeleteMarked, &[Key::Code(Char('d'))]),
         Binding::new("r", "reload", LeaderReload, &[Key::Code(Char('r'))]),
         Binding::new("q", "quit", LeaderQuit, &[Key::Code(Char('q'))]),
         Binding::new("esc", "back", ClosePopup, &[Key::Code(Esc)]),

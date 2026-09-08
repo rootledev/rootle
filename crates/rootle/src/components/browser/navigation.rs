@@ -9,6 +9,7 @@ impl Browser {
 
     /// Recompute focused flags + preview after any state change.
     pub(super) fn sync(&mut self) {
+        self.invalidate_changed_requests();
         for column in 0..self.levels.len() {
             let pane_marks = self.marked_names(column);
             let pane = &mut self.levels[column];
@@ -23,9 +24,9 @@ impl Browser {
         self.refresh_preview();
     }
 
-    /// Repos level title = owner of whatever is being browsed.
+    /// Source owner selection, never a mutable pane caption.
     pub(super) fn current_owner(&self) -> Option<&str> {
-        self.levels.get(1).map(|p| p.title.as_str())
+        self.selected_owner()
     }
 
     /// Children of an entry: orgs never expand locally (API), repos/dirs
@@ -33,7 +34,7 @@ impl Browser {
     pub(super) fn children_of(&self, entry: &Entry) -> Option<Vec<Entry>> {
         let tree = self.tree.as_ref()?;
         match entry.kind {
-            EntryKind::Org | EntryKind::File => None,
+            EntryKind::Org | EntryKind::Owner | EntryKind::File => None,
             EntryKind::Repo => (tree.owner == self.current_owner()? && tree.name == entry.name)
                 .then(|| tree.children("")),
             EntryKind::Dir => {
@@ -49,10 +50,8 @@ impl Browser {
     }
 
     pub fn set_repo(&mut self, owner: &str, name: &str) {
-        self.select_org(owner);
-        // Reuse the API-loaded repos level if present; otherwise the
-        // repos pane waits for the org load (never mock repos for an
-        // org we haven't loaded — except the static defaults).
+        self.select_owner(owner);
+        // Preserve an existing owner listing, otherwise show the explicitly selected repo.
         if self.levels.len() < 2 || self.levels[1].title != owner {
             self.levels.truncate(1);
             self.levels.push(Pane::new(owner, vec![]));
@@ -120,7 +119,7 @@ impl Browser {
         };
         match entry.kind {
             EntryKind::File => Action::Noop, // OpenSelected handled by app
-            EntryKind::Org => Action::LoadOrgRepos(entry.name.clone()),
+            EntryKind::Org | EntryKind::Owner => Action::LoadOrgRepos(entry.name.clone()),
             EntryKind::Repo => {
                 if self.children_of(&entry).is_none() {
                     let owner = self.current_owner().unwrap_or_default().to_string();
@@ -203,7 +202,7 @@ impl Browser {
     /// The repo coordinates for a blob fetch.
     pub fn repo_coords(&self) -> Option<(String, String)> {
         let owner = self.current_owner()?.to_string();
-        let name = self.tree.as_ref()?.name.clone();
+        let name = self.levels.get(1)?.selected_entry()?.name.clone();
         Some((owner, name))
     }
 }

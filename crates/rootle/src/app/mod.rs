@@ -204,10 +204,6 @@ impl App {
         if !app.offline && app.config.update.check && crate::selfupdate::check_allowed() {
             app.spawn_update_check();
         }
-        // Warm the repos level for the initially selected org.
-        if let Some(org) = app.browser.selected_org() {
-            app.handle_action(Action::LoadOrgRepos(org));
-        }
         app
     }
 
@@ -239,6 +235,7 @@ impl App {
         let icon = config.provider.icon.clone().or_else(|| provider.icon());
         let popup = if state.recent_repos.is_empty()
             && state.recent_orgs.is_empty()
+            && state.recent_owners.is_empty()
             && state.last_repo.is_none()
         {
             let mut p = SearchPopup::with_prefill(state.last_repo.as_deref());
@@ -249,7 +246,7 @@ impl App {
         };
         App {
             mode: Mode::Browse,
-            browser: Browser::new(&state.recent_orgs),
+            browser: Browser::new(&state.owner_recents()),
             popup, // opens on launch only for a fresh state
             search_view: None,
             help: None,
@@ -308,6 +305,19 @@ impl App {
         self.outstanding.clone()
     }
 
+    fn invalidate_provider_context(&mut self) {
+        self.browser.reset_provider(&self.state.owner_recents());
+        self.search_view = None;
+        self.view_gen.tick();
+        self.search_gen.tick();
+        self.commit_generation.tick();
+        self.last_commits.clear();
+        self.history_return = None;
+        self.refs_popup = None;
+        self.refs_baseline = None;
+        self.mode = Mode::Browse;
+    }
+
     /// Test hooks (0022): simulate a fallback outcome. (Integration
     /// tests link the lib without cfg(test) — plain pub like App::with.)
     pub fn set_degraded_for_test(&mut self, note: String) {
@@ -333,29 +343,5 @@ impl App {
     /// to the frame owner.
     pub fn record_trace_state(&self, reason: &'static str) {
         diagnostics::record_state(self, reason);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use rootle_provider::{ErrorKind, ProviderError};
-    use std::time::Duration;
-
-    #[test]
-    fn provider_status_renders_per_kind() {
-        let auth = ProviderError::new(ErrorKind::Auth, "bad credentials");
-        let rendered = super::provider_status(&auth);
-        assert!(rendered.contains("bad credentials"));
-        assert!(rendered.contains("refresh provider credentials"));
-
-        let throttled = ProviderError::new(ErrorKind::RateLimited, "slow down")
-            .with_retry_after(Duration::from_secs(37));
-        assert_eq!(
-            super::provider_status(&throttled),
-            "provider throttled — retry in 37s"
-        );
-
-        let plain = ProviderError::other("something broke");
-        assert_eq!(super::provider_status(&plain), "something broke");
     }
 }

@@ -11,7 +11,7 @@
 use super::App;
 use crate::app::diagnostics;
 use crate::event::AppEvent;
-use rootle_provider::{GitRef, RepoId};
+use rootle_provider::RepoId;
 use rootle_trace::EventKind;
 use serde_json::json;
 use std::time::Instant;
@@ -301,14 +301,14 @@ impl App {
         });
     }
 
-    pub(crate) fn spawn_org_repos(&self, org: String) {
+    pub(crate) fn spawn_org_repos(&self, request: crate::request::OwnerListRequest) {
         let provider = self.provider.clone();
         let tx = self.tx.clone();
         let op = rootle_trace::operation_id();
         rootle_trace::in_operation(op, || {
             rootle_trace::record_with(
                 EventKind::JobStarted,
-                || json!({"job": "org_repos", "org": org}),
+                || json!({"job": "org_repos", "request": request}),
             );
         });
         let ticket = self.outstanding.track();
@@ -316,30 +316,30 @@ impl App {
             let _ticket = ticket;
             rootle_trace::in_operation(op, || {
                 let started = rootle_trace::enabled().then(Instant::now);
-                let event = match provider.org_repos(&org) {
+                let event = match provider.org_repos(request.owner.as_str()) {
                     Ok(repos) => {
                         rootle_trace::record_with(EventKind::JobFinished, || {
                             json!({
                                 "job": "org_repos",
                                 "outcome": "ok",
-                                "org": org,
+                                "request": request,
                                 "repos": repos.len(),
                                 "duration_us": started.map(|clock| clock.elapsed().as_micros()),
                             })
                         });
-                        AppEvent::OrgReposLoaded { org, repos }
+                        AppEvent::OrgReposLoaded { request, repos }
                     }
                     Err(error) => {
                         rootle_trace::record_with(EventKind::JobFinished, || {
                             json!({
                                 "job": "org_repos",
                                 "outcome": "err",
-                                "org": org,
+                                "request": request,
                                 "error": diagnostics::describe_error(&error),
                                 "duration_us": started.map(|clock| clock.elapsed().as_micros()),
                             })
                         });
-                        AppEvent::OrgReposFailed { org, error }
+                        AppEvent::OrgReposFailed { request, error }
                     }
                 };
                 if tx.send(event).is_err() {
@@ -352,18 +352,15 @@ impl App {
         });
     }
 
-    pub(crate) fn spawn_tree(&self, owner: String, name: String) {
+    pub(crate) fn spawn_tree(&self, request: crate::request::TreeRequest) {
         let provider = self.provider.clone();
         let tx = self.tx.clone();
-        // v1.5: the browsed revision, if the switcher set one.
-        let ref_ = self.browser.current_ref().map(str::to_string);
         let op = rootle_trace::operation_id();
         rootle_trace::in_operation(op, || {
             rootle_trace::record_with(EventKind::JobStarted, || {
                 json!({
                     "job": "tree",
-                    "repo": format!("{owner}/{name}"),
-                    "ref": ref_,
+                    "request": request,
                 })
             });
         });
@@ -372,41 +369,39 @@ impl App {
             let _ticket = ticket;
             rootle_trace::in_operation(op, || {
                 let started = rootle_trace::enabled().then(Instant::now);
-                let repo_id = RepoId::from(format!("{owner}/{name}"));
-                let ref_at = ref_.as_deref().map(GitRef::from);
-                let event = match provider.fetch_tree(&repo_id, ref_at.as_ref()) {
-                    Ok(tree) => {
-                        rootle_trace::record_with(EventKind::JobFinished, || {
-                            json!({
-                                "job": "tree",
-                                "outcome": "ok",
-                                "repo": repo_id.as_str(),
-                                "entries": tree.entries.len(),
-                                "truncated": tree.truncated,
-                                "duration_us": started.map(|clock| clock.elapsed().as_micros()),
-                            })
-                        });
-                        AppEvent::TreeLoaded {
-                            owner,
-                            name,
-                            entries: tree.entries,
-                            truncated: tree.truncated,
-                            branch: tree.branch,
+                let event =
+                    match provider.fetch_tree(&request.repository, request.revision.as_ref()) {
+                        Ok(tree) => {
+                            rootle_trace::record_with(EventKind::JobFinished, || {
+                                json!({
+                                    "job": "tree",
+                                    "outcome": "ok",
+                                    "request": request,
+                                    "entries": tree.entries.len(),
+                                    "truncated": tree.truncated,
+                                    "duration_us": started.map(|clock| clock.elapsed().as_micros()),
+                                })
+                            });
+                            AppEvent::TreeLoaded {
+                                request,
+                                entries: tree.entries,
+                                truncated: tree.truncated,
+                                branch: tree.branch,
+                            }
                         }
-                    }
-                    Err(error) => {
-                        rootle_trace::record_with(EventKind::JobFinished, || {
-                            json!({
-                                "job": "tree",
-                                "outcome": "err",
-                                "repo": repo_id.as_str(),
-                                "error": diagnostics::describe_error(&error),
-                                "duration_us": started.map(|clock| clock.elapsed().as_micros()),
-                            })
-                        });
-                        AppEvent::TreeFailed { owner, name, error }
-                    }
-                };
+                        Err(error) => {
+                            rootle_trace::record_with(EventKind::JobFinished, || {
+                                json!({
+                                    "job": "tree",
+                                    "outcome": "err",
+                                    "request": request,
+                                    "error": diagnostics::describe_error(&error),
+                                    "duration_us": started.map(|clock| clock.elapsed().as_micros()),
+                                })
+                            });
+                            AppEvent::TreeFailed { request, error }
+                        }
+                    };
                 if tx.send(event).is_err() {
                     rootle_trace::record_with(
                         EventKind::Error,
@@ -429,6 +424,7 @@ impl App {
                     MarkKey::Organization { organization } => {
                         orgs.push(organization.as_str().to_string())
                     }
+                    MarkKey::Owner { owner } => orgs.push(owner.as_str().to_string()),
                     MarkKey::Repository { repository } | MarkKey::Entry { repository, .. } => {
                         repos.push(repository.as_str().to_string())
                     }

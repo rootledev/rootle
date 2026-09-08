@@ -7,11 +7,27 @@ use super::{
 use crate::components::global_search::Focus;
 
 impl GlobalSearch {
-    pub(super) fn render_results(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
+    pub(super) fn render_results(&mut self, frame: &mut Frame, mut area: Rect, theme: &Theme) {
+        if let Some(preview) = &mut self.failure_preview {
+            let height = if self.hits.is_empty() {
+                area.height
+            } else {
+                area.height.saturating_sub(3).min(8)
+            };
+            let notice = Rect { height, ..area };
+            preview.focused = self.focus == Focus::Error;
+            preview.render(frame, notice, theme);
+            area.y = area.y.saturating_add(height);
+            area.height = area.height.saturating_sub(height);
+            if area.is_empty() {
+                return;
+            }
+        }
         // Expanded (plans/0012 M2): the results area becomes the hit's
         // whole file — the re-used Preview renders into the same rect,
         // no popup, nothing else drawn.
         if let Some(exp) = &mut self.expanded {
+            exp.preview.focused = self.focus == Focus::Results;
             exp.preview.render(frame, area, theme);
             return;
         }
@@ -22,17 +38,17 @@ impl GlobalSearch {
         } else {
             sem.border_unfocused
         };
-        let mut title = if let Some(error) = &self.error {
-            format!(" results — error: {error} ")
-        } else if self.pending && self.hits.is_empty() {
+        let mut title = if self.load.error.is_some() {
+            format!(" results — {} partial · incomplete ", self.visible().len())
+        } else if self.load.phase == crate::request::LoadPhase::Loading && self.hits.is_empty() {
             " results — searching… ".to_string()
-        } else if self.pending {
+        } else if self.load.phase == crate::request::LoadPhase::Loading {
             // v1.3: hits stream in — the count climbs live.
             let suffix = if self.clipped { " · clipped" } else { "" };
             format!(" results — {} · streaming{suffix} ", self.visible().len())
-        } else if self.hits.is_empty() && self.submitted_once {
+        } else if self.hits.is_empty() && self.load.phase == crate::request::LoadPhase::Ready {
             " results — no matches ".into()
-        } else if self.submitted_once {
+        } else if self.load.phase == crate::request::LoadPhase::Ready {
             let mut suffix = String::new();
             if let Some(as_of) = &self.index_as_of {
                 // Indexed backends say when the index was built — a

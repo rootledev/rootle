@@ -162,7 +162,7 @@ impl Browser {
         if selected.kind != super::EntryKind::Repo || self.focus == 0 {
             return None;
         }
-        let organization = self.selected_org()?;
+        let organization = self.selected_owner()?;
         Some(RepoId::from(format!("{organization}/{}", selected.name)))
     }
 
@@ -375,7 +375,8 @@ mod tests {
     #[test]
     fn repository_history_identity_does_not_depend_on_pane_captions() {
         let mut browser = Browser::new(&["owner".into()]);
-        browser.org_repos_loaded("owner", vec![rootle_provider::RepoInfo::bare("project")]);
+        let request = browser.begin_owner_load("owner");
+        browser.org_repos_loaded(&request, vec![rootle_provider::RepoInfo::bare("project")]);
         browser.focus = 1;
         browser.levels[1].title = "display caption, not a repository owner".into();
         assert!(browser.open_repository_history());

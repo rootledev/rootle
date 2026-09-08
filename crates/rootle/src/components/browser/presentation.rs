@@ -113,7 +113,7 @@ impl Browser {
                 let children = self.children_of(&entry).unwrap_or_default();
                 self.preview.set_dir(&entry.name, children);
             }
-            EntryKind::Org => {
+            EntryKind::Org | EntryKind::Owner => {
                 // Repos load over the API; don't mock them in preview.
                 self.preview.title = entry.name.clone();
                 self.preview.content = Default::default();

@@ -236,6 +236,9 @@ pub fn hints(mode: Mode) -> &'static [Hint] {
 pub fn search_results() -> &'static [Hint] {
     search::RESULTS.hints()
 }
+pub fn search_error() -> &'static [Hint] {
+    search::ERROR.hints()
+}
 pub fn search_facets() -> &'static [Hint] {
     search::FACETS.hints()
 }

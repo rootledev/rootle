@@ -34,7 +34,7 @@ small stdio script.
 
 ## What it does
 
-- **Browse** orgs → repos → trees → files in three miller columns with
+- **Browse** owners → repos → trees → files in three miller columns with
   a live Tree-sitter syntax-highlighted preview — no clone required.
 - **Revise** — `␣ b` switches branches/tags (`rootle owner/repo@ref`
   from the CLI); `␣ p h` file history with open-at-commit; `␣ p b`
@@ -48,8 +48,9 @@ small stdio script.
 - **Search** — find (`␣ f`) and grep (`␣ g`) with a real grammar
   (`"quoted"`, `-negation`, `language:rust`), results streaming into
   decorated per-file boxes with facet chips; `Enter` opens the whole
-  file at the match line.
-  Fresh profiles start here with an empty browser, not seeded repositories.
+  file at the match line. Failures stay visible; partial hits survive failed streams.
+  Fresh profiles open repository search with an empty browser, not seeded repositories.
+  Warm profiles retain recents without treating every owner as an organization.
   Modal input prompts show `❯` in INSERT and `●` in NORMAL.
 - **The pane** — `␣ p` focuses and zooms the preview with vim's
   vertical motions (`3j`, `gg`/`G`, `^D`/`^U`, `{`/`}`, `%`, `zt`,

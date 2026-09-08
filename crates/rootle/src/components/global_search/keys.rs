@@ -54,20 +54,12 @@ impl GlobalSearch {
 
         match self.focus {
             Focus::Query => match self.query.handle_key(key) {
-                Outcome::Submitted => {
-                    self.filter.clear();
-                    self.filter_value.clear();
-                    self.submit()
-                }
+                Outcome::Submitted => self.submit(),
                 Outcome::Cancelled => Action::CloseSearchView,
                 _ => Action::Noop,
             },
             Focus::Extension => match self.extension.handle_key(key) {
-                Outcome::Submitted => {
-                    self.filter.clear();
-                    self.filter_value.clear();
-                    self.submit()
-                }
+                Outcome::Submitted => self.submit(),
                 Outcome::Cancelled => Action::CloseSearchView,
                 _ => Action::Noop,
             },
@@ -118,6 +110,7 @@ impl GlobalSearch {
                 Some(SearchCommand::Cancel) => self.clear_committed_or_close(),
                 _ => Action::Noop,
             },
+            Focus::Error => self.error_key(key),
             Focus::Results => match search_command(SearchContext::Results, key) {
                 // Leader layer works over the search view too (yank,
                 // re-search); App routes leader keys while it's up.
@@ -166,6 +159,31 @@ impl GlobalSearch {
                 _ => Action::Noop,
             },
         }
+    }
+
+    fn error_key(&mut self, key: KeyEvent) -> Action {
+        use crate::components::list_view::ListMovement;
+        match search_command(SearchContext::Error, key) {
+            Some(
+                command @ (SearchCommand::Next
+                | SearchCommand::Previous
+                | SearchCommand::First
+                | SearchCommand::Last),
+            ) => {
+                let movement = match command {
+                    SearchCommand::Next => ListMovement::Next,
+                    SearchCommand::Previous => ListMovement::Previous,
+                    SearchCommand::First => ListMovement::First,
+                    _ => ListMovement::Last,
+                };
+                if let Some(preview) = &mut self.failure_preview {
+                    preview.scroll_text(movement);
+                }
+            }
+            Some(SearchCommand::Cancel) => return Action::CloseSearchView,
+            _ => {}
+        }
+        Action::Noop
     }
 
     /// Expanded file pane keys (plans/0012 M2). The re-used `Preview`
@@ -285,9 +303,12 @@ impl GlobalSearch {
             }
         };
         let mut next = step(idx);
-        // The chip row only exists once hits hold a facet — cycle
-        // past it when there's nothing to focus.
-        while super::FOCUS_ORDER[next] == Focus::Facets && self.facets().is_empty() {
+        while (super::FOCUS_ORDER[next] == Focus::Facets && self.facets().is_empty())
+            || (super::FOCUS_ORDER[next] == Focus::Error && self.failure_preview.is_none())
+            || (super::FOCUS_ORDER[next] == Focus::Results
+                && self.failure_preview.is_some()
+                && self.hits.is_empty())
+        {
             next = step(next);
         }
         self.focus = super::FOCUS_ORDER[next];

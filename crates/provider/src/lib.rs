@@ -20,7 +20,7 @@ pub const RENDER_BUDGET: usize = 500;
 
 pub mod id;
 
-pub use id::{Generation, GitRef, RepoId, RepoPath, Sha};
+pub use id::{Generation, GitRef, OwnerId, RepoId, RepoPath, Sha};
 
 mod commit;
 pub use commit::{CommitDetail, CommitFile, CommitStatistics, FileStatus};
@@ -75,7 +75,8 @@ pub struct ProviderError {
 }
 
 /// The v1.1 `data.kind` open enum. Wire-unknown kinds map to `Other`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ErrorKind {
     Auth,
     RateLimited,
@@ -84,6 +85,20 @@ pub enum ErrorKind {
     Timeout,
     Provider,
     Other,
+}
+
+impl ErrorKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Auth => "auth",
+            Self::RateLimited => "rate_limited",
+            Self::NotFound => "not_found",
+            Self::Network => "network",
+            Self::Timeout => "timeout",
+            Self::Provider => "provider",
+            Self::Other => "other",
+        }
+    }
 }
 
 impl ProviderError {

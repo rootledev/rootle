@@ -73,6 +73,17 @@ pub fn run_view_search(
             on_hits,
         );
     }
+    let capabilities = provider.capabilities();
+    let supported = match kind {
+        SearchKind::FileFind => capabilities.file_search,
+        SearchKind::Grep => capabilities.code_search,
+    };
+    if !supported {
+        return Err(rootle_provider::ProviderError::new(
+            rootle_provider::ErrorKind::Provider,
+            format!("{} unsupported by {}", kind.slug(), provider.name()),
+        ));
+    }
     code_search(provider, kind, query, scope_label, extension, on_hits)
 }
 

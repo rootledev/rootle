@@ -11,6 +11,7 @@ const TREE_COLUMN_START: usize = 2;
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum MarkKey {
     Organization { organization: OrgId },
+    Owner { owner: rootle_provider::OwnerId },
     Repository { repository: RepoId },
     Entry { repository: RepoId, path: RepoPath },
 }
@@ -49,24 +50,31 @@ impl Browser {
             .iter()
             .filter_map(|mark| match mark {
                 MarkKey::Organization { organization } => Some(organization.as_str().to_string()),
+                MarkKey::Owner { owner } => Some(owner.as_str().to_string()),
                 _ => None,
             })
             .collect();
         if deleted.is_empty() {
             return deleted;
         }
-        let selected_org = self.selected_org();
+        let selected_org = self.selected_owner().map(str::to_string);
         self.levels[ORGANIZATION_COLUMN]
             .entries
             .retain(|entry| !deleted.contains(&entry.name));
-        self.marks.retain(|mark| !matches!(mark, MarkKey::Organization { organization } if deleted.iter().any(|name| name == organization.as_str())));
+        self.marks.retain(|mark| match mark {
+            MarkKey::Organization { organization } => {
+                !deleted.iter().any(|name| name == organization.as_str())
+            }
+            MarkKey::Owner { owner } => !deleted.iter().any(|name| name == owner.as_str()),
+            _ => true,
+        });
         let selected = self.levels[ORGANIZATION_COLUMN]
             .entries
             .iter()
             .position(|entry| Some(entry.name.as_str()) == selected_org.as_deref())
             .unwrap_or(0);
         self.levels[ORGANIZATION_COLUMN].select(selected);
-        if self.selected_org() != selected_org {
+        if self.selected_owner() != selected_org.as_deref() {
             self.levels.truncate(1);
             self.focus = ORGANIZATION_COLUMN;
             self.tree = None;
@@ -99,8 +107,11 @@ impl Browser {
             EntryKind::Org => Some(MarkKey::Organization {
                 organization: entry.name.as_str().into(),
             }),
+            EntryKind::Owner => Some(MarkKey::Owner {
+                owner: entry.name.as_str().into(),
+            }),
             EntryKind::Repo => Some(MarkKey::Repository {
-                repository: format!("{}/{}", self.selected_org()?, entry.name).into(),
+                repository: format!("{}/{}", self.selected_owner()?, entry.name).into(),
             }),
             EntryKind::Dir | EntryKind::File => {
                 let (owner, name) = self.repo_coords()?;
@@ -128,10 +139,11 @@ mod tests {
     #[test]
     fn repository_in_an_org_named_orgs_is_not_an_organization_mark() {
         let mut browser = Browser::new(&["orgs".into()]);
-        browser.org_repos_loaded("orgs", vec![rootle_provider::RepoInfo::bare("project")]);
+        let request = browser.begin_owner_load("orgs");
+        browser.org_repos_loaded(&request, vec![rootle_provider::RepoInfo::bare("project")]);
         browser.toggle_selected();
         assert!(browser.delete_marked_orgs().is_empty());
-        assert_eq!(browser.selected_org().as_deref(), Some("orgs"));
+        assert_eq!(browser.selected_owner(), Some("orgs"));
         assert!(
             matches!(&browser.visual_marks()[0], MarkKey::Repository { repository } if repository.as_str() == "orgs/project")
         );

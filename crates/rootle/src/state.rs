@@ -19,6 +19,8 @@ pub struct State {
     pub last_path: Option<String>,
     pub recent_repos: Vec<String>,
     pub recent_orgs: Vec<String>,
+    /// Repository namespace history; unlike explicit org selections this implies no account type.
+    pub recent_owners: Vec<String>,
     /// Global search view (plans/0002 §6): last-used scope
     /// ("repo"/"org"/"global") and extension filter.
     pub search_scope: Option<String>,
@@ -67,14 +69,25 @@ impl State {
 
     pub fn record_repo(&mut self, owner: &str, name: &str) {
         let full = format!("{owner}/{name}");
-        self.last_org = Some(owner.to_string());
         self.last_repo = Some(full.clone());
         push_recent(&mut self.recent_repos, full);
-        push_recent(&mut self.recent_orgs, owner.to_string());
+        push_recent(&mut self.recent_owners, owner.to_string());
     }
 
     pub fn record_org(&mut self, org: &str) {
+        self.last_org = Some(org.to_string());
         push_recent(&mut self.recent_orgs, org.to_string());
+    }
+
+    /// Legacy recent_orgs may contain inferred personal owners; preserve names, not classification.
+    pub fn owner_recents(&self) -> Vec<String> {
+        let mut names = self.recent_owners.clone();
+        for name in &self.recent_orgs {
+            if !names.contains(name) {
+                names.push(name.clone());
+            }
+        }
+        names
     }
 }
 
@@ -102,7 +115,9 @@ mod tests {
 
         let loaded = State::load_from(&path);
         assert_eq!(loaded.last_repo.as_deref(), Some("ratatui/ratatui"));
-        assert_eq!(loaded.recent_orgs, vec!["ratatui"]);
+        assert_eq!(loaded.recent_owners, vec!["ratatui"]);
+        assert!(loaded.recent_orgs.is_empty());
+        assert!(loaded.last_org.is_none());
         let _ = std::fs::remove_file(&path);
     }
 

@@ -306,6 +306,5 @@ def test_fresh_github_profile_is_empty_and_prompt_tracks_input_mode(tmp_path, bi
     )
     insert, normal, insert_again, browser = frames(output)
     assert "● " not in insert and "● " in normal and "● " not in insert_again
-    assert "orgs" in browser
     assert all(name not in browser for name in ("ratatui", "tokio-rs", "helix-editor"))
     assert states(output)[0]["context"] == ""

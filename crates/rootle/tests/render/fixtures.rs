@@ -63,7 +63,7 @@ pub(super) fn browsing_app() -> App {
     // the repos/tree injections below pass the selection gates.
     app.handle_action(rootle::action::Action::OrgSelected("ratatui".into()));
     app.handle_action(rootle::action::Action::OrgReposLoaded {
-        org: "ratatui".into(),
+        request: app.owner_request().unwrap().clone(),
         repos: vec![
             "ratatui".into(),
             "ratatui-website".into(),
@@ -71,9 +71,9 @@ pub(super) fn browsing_app() -> App {
             "comfy-table".into(),
         ],
     });
+    app.handle_key(key(KeyCode::Char('l')));
     app.handle_action(rootle::action::Action::TreeLoaded {
-        owner: "ratatui".into(),
-        name: "ratatui".into(),
+        request: app.tree_request().unwrap().clone(),
         entries: ratatui_tree(),
         truncated: false,
         branch: "main".into(),

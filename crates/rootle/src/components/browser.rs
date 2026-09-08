@@ -5,6 +5,7 @@
 //! Org repos and repo trees arrive asynchronously from the GitHub API;
 //! no mock content is ever shown for trees (honest empty until loaded).
 
+mod loading;
 mod marks;
 mod navigation;
 mod presentation;
@@ -26,7 +27,6 @@ use crate::action::Action;
 use crate::theme::Theme;
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use rootle_provider::TreeNode;
 use std::collections::{HashMap, HashSet};
 
 mod tree;
@@ -41,6 +41,14 @@ pub struct Browser {
     /// Which level owns the keyboard. Default = deepest level.
     focus: usize,
     tree: Option<RepoTree>,
+    tree_source: Option<crate::request::TreeRequest>,
+    tree_load: crate::request::LoadState<crate::request::TreeRequest>,
+    tree_generation: crate::request::TreeGeneration,
+    owner_load: crate::request::LoadState<crate::request::OwnerListRequest>,
+    owner_generation: crate::request::OwnerGeneration,
+    owner_entry_count: Option<usize>,
+    /// A later tree open revokes the pending owner's right to replace columns.
+    owner_load_owns_view: bool,
     /// Blob content by sha (in-memory, session-scoped): sanitized raw
     /// text + highlighted lines. Lines are cached so navigation never
     /// re-highlights; the raw text lets a theme switch restyle
@@ -91,14 +99,21 @@ impl Browser {
     pub fn new(recent_orgs: &[String]) -> Self {
         let orgs = recent_orgs
             .iter()
-            .map(|n| Entry::new(n, EntryKind::Org))
+            .map(|n| Entry::new(n, EntryKind::Owner))
             .collect();
         // Starts folded at the orgs level; the repos level arrives
         // asynchronously via `org_repos_loaded`.
         let mut browser = Browser {
-            levels: vec![Pane::new("orgs", orgs)],
+            levels: vec![Pane::new("owners", orgs)],
             focus: 0,
             tree: None,
+            tree_source: None,
+            tree_load: Default::default(),
+            tree_generation: Default::default(),
+            owner_load: Default::default(),
+            owner_generation: Default::default(),
+            owner_entry_count: None,
+            owner_load_owns_view: false,
             blobs: HashMap::new(),
             pending_blobs: HashSet::new(),
             failed_blobs: HashMap::new(),
@@ -119,9 +134,18 @@ impl Browser {
         browser
     }
 
-    /// Selected org at the top level, if any.
+    /// Only a provider's explicit organization selection enables organization scope.
     pub fn selected_org(&self) -> Option<String> {
-        self.levels[0].selected_entry().map(|e| e.name.clone())
+        self.levels[0]
+            .selected_entry()
+            .filter(|entry| entry.kind == EntryKind::Org)
+            .map(|entry| entry.name.clone())
+    }
+
+    pub fn selected_owner(&self) -> Option<&str> {
+        self.levels[0]
+            .selected_entry()
+            .map(|entry| entry.name.as_str())
     }
 
     /// Default branch of the open repo, if a tree is loaded.
@@ -131,7 +155,7 @@ impl Browser {
 
     /// Repo-level entries as full names (`org/repo`), if loaded.
     pub fn org_repo_full_names(&self) -> Vec<String> {
-        let Some(org) = self.selected_org() else {
+        let Some(org) = self.selected_owner() else {
             return vec![];
         };
         let Some(repos) = self.levels.get(1) else {
@@ -145,8 +169,20 @@ impl Browser {
             .collect()
     }
 
-    /// Ensure `org` exists in the orgs level and select it.
+    /// A provider search result explicitly classified this owner as an organization.
     pub fn select_org(&mut self, org: &str) {
+        self.select_owner(org);
+        if let Some(entry) = self.levels[0]
+            .entries
+            .iter_mut()
+            .find(|entry| entry.name == org)
+        {
+            entry.kind = EntryKind::Org;
+        }
+    }
+
+    /// A repository owner or saved legacy name carries no account-type evidence.
+    pub fn select_owner(&mut self, org: &str) {
         let pos = self.levels[0]
             .entries
             .iter()
@@ -154,77 +190,12 @@ impl Browser {
             .unwrap_or_else(|| {
                 self.levels[0]
                     .entries
-                    .insert(0, Entry::new(org, EntryKind::Org));
+                    .insert(0, Entry::new(org, EntryKind::Owner));
                 0
             });
         self.levels[0].select(pos);
         self.focus = 0;
         self.sync();
-    }
-
-    /// Org repos arrived from the API: install/replace the repos level.
-    /// Ignored if the user has since selected a different org.
-    pub fn org_repos_loaded(&mut self, org: &str, repos: Vec<rootle_provider::RepoInfo>) {
-        if !self.org_repos_would_accept(org) {
-            return;
-        }
-        let entries = repos
-            .iter()
-            .map(|r| Entry::new(&r.name, EntryKind::Repo))
-            .collect();
-        self.levels.truncate(1);
-        self.levels.push(Pane::new(org, entries));
-        self.focus = 1;
-        self.cascade();
-        self.sync();
-    }
-
-    /// Repo tree arrived: install it and rebuild the dir columns.
-    /// Ignored if it doesn't match the currently selected repo.
-    pub fn tree_loaded(
-        &mut self,
-        owner: &str,
-        name: &str,
-        entries: Vec<TreeNode>,
-        truncated: bool,
-        branch: String,
-    ) {
-        if !self.tree_would_accept(owner, name) {
-            return;
-        }
-        self.tree = Some(RepoTree::new(
-            owner.to_string(),
-            name.to_string(),
-            truncated,
-            branch,
-            entries,
-        ));
-        self.levels.truncate(2);
-        self.focus = 1;
-        self.cascade();
-        // Complete the interrupted drill: the tree load was requested by
-        // acting on this repo, so land the user in its root pane rather
-        // than leaving them on the repos pane to press `l` again.
-        if self.levels.len() > 2 {
-            self.focus = 2;
-        }
-        self.sync();
-    }
-
-    /// Shared identity guard for org-repo application and its observation.
-    pub(crate) fn org_repos_would_accept(&self, org: &str) -> bool {
-        self.selected_org().as_deref() == Some(org)
-    }
-
-    /// Shared identity guard for tree application and its observation.
-    pub(crate) fn tree_would_accept(&self, owner: &str, name: &str) -> bool {
-        self.levels.get(1).map(|p| p.title.as_str()) == Some(owner)
-            && self
-                .levels
-                .get(1)
-                .and_then(|p| p.selected_entry())
-                .map(|e| e.name.as_str())
-                == Some(name)
     }
 
     /// Shared condition for applying arrived blame ranges to the open lens.

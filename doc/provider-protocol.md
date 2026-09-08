@@ -78,6 +78,30 @@ else as an NDJSON-RPC stdio child](architecture.svg)
 
 ## Handshake
 
+### Version axes and compatibility evidence
+
+These versions are independent:
+
+- **rootle and provider package versions** identify separately released binaries.
+- **`jsonrpc: "2.0"`** identifies the JSON-RPC envelope.
+- **`protocol: 1`** identifies this application's wire major.
+- **Spec v1.6** documents additive methods and fields within wire major 1.
+  It is not a separately negotiated minor version; initialize still sends `1`.
+
+Feature availability follows capabilities and required methods, not package
+version comparisons. A successful handshake does not establish search auth,
+external-tool availability, or target-OS support. Provider maintainers SHOULD
+publish tested rootle/provider pairs, capability requirements and runtime/tool
+dependencies, with useful `--help` or equivalent operator documentation.
+One tested pair is not evidence for an invented minimum/maximum support range.
+
+The current client treats a missing or non-unsigned-integer reply `protocol` as
+effective major `1`; another unsigned integer is rejected. This is existing
+reader tolerance, not permission for new providers to omit the normative
+integer `1`. The handshake trace records the effective accepted value, not
+necessarily an explicitly declared value. No minor/package-range negotiation
+or stricter admission rule is introduced here.
+
 First request after spawn:
 
 ```
@@ -91,20 +115,20 @@ First request after spawn:
      "cache":{"bytes":218}}}
 ```
 
-`protocol` must be `1` (anything else aborts stdio setup and rootle falls
-back to the GitHub provider with a warning). `name` is optional and is
+Providers MUST return integer `protocol: 1`. A different unsigned integer aborts
+stdio setup and rootle falls back to GitHub with a warning; current missing/
+malformed-field tolerance is described above. `name` is optional and is
 shown as `stdio:<name>`. `icon` (v1.3) is optional: a builtin name rootle
 maps to its Nerd Font glyph (`github`, `gitlab`, `bitbucket`, `folder` —
 rendered when the user enables `[ui] nerd_font`), or a single literal
 glyph the terminal can render in any mode. Rootle never guesses icons
 from names — a provider that declares none renders text-only.
-`capabilities` is optional and defaults to
-everything enabled; the UI degrades on `false`. Known keys: `orgs`,
-`code_search`, `file_search` (v1.3 — absent inherits `code_search`),
-and the revision capabilities — the v1.5 trio `refs`, `log`, `blame`
-plus v1.6's `commit` (all default false — absent means
-default-branch-only, since many backends can't answer them; a
-backend that can, says so).
+`capabilities` is optional. Defaults are **`orgs: true`, `code_search: true`;
+`file_search` inherits `code_search`; `refs`, `log`, `blame` and `commit` are
+false**. Explicit `false` disables that declared capability. The revision trio
+arrived in v1.5 and commit inspection in v1.6; older providers remain
+default-branch-only unless they opt in. Providers should declare their actual
+capabilities explicitly rather than relying on historical defaults.
 
 **Cache budget (advisory, v1.2):** `cache_bytes` is the user's
 `[cache] max_mb` budget in bytes and `cache_dir` is this provider's
@@ -339,29 +363,32 @@ Reply with a JSON-RPC `error` object instead of `result`:
 ← {"jsonrpc":"2.0","id":3,"error":{"code":1,"message":"no blob abc in local/alpha"}}
 ```
 
-The `message` becomes the `Err` the UI shows as a one-line status/toast
-(`code` is ignored). A reply with neither `result` nor `error` fails
-with "provider reply without result". `fs_provider.py` wraps every
-handler exception this way.
+`code` is ignored by the UI. A reply with neither `result` nor `error` fails
+with "provider reply without result". `fs_provider.py` wraps handler exceptions
+this way. Errors belong to the operation that failed: a background owner-list
+failure must not replace a ready repository's state.
 
 **Kinds (v1.1, optional).** Errors may carry a semantic kind in
 `data.kind` — an open string enum the UI maps to precise handling:
 
+```json
+{"jsonrpc":"2.0","id":3,"error":{"code":1,"message":"required search tool unavailable","data":{"kind":"auth"}}}
 ```
-**Kinds (v1.1, optional).** Errors may carry a semantic kind in
-`data.kind` — an open string enum the UI maps to precise handling:
 
 Defined kinds: `auth`, `rate_limited` (optional `retry_after_s`
 seconds), `not_found`, `network`, `timeout`, `provider` (internal).
-Unknown kinds degrade to the message toast — never error on them.
+Unknown kinds map to `other` while preserving the message; never reject them.
 `code` stays any positive int of the provider's choosing (the JSON-RPC
 standard `-32xxx` codes remain reserved for protocol-level errors).
 
-**Rendering (v1.2 — kinds are wired, not just parsed):** `auth` shows
-the message with a refresh-credentials hint; `rate_limited` shows a
-throttled notice with the backoff seconds. rootle also *generates*
-kinds host-side: `timeout` when the read deadline fires, `provider`
-when the child dies.
+**Presentation:** tree and owner-list state retain typed outcomes; global search
+shows a durable, scrollable error in its result body, including beside an
+expanded partial hit. Already received hits survive a failed stream and remain
+explicitly incomplete. An auth-classified missing-tool error remains `auth`;
+rootle does not guess a new classification from its wording. Retry delays remain
+available as `retry_after_s`; retry is explicit. Other surfaces may use status
+messages. Rootle also generates `timeout` on read deadline and `provider` when
+the child dies.
 
 ## Configuration
 
@@ -380,12 +407,16 @@ command = ["python3", "/path/to/fs_provider.py", "/path/to/code"]
 # icon = "folder"      # modeline icon override: a builtin name
                        # ("github"|"gitlab"|"bitbucket"|"folder") or a
                        # single literal glyph; wins over the handshake.
+
+[ui]
 # border = "plain"     # pane/popup corner style: "plain" (default) |
                        # "rounded" | "thick" | "double". Unknown values
                        # fall back to plain.
 # nerd_font = false    # Nerd Font glyphs in the modeline (powerline
                        # arrows + forge icons); false keeps unicode
                        # fallbacks (❯, text-only chips).
+```
+
 `kind = "github"` (the default) uses the built-in provider. An empty
 command, a failed spawn, or an unknown kind falls back to GitHub with
 a warning on the status line — misconfiguration never blocks startup.
