@@ -56,28 +56,27 @@ pub(super) fn describe_event(event: &AppEvent) -> Value {
             "gen": *gen_id,
             "error": describe_error(error),
         }),
-        AppEvent::OrgReposLoaded { org, repos } => json!({
-            "org": org,
+        AppEvent::OrgReposLoaded { request, repos } => json!({
+            "request": request,
             "repos": repos.len(),
         }),
-        AppEvent::OrgReposFailed { org, error } => json!({
-            "org": org,
+        AppEvent::OrgReposFailed { request, error } => json!({
+            "request": request,
             "error": describe_error(error),
         }),
         AppEvent::TreeLoaded {
-            owner,
-            name,
+            request,
             entries,
             truncated,
             branch,
         } => json!({
-            "repo": format!("{owner}/{name}"),
+            "request": request,
             "entries": entries.len(),
             "truncated": truncated,
             "branch": branch,
         }),
-        AppEvent::TreeFailed { owner, name, error } => json!({
-            "repo": format!("{owner}/{name}"),
+        AppEvent::TreeFailed { request, error } => json!({
+            "request": request,
             "error": describe_error(error),
         }),
         AppEvent::BlobLoaded { sha, name, bytes } => json!({

@@ -231,6 +231,7 @@ impl App {
                     });
                     built
                 });
+                self.invalidate_provider_context();
                 match outcome {
                     provider::BuildOutcome::Ready | provider::BuildOutcome::Warn(_) => {
                         self.provider = provider;

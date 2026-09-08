@@ -196,24 +196,23 @@ def test_delete_marked_orgs(tmp_path, binary):
     out = run_headless(
         binary,
         "keys zzz\nkeys <cr>\nsettle\nkeys <cr>\nsettle\n"
-        "keys <space>d\n"  # nothing marked → honest no-op toast
-        "frame\n"
-        "keys hh\n"  # → orgs level
+        "keys hh\nstate\n"
+        "keys <space>d\nstate\n"  # unmarked deletion leaves the browser unchanged
         "keys v\n"
         "keys <space>\n"  # VISUAL-mark the org
         "keys v\n"
         "keys <space>d\n"  # ␣d deletes it
         "settle\n"
-        "frame\n",
+        "frame\nstate\n",
         "--config",
         str(config),
         home=tmp_path / "home",
         cols=110,
     )
-    f = frames(out)
-    assert "no marked orgs" in f[0]
-    assert "deleted 1 org" in f[1]
-    assert "local/" not in f[1]  # gone from the orgs pane
+    before, unmarked, deleted = states(out)
+    assert before["browser"] == unmarked["browser"]
+    assert deleted["browser"]["pane"]["entry_count"] == 0
+    assert "local/" not in frames(out)[0]
 
 
 def test_org_mark_fans_out_to_all_repos(tmp_path, binary):

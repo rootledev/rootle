@@ -228,14 +228,14 @@ pub(super) fn describe_action(action: &Action) -> Value {
         }),
         Action::OrgSelected(org) => json!({"action": "org_selected", "org": org}),
         Action::LoadOrgRepos(org) => json!({"action": "load_org_repos", "org": org}),
-        Action::OrgReposLoaded { org, repos } => json!({
+        Action::OrgReposLoaded { request, repos } => json!({
             "action": "org_repos_loaded",
-            "org": org,
+            "request": request,
             "repos": repos.len(),
         }),
-        Action::OrgReposFailed { org, error } => json!({
+        Action::OrgReposFailed { request, error } => json!({
             "action": "org_repos_failed",
-            "org": org,
+            "request": request,
             "error": describe_error(error),
         }),
         Action::LoadRepoTree { owner, name } => json!({
@@ -243,21 +243,20 @@ pub(super) fn describe_action(action: &Action) -> Value {
             "repo": format!("{owner}/{name}"),
         }),
         Action::TreeLoaded {
-            owner,
-            name,
+            request,
             entries,
             truncated,
             branch,
         } => json!({
             "action": "tree_loaded",
-            "repo": format!("{owner}/{name}"),
+            "request": request,
             "entries": entries.len(),
             "truncated": truncated,
             "branch": branch,
         }),
-        Action::TreeFailed { owner, name, error } => json!({
+        Action::TreeFailed { request, error } => json!({
             "action": "tree_failed",
-            "repo": format!("{owner}/{name}"),
+            "request": request,
             "error": describe_error(error),
         }),
         Action::LoadBlob { sha, name } => json!({

@@ -3,6 +3,30 @@
 User-visible changes per release. Protocol archaeology lives in
 `plans/`; this file is for "what's new for me".
 
+## [0.12.2] — 2026-09-08
+
+- Headless `state` exposes request-scoped tree and search outcomes, accepted
+  entry/hit counts, truncation and typed errors. Empty success is distinct
+  from failure; retained trees are identified separately during a reload.
+  `settle` remains the wait, not a success predicate.
+- Direct repository startup and warm recents no longer infer an organization
+  lookup from every owner. Personal and organization history is preserved
+  without eager probes; explicit built-in GitHub owner listing resolves the
+  account type before choosing its endpoint.
+- Tree/owner successes and failures are guarded before state or focus changes.
+  Obsolete replies cannot overwrite a newer repository/ref/reload or a
+  replacement provider's results; an ancillary owner error cannot cover a ready tree.
+- Search failures have a durable, scrollable body, including beside expanded
+  hits. Partial results survive a failed stream and remain incomplete. Editing
+  an unsubmitted query cannot relabel or restyle its existing results.
+  Unsupported global search is refused without calling the provider.
+- Provider guidance distinguishes package versions, JSON-RPC `2.0`, wire major
+  `1` and additive spec v1.6, with precise capability defaults and compatibility
+  evidence requirements. No new handshake/minor negotiation is introduced.
+- External-provider compatibility matrices, opt-in inspection and RHEL 8.10
+  certification remain roadmap work. This release does not claim new
+  `rootle-bbgithub` or RHEL validation.
+
 ## [0.12.1] — 2026-09-08
 
 - Fixed updater command ownership: `rootle update` updates the application
@@ -378,3 +402,4 @@ User-visible changes per release. Protocol archaeology lives in
 [0.7.0]: https://github.com/rootledev/rootle/releases/tag/v0.7.0
 [0.6.0]: https://github.com/rootledev/rootle/releases/tag/v0.6.0
 [0.12.1]: https://github.com/rootledev/rootle/releases/tag/v0.12.1
+[0.12.2]: https://github.com/rootledev/rootle/releases/tag/v0.12.2

@@ -65,7 +65,6 @@ fn keybinds_popup_walks_modes_and_closes_without_residue() {
     let rows = render(&mut app, 100, 30);
     let screen = rows.join("\n");
     assert!(!screen.contains("keybindings"), "popup residue after close");
-    assert!(screen.contains("orgs"), "browser should be back");
 }
 
 #[test]

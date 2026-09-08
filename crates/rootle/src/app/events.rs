@@ -69,52 +69,48 @@ impl App {
                     return;
                 }
             }
-            AppEvent::OrgReposLoaded { org, repos } => {
-                let accepted = self.browser.org_repos_would_accept(&org);
-                self.clear_loading_status(&["loading ", "reloading org repos"]);
-                self.browser.org_repos_loaded(&org, repos);
-                if !accepted {
-                    diagnostics::record_event_rejected(name, "org_mismatch", || {
-                        json!({
-                            "org": org,
-                            "selected": self.browser.selected_org(),
-                        })
-                    });
+            AppEvent::OrgReposLoaded { request, repos } => {
+                if !self.browser.org_repos_would_accept(&request) {
+                    diagnostics::record_event_rejected(
+                        name,
+                        "owner_request_mismatch",
+                        || json!({"request": request}),
+                    );
                     return;
                 }
+                self.handle_action(Action::OrgReposLoaded { request, repos });
             }
-            AppEvent::OrgReposFailed { org, error } => {
-                self.status = Some(format!("{org}: {}", provider_status(&error)));
+            AppEvent::OrgReposFailed { request, error } => {
+                if !self.browser.org_repos_would_accept(&request) {
+                    diagnostics::record_event_rejected(
+                        name,
+                        "owner_request_mismatch",
+                        || json!({"request": request}),
+                    );
+                    return;
+                }
+                self.handle_action(Action::OrgReposFailed { request, error });
             }
             AppEvent::TreeLoaded {
-                owner,
-                name: repo,
+                request,
                 entries,
                 truncated,
                 branch,
             } => {
-                let accepted = self.browser.tree_would_accept(&owner, &repo);
-                // Rejection identity, allocated only while tracing.
-                let requested = rootle_trace::enabled().then(|| format!("{owner}/{repo}"));
+                if !self.browser.tree_would_accept(&request) {
+                    diagnostics::record_event_rejected(
+                        name,
+                        "tree_request_mismatch",
+                        || json!({"request": request}),
+                    );
+                    return;
+                }
                 self.handle_action(Action::TreeLoaded {
-                    owner,
-                    name: repo,
+                    request,
                     entries,
                     truncated,
                     branch,
                 });
-                if !accepted {
-                    diagnostics::record_event_rejected(name, "repo_mismatch", || {
-                        json!({
-                            "requested": requested,
-                            "open": self
-                                .browser
-                                .repo_coords()
-                                .map(|(owner, repo)| format!("{owner}/{repo}")),
-                        })
-                    });
-                    return;
-                }
             }
             AppEvent::BlobLoaded { sha, name, bytes } => {
                 self.handle_action(Action::BlobLoaded { sha, name, bytes });
@@ -122,8 +118,16 @@ impl App {
             AppEvent::BlobFailed { sha, error } => {
                 self.handle_action(Action::BlobFailed { sha, error });
             }
-            AppEvent::TreeFailed { owner, name, error } => {
-                self.handle_action(Action::TreeFailed { owner, name, error });
+            AppEvent::TreeFailed { request, error } => {
+                if !self.browser.tree_would_accept(&request) {
+                    diagnostics::record_event_rejected(
+                        name,
+                        "tree_request_mismatch",
+                        || json!({"request": request}),
+                    );
+                    return;
+                }
+                self.handle_action(Action::TreeFailed { request, error });
             }
             AppEvent::GlobalSearchDelta { gen_id, hits } => {
                 if !self.view_gen.is_current(gen_id) {
@@ -143,7 +147,7 @@ impl App {
                     );
                     return;
                 };
-                let (kind, query) = (view.kind(), view.query.value());
+                let (kind, query) = (view.kind(), view.query_text());
                 let hits = hits
                     .into_iter()
                     .map(crate::components::global_search::SearchHit::from_raw)
@@ -151,14 +155,6 @@ impl App {
                 let hits = self.finish_hits(hits, kind, &query);
                 if let Some(view) = &mut self.search_view {
                     view.update(&Action::GlobalSearchDelta { hits });
-                }
-                // Live count while the stream runs.
-                if let Some(view) = &self.search_view {
-                    self.status = Some(format!(
-                        "searching {}… {} hits",
-                        self.modeline.forge,
-                        view.hit_count()
-                    ));
                 }
             }
             AppEvent::GlobalSearchResults {
@@ -178,7 +174,6 @@ impl App {
                     });
                     return; // stale submission
                 }
-                self.clear_loading_status(&["searching code"]);
                 let Some(view) = &self.search_view else {
                     diagnostics::record_event_rejected(
                         name,
@@ -187,7 +182,7 @@ impl App {
                     );
                     return;
                 };
-                let (kind, query) = (view.kind(), view.query.value());
+                let (kind, query) = (view.kind(), view.query_text());
                 let hits = hits
                     .into_iter()
                     .map(crate::components::global_search::SearchHit::from_raw)
@@ -222,7 +217,6 @@ impl App {
                     });
                     return;
                 }
-                self.clear_loading_status(&["searching code"]);
                 if let Some(view) = &mut self.search_view {
                     view.update(&Action::GlobalSearchFailed { error });
                 } else {
@@ -692,6 +686,7 @@ impl App {
                 });
                 match swap {
                     Ok(p) => {
+                        self.invalidate_provider_context();
                         self.provider = p;
                         self.status = Some(format!("{name} ready"));
                     }

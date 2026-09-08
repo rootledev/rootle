@@ -38,7 +38,7 @@ impl GlobalSearch {
         }
         Some(Action::LoadHitContext {
             hit: Box::new(hit.clone()),
-            query: self.query.value(),
+            query: self.query_text(),
         })
     }
 
@@ -78,25 +78,28 @@ impl GlobalSearch {
         self.find_input.clear();
     }
 
+    pub fn start_request(&mut self, request: crate::request::ContentSearchRequest) {
+        self.load.start(request);
+        self.failure_preview = None;
+        self.hits.clear();
+        self.dropped = 0;
+        self.clipped = false;
+        self.index_as_of = None;
+        self.client_filtered = 0;
+        self.unfiltered.clear();
+        self.facet = None;
+        self.facet_cursor = 0;
+        self.focus = Focus::Results;
+        self.selected = 0;
+        self.scroll = 0;
+        self.filter.clear();
+        self.filter_value.clear();
+        self.filtering = false;
+        self.collapse();
+    }
+
     pub fn update(&mut self, action: &Action) {
         match action {
-            Action::GlobalSearchSubmitted { .. } => {
-                self.submitted_once = true;
-                self.pending = true;
-                self.error = None;
-                self.hits.clear();
-                self.dropped = 0;
-                self.clipped = false;
-                self.index_as_of = None;
-                self.client_filtered = 0;
-                self.unfiltered = vec![];
-                self.facet = None; // a new search is a new facet set
-                self.facet_cursor = 0;
-                self.focus = Focus::Results;
-                self.selected = 0;
-                self.scroll = 0;
-                self.collapse(); // a new search replaces the file pane
-            }
             Action::GlobalSearchDelta { hits } => {
                 self.append_hits(hits.clone());
                 self.clamp_facet_cursor(); // chips grew — keep the cursor on one
@@ -108,7 +111,8 @@ impl GlobalSearch {
                 client_filtered,
                 unfiltered,
             } => {
-                self.pending = false;
+                self.load.finish(None);
+                self.failure_preview = None;
                 self.clipped = *clipped || self.dropped > 0;
                 self.index_as_of = index.clone();
                 self.client_filtered = *client_filtered;
@@ -125,9 +129,29 @@ impl GlobalSearch {
                 self.clamp_facet_cursor();
             }
             Action::GlobalSearchFailed { error } => {
-                self.pending = false;
-                self.error = Some(crate::app::provider_status(error));
-                self.hits = vec![];
+                self.load.finish(Some(error));
+                let error = self.load.error.as_ref().expect("failed outcome");
+                let mut preview = Preview::focused();
+                let partial = if self.hits.is_empty() {
+                    "No completed result set.".to_string()
+                } else {
+                    format!(
+                        "{} partial results retained; search is incomplete.",
+                        self.hits.len()
+                    )
+                };
+                let retry = error
+                    .retry_after_s
+                    .map(|seconds| format!("\nProvider retry delay: {seconds}s."))
+                    .unwrap_or_default();
+                preview.set_text("search failed", format!(
+                    "Search failed ({})\n{}\n{partial}{retry}\nEdit the query and submit to retry.",
+                    error.kind_name(), error.message,
+                ));
+                self.failure_preview = Some(preview);
+                if self.hits.is_empty() && self.focus == Focus::Results {
+                    self.focus = Focus::Error;
+                }
             }
             // v1.1 lazy context landed (plans/0006 §1): merge by
             // identity — the hit list may have been filtered/reordered

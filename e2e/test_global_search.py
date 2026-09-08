@@ -121,11 +121,12 @@ def test_grep_view_scope_radio_popup(tmp_path, binary):
         + "keys <tab><cr>\n"  # query → scope, open the radio popup
         + "settle\n"
         + "frame\n"
-        + "keys j\n"  # the radio follows the cursor immediately
+        + "keys j\n"  # repo → global; its unclassified owner is not an org scope
         + "frame\n"
         + "keys <cr>\n"  # …Enter just closes the popup
         + "settle\n"
-        + "frame\n",
+        + "frame\n"
+        + "keys <tab><cr>\nsettle\nstate\n",
         "--config",
         str(config),
         home=tmp_path / "home",
@@ -134,8 +135,7 @@ def test_grep_view_scope_radio_popup(tmp_path, binary):
     f = frames(out)
     assert "grep" in f[0]
     assert "(•) current repo" in f[1]
-    assert "(•) current org" in f[2]
-    assert "grep · org:local" in f[3]
+    assert states(out)[0]["search"]["request"]["scope"] == "global"
 
 
 def test_results_slash_filter_and_editor_open(tmp_path, binary):
@@ -243,7 +243,7 @@ def test_facet_chips_narrow_and_restore(tmp_path, binary):
         + "keys <space>g\n"
         + "keys fn\n"
         + "keys <tab>\n"  # query → scope
-        + "keys jj\n"  # repo → org → global: alpha and nested both hit
+        + "keys j\n"  # repo → global; an unclassified owner supplies no org scope
         + "keys <tab>\n"  # scope → extension (no facets yet: skipped)
         + "keys <cr>\n"  # submit from the extension field
         + "settle\n"

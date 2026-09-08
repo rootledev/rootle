@@ -32,6 +32,10 @@ impl RepoTree {
         }
     }
 
+    pub fn entry_count(&self) -> usize {
+        self.entries.len()
+    }
+
     /// Direct children of `path` ("" = root), dirs first, then files,
     /// alphabetical within each group.
     pub fn children(&self, path: &str) -> Vec<Entry> {

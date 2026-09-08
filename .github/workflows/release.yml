@@ -73,8 +73,10 @@ jobs:
           fi
           # plans/0023 M2: behavioral smoke — the binary doesn't just
           # link, it renders. Headless needs no terminal (no PTY on a
-          # runner) and no network (offline orgs, update check off).
-          HOME="$tmp" "$bin" --headless <(printf 'frame\n') | grep -q "orgs"
+          # runner), and the fresh-profile popup must close through real input.
+          HOME="$tmp" XDG_CONFIG_HOME="$tmp/config" XDG_STATE_HOME="$tmp/state" \
+            "$bin" --headless <(printf 'state\nkeys <esc><esc>\nframe\nstate\n') > "$tmp/smoke"
+          python3 -c 'import json,sys; s=[json.loads(x.removeprefix("─── state ")) for x in open(sys.argv[1]) if x.startswith("─── state ")]; assert [x["popup"] for x in s] == [True,False]; assert s[-1]["browser"]["tree"]["phase"] == "idle"' "$tmp/smoke"
           "$bin" --version
 
       - name: "Verify (macOS: system libs only)"
@@ -95,7 +97,9 @@ jobs:
           fi
           "$bin" --version
           # Same headless smoke as the linux verify (plans/0023 M2).
-          HOME="$tmp" "$bin" --headless <(printf 'frame\n') | grep -q "orgs"
+          HOME="$tmp" XDG_CONFIG_HOME="$tmp/config" XDG_STATE_HOME="$tmp/state" \
+            "$bin" --headless <(printf 'state\nkeys <esc><esc>\nframe\nstate\n') > "$tmp/smoke"
+          python3 -c 'import json,sys; s=[json.loads(x.removeprefix("─── state ")) for x in open(sys.argv[1]) if x.startswith("─── state ")]; assert [x["popup"] for x in s] == [True,False]; assert s[-1]["browser"]["tree"]["phase"] == "idle"' "$tmp/smoke"
 
       - uses: actions/upload-artifact@v7
         with:

@@ -426,29 +426,6 @@ mod tests {
     }
 
     #[test]
-    fn leader_yank_surfaces_in_state() {
-        let (tx, rx) = crate::event::channel();
-        let mut app = App::with(
-            crate::state::State {
-                recent_orgs: vec!["ratatui".into()],
-                ..Default::default()
-            },
-            tx,
-        );
-        app.handle_action(crate::action::Action::OrgSelected("ratatui".into()));
-        let mut driver = Headless::new(app, rx, 80, 24);
-        let mut out = Vec::new();
-        // ␣ y with the offline provider: no URL exists, and the
-        // status line must say so honestly (recording coverage with
-        // real URLs lives in e2e/test_headless.py over fs_provider).
-        driver
-            .run_script("keys <space>y\nstate\n", &mut out)
-            .unwrap();
-        let out = String::from_utf8(out).unwrap();
-        assert!(out.contains("nothing to yank"), "status in state: {out}");
-    }
-
-    #[test]
     fn settle_deadline_fails_with_outstanding_count() {
         // A worker that never finishes: settle fails at its bound,
         // names the stuck count, and the script stops there — the

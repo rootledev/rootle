@@ -44,14 +44,16 @@ enum Focus {
     Scope,
     Extension,
     Facets,
+    Error,
     Results,
 }
 
-const FOCUS_ORDER: [Focus; 5] = [
+const FOCUS_ORDER: [Focus; 6] = [
     Focus::Query,
     Focus::Scope,
     Focus::Extension,
     Focus::Facets,
+    Focus::Error,
     Focus::Results,
 ];
 
@@ -81,9 +83,8 @@ pub struct GlobalSearch {
     /// Selected hit within the visible set.
     selected: usize,
     scroll: u16,
-    pending: bool,
-    error: Option<String>,
-    submitted_once: bool,
+    load: crate::request::LoadState<crate::request::ContentSearchRequest>,
+    failure_preview: Option<Preview>,
     /// Result set is incomplete — provider-truncated (plans/0008 §4)
     /// or hits dropped past the render cap; shown in the results title.
     clipped: bool,
@@ -183,9 +184,8 @@ impl GlobalSearch {
             facet_cursor: 0,
             selected: 0,
             scroll: 0,
-            pending: false,
-            error: None,
-            submitted_once: false,
+            load: Default::default(),
+            failure_preview: None,
             expanded: None,
             find_input: VimInput::transient(),
             finding: false,
@@ -235,9 +235,21 @@ impl GlobalSearch {
             SearchKind::FileFind => "find",
             SearchKind::Grep => "grep",
         };
-        let mut ctx = format!("{what} · {}", self.scope_label());
-        if !self.extension.value().is_empty() {
-            ctx.push_str(&format!(" · ext:{}", self.extension.value()));
+        let scope = self
+            .submitted_request()
+            .map(|request| request.scope.as_str());
+        let mut ctx = format!(
+            "{what} · {}",
+            scope
+                .map(str::to_string)
+                .unwrap_or_else(|| self.scope_label())
+        );
+        let extension = self
+            .submitted_request()
+            .map(|request| request.extension.clone())
+            .unwrap_or_else(|| self.extension.value());
+        if !extension.is_empty() {
+            ctx.push_str(&format!(" · ext:{extension}"));
         }
         ctx
     }
@@ -259,7 +271,7 @@ impl GlobalSearch {
                 SubMode::Insert => Mode::Insert,
                 SubMode::Normal => Mode::Normal,
             },
-            Focus::Scope | Focus::Facets | Focus::Results => Mode::Browse,
+            Focus::Scope | Focus::Facets | Focus::Results | Focus::Error => Mode::Browse,
         }
     }
 
@@ -277,6 +289,22 @@ impl GlobalSearch {
         })
     }
 
+    pub fn submitted_request(&self) -> Option<&crate::request::ContentSearchRequest> {
+        self.load.request.as_ref()
+    }
+
+    pub fn observation(&self) -> serde_json::Value {
+        serde_json::json!({
+            "kind": self.kind,
+            "phase": self.load.phase,
+            "request": self.load.request,
+            "retained_hit_count": self.hits.len(),
+            "visible_hit_count": self.visible().len(),
+            "truncated": if self.clipped { Some(true) } else if self.load.phase == crate::request::LoadPhase::Ready { Some(false) } else { None },
+            "error": self.load.error,
+        })
+    }
+
     /// Focus/selection/count summary for session traces (plans/0030):
     /// no query, hit or error text — lengths only.
     pub(crate) fn diagnostics(&self) -> SearchDiagnostics {
@@ -288,19 +316,20 @@ impl GlobalSearch {
                 Focus::Scope => "scope",
                 Focus::Extension => "extension",
                 Focus::Facets => "facets",
+                Focus::Error => "error",
                 Focus::Results => "results",
             },
             selected: self.selected,
             hits: self.hits.len(),
             dropped: self.dropped,
             clipped: self.clipped,
-            pending: self.pending,
+            pending: self.load.phase == crate::request::LoadPhase::Loading,
             filtering: self.filtering,
             finding: self.finding,
             expanded: self.expanded.is_some(),
             query_len: self.query.value().len(),
             filter_len: self.filter_value.len(),
-            error_len: self.error.as_deref().map(str::len),
+            error_len: self.load.error.as_ref().map(|error| error.message.len()),
         }
     }
 }

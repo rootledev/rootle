@@ -15,6 +15,7 @@ impl Browser {
     /// were fetched for the previous ref.
     pub fn set_current_ref(&mut self, name: Option<String>) {
         self.current_ref = name;
+        self.invalidate_changed_requests();
         self.history = None;
         self.commit = None;
         self.blame = None;

@@ -5,7 +5,8 @@
 use ratatui::style::Modifier;
 use ratatui::text::{Line, Span};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum SearchKind {
     FileFind,
     Grep,

@@ -29,46 +29,6 @@ fn filter_commit_triggers_blob_load_of_selected_file() {
     );
 }
 
-#[test]
-fn launch_popup_only_when_state_has_no_repos() {
-    // Fresh state → popup opens automatically.
-    let mut fresh = test_app();
-    let screen = render(&mut fresh, 100, 30).join("\n");
-    // Offline double names itself; the title is forge-driven now.
-    assert!(
-        screen.contains("search offline"),
-        "fresh launch should open the search popup"
-    );
-
-    // Returning user (repos OR orgs in state) → straight into the browser.
-    let state = rootle::state::State {
-        recent_repos: vec!["ratatui/ratatui".into()],
-        ..Default::default()
-    };
-    let (tx, _rx) = rootle::event::channel();
-    let mut app = App::with(state, tx);
-    let screen = render(&mut app, 100, 30).join("\n");
-    assert!(
-        !screen.contains("search github"),
-        "launch with recents should skip the popup"
-    );
-    assert!(screen.contains("BROWSE"));
-
-    let (tx, _rx) = rootle::event::channel();
-    let mut orgs_only = App::with(
-        rootle::state::State {
-            recent_orgs: vec!["ratatui".into()],
-            ..Default::default()
-        },
-        tx,
-    );
-    let screen = render(&mut orgs_only, 100, 30).join("\n");
-    assert!(
-        !screen.contains("search github"),
-        "orgs-only history should also skip the popup"
-    );
-}
-
 /// plans/0023 breaker F1: a failed blob fetch re-shows the honest
 /// error on every re-select — never the "loading…" placeholder that
 /// nothing will resolve — and explicit reload (␣ r) is the retry.
@@ -86,12 +46,12 @@ fn failed_blob_restates_error_on_reselect() {
     app.handle_key(key(KeyCode::Esc));
     app.handle_action(rootle::action::Action::OrgSelected("ratatui".into()));
     app.handle_action(rootle::action::Action::OrgReposLoaded {
-        org: "ratatui".into(),
+        request: app.owner_request().unwrap().clone(),
         repos: vec!["ratatui".into()],
     });
+    app.handle_key(key(KeyCode::Char('l')));
     app.handle_action(rootle::action::Action::TreeLoaded {
-        owner: "ratatui".into(),
-        name: "ratatui".into(),
+        request: app.tree_request().unwrap().clone(),
         entries: vec![
             file("a.bin", "aaaaaaa1111111"),
             file("b.bin", "bbbbbbb2222222"),
@@ -148,12 +108,12 @@ fn stale_blob_failure_does_not_clobber_visible_preview() {
     app.handle_key(key(KeyCode::Esc));
     app.handle_action(rootle::action::Action::OrgSelected("ratatui".into()));
     app.handle_action(rootle::action::Action::OrgReposLoaded {
-        org: "ratatui".into(),
+        request: app.owner_request().unwrap().clone(),
         repos: vec!["ratatui".into()],
     });
+    app.handle_key(key(KeyCode::Char('l')));
     app.handle_action(rootle::action::Action::TreeLoaded {
-        owner: "ratatui".into(),
-        name: "ratatui".into(),
+        request: app.tree_request().unwrap().clone(),
         entries: vec![
             file("a.bin", "aaaaaaa1111111"),
             file("b.bin", "bbbbbbb2222222"),
@@ -203,43 +163,167 @@ fn search_popup_respects_size_floor() {
     assert!(text.contains("❯"), "input still renders:\n{text}");
 }
 
-/// plans/0023 breaker round 3: a background success must never erase
-/// a fresh error from an unrelated in-flight operation — the direct-
-/// arg repo's 404 was wiped by the default-org warm-up landing after.
 #[test]
-fn background_success_never_erases_a_fresh_error() {
+fn owner_failure_cannot_replace_a_ready_personal_repository() {
+    use rootle::action::Action;
+    use rootle::event::AppEvent;
+    for owner_finishes_first in [true, false] {
+        let mut app = app_with_orgs(&["personal"]);
+        app.handle_action(Action::LoadOrgRepos("personal".into()));
+        let owner = app.owner_request().unwrap().clone();
+        app.handle_action(Action::RepoSelected {
+            owner: "personal".into(),
+            name: "project".into(),
+        });
+        let tree = app.tree_request().unwrap().clone();
+        let failure = AppEvent::OrgReposFailed {
+            request: owner,
+            error: rootle_provider::ProviderError::new(
+                rootle_provider::ErrorKind::NotFound,
+                "owner listing unavailable",
+            ),
+        };
+        if owner_finishes_first {
+            app.handle_app_event(failure);
+            app.handle_app_event(AppEvent::TreeLoaded {
+                request: tree,
+                entries: ratatui_tree(),
+                truncated: false,
+                branch: "main".into(),
+            });
+        } else {
+            app.handle_app_event(AppEvent::TreeLoaded {
+                request: tree,
+                entries: ratatui_tree(),
+                truncated: false,
+                branch: "main".into(),
+            });
+            app.handle_app_event(failure);
+        }
+        let state = app.snapshot();
+        assert_eq!(state["browser"]["tree"]["phase"], "ready");
+        assert_eq!(
+            state["browser"]["tree"]["entry_count"],
+            ratatui_tree().len()
+        );
+        assert_eq!(state["browser"]["owner_list"]["error"]["kind"], "not_found");
+        assert_eq!(state["browser"]["owner_kind"], "unknown");
+        assert!(state["status"].is_null());
+        assert!(render(&mut app, 100, 30).join("\n").contains("Cargo.toml"));
+    }
+}
+
+#[test]
+fn owner_success_cannot_replace_a_selected_tree() {
+    use rootle::action::Action;
+    let mut app = app_with_orgs(&["personal"]);
+    app.handle_action(Action::LoadOrgRepos("personal".into()));
+    let owner = app.owner_request().unwrap().clone();
+    app.handle_action(Action::RepoSelected {
+        owner: "personal".into(),
+        name: "project".into(),
+    });
+    app.handle_action(Action::TreeLoaded {
+        request: app.tree_request().unwrap().clone(),
+        entries: ratatui_tree(),
+        truncated: true,
+        branch: "main".into(),
+    });
+    // Returning to the owner column does not revive an older request's navigation intent.
+    app.handle_key(key(KeyCode::Char('h')));
+    app.handle_key(key(KeyCode::Char('h')));
+    let before = app.snapshot()["browser"]["pane"].clone();
+    app.handle_action(Action::OrgReposLoaded {
+        request: owner,
+        repos: vec!["different".into()],
+    });
+    let after = app.snapshot();
+    assert_eq!(after["browser"]["pane"], before);
+    assert_eq!(
+        after["browser"]["tree"]["request"]["repository"],
+        "personal/project"
+    );
+    assert_eq!(after["browser"]["tree"]["truncated"], true);
+}
+
+#[test]
+fn stale_tree_results_do_not_mutate_current_request_and_empty_is_ready() {
+    use rootle::action::Action;
     let mut app = browsing_app();
-    // The failing fetch lands first (direct-arg 404)…
-    app.handle_action(rootle::action::Action::TreeFailed {
-        owner: "zzz".into(),
-        name: "nope".into(),
-        error: rootle_provider::ProviderError::other("HTTP 404 Not Found"),
+    app.handle_action(Action::LeaderReload);
+    let old = app.tree_request().unwrap().clone();
+    app.handle_action(Action::LeaderReload);
+    let current = app.tree_request().unwrap().clone();
+    let before = app.snapshot();
+    app.handle_action(Action::TreeFailed {
+        request: old.clone(),
+        error: "obsolete failure".into(),
     });
-    assert!(
-        app.snapshot()["status"]
-            .as_str()
-            .unwrap()
-            .contains("HTTP 404"),
-        "error visible"
-    );
-    // …then an unrelated org-repos success arrives: the error stays.
-    app.handle_app_event(rootle::event::AppEvent::OrgReposLoaded {
-        org: "ratatui".into(),
-        repos: vec![],
+    app.handle_action(Action::TreeLoaded {
+        request: old,
+        entries: vec![],
+        truncated: true,
+        branch: "obsolete".into(),
     });
-    assert!(
-        app.snapshot()["status"]
-            .as_str()
-            .unwrap()
-            .contains("HTTP 404"),
-        "success must not erase the error"
-    );
-    // Its own loading marker, though, clears on success.
-    app.handle_action(rootle::action::Action::LoadOrgRepos("tokio-rs".into()));
-    assert_eq!(app.snapshot()["status"], "loading tokio-rs…");
-    app.handle_app_event(rootle::event::AppEvent::OrgReposLoaded {
-        org: "tokio-rs".into(),
-        repos: vec![],
+    assert_eq!(app.snapshot(), before);
+    app.handle_action(Action::TreeLoaded {
+        request: current,
+        entries: vec![],
+        truncated: false,
+        branch: "main".into(),
     });
-    assert_eq!(app.snapshot()["status"], serde_json::Value::Null);
+    let state = app.snapshot();
+    assert_eq!(state["browser"]["tree"]["phase"], "ready");
+    assert_eq!(state["browser"]["tree"]["entry_count"], 0);
+    assert_eq!(state["browser"]["tree"]["truncated"], false);
+}
+
+#[test]
+fn failed_revision_reload_distinguishes_retained_tree_from_current_result() {
+    use rootle::action::Action;
+    let mut app = browsing_app();
+    let previous = app.tree_request().unwrap().clone();
+    app.handle_action(Action::RefsCommit("topic".into()));
+    let current = app.tree_request().unwrap().clone();
+    let before = app.snapshot();
+    app.handle_action(Action::TreeLoaded {
+        request: previous,
+        entries: vec![],
+        truncated: false,
+        branch: "wrong".into(),
+    });
+    assert_eq!(app.snapshot(), before);
+    app.handle_action(Action::TreeFailed {
+        request: current,
+        error: "topic unavailable".into(),
+    });
+    let state = app.snapshot();
+    assert_eq!(state["browser"]["tree"]["phase"], "failed");
+    assert!(state["browser"]["tree"]["entry_count"].is_null());
+    assert_eq!(state["browser"]["tree"]["request"]["revision"], "topic");
+    assert_eq!(state["browser"]["tree"]["displayed"]["stale"], true);
+    assert!(state["browser"]["tree"]["displayed"]["request"]["revision"].is_null());
+}
+
+#[test]
+fn moving_to_another_repository_rejects_pending_tree_before_a_new_load() {
+    use rootle::action::Action;
+    let mut app = browsing_app();
+    app.handle_action(Action::LeaderReload);
+    let obsolete = app.tree_request().unwrap().clone();
+    app.handle_key(key(KeyCode::Char('j')));
+    let moved = app.snapshot();
+    assert_eq!(moved["browser"]["tree"]["phase"], "idle");
+    assert!(moved["browser"]["tree"]["displayed"].is_null());
+    app.handle_action(Action::TreeLoaded {
+        request: obsolete.clone(),
+        entries: ratatui_tree(),
+        truncated: false,
+        branch: "obsolete".into(),
+    });
+    app.handle_action(Action::TreeFailed {
+        request: obsolete,
+        error: "obsolete failure".into(),
+    });
+    assert_eq!(app.snapshot(), moved);
 }

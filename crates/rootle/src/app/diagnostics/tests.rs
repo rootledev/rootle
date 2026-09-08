@@ -58,7 +58,7 @@ fn action_command_text_is_length_only_in_metadata() {
 fn action_error_is_classified_not_quoted() {
     let action = Action::BlobFailed {
         sha: "abc".into(),
-        error: ProviderError::new(ErrorKind::Auth, "bad credentials"),
+        error: ProviderError::new(rootle_provider::ErrorKind::Auth, "bad credentials"),
     };
     let described = describe_action(&action);
     assert_eq!(described["error"]["kind"], json!("auth"));
@@ -68,8 +68,11 @@ fn action_error_is_classified_not_quoted() {
 #[test]
 fn event_error_is_classified_not_quoted() {
     let event = AppEvent::TreeFailed {
-        owner: "o".into(),
-        name: "r".into(),
+        request: crate::request::TreeRequest {
+            repository: "o/r".into(),
+            revision: None,
+            generation: Default::default(),
+        },
         error: ProviderError::other("upstream exploded"),
     };
     let described = describe_event(&event);

@@ -35,6 +35,7 @@ impl App {
                 true
             }
             Action::RepoSelected { owner, name } => {
+                self.status = None;
                 self.state.record_repo(&owner, &name);
                 self.state.save();
                 self.browser.set_repo(&owner, &name);
@@ -44,6 +45,7 @@ impl App {
                 true
             }
             Action::OrgSelected(org) => {
+                self.status = None;
                 self.state.record_org(&org);
                 self.state.save();
                 self.browser.select_org(&org);
@@ -53,42 +55,41 @@ impl App {
                 true
             }
             Action::LoadOrgRepos(org) => {
-                self.status = Some(format!("loading {org}…"));
+                self.status = None;
+                let request = self.browser.begin_owner_load(&org);
                 if !self.offline {
-                    self.spawn_org_repos(org);
+                    self.spawn_org_repos(request);
                 }
                 true
             }
-            Action::OrgReposLoaded { org, repos } => {
-                self.status = None;
-                self.browser.org_repos_loaded(&org, repos);
+            Action::OrgReposLoaded { request, repos } => {
+                self.browser.org_repos_loaded(&request, repos);
                 true
             }
-            Action::OrgReposFailed { org, error } => {
-                self.status = Some(format!("{org}: {}", provider_status(&error)));
+            Action::OrgReposFailed { request, error } => {
+                self.browser.org_repos_failed(&request, &error);
                 true
             }
             Action::LoadRepoTree { owner, name } => {
-                self.status = Some(format!("loading {owner}/{name} tree…"));
+                self.status = None;
+                let request = self.browser.begin_tree_load(&owner, &name);
                 if !self.offline {
-                    self.spawn_tree(owner, name);
+                    self.spawn_tree(request);
                 }
                 true
             }
             Action::TreeLoaded {
-                owner,
-                name,
+                request,
                 entries,
                 truncated,
                 branch,
             } => {
-                self.clear_loading_status(&["loading ", "reloading tree"]);
                 self.browser
-                    .tree_loaded(&owner, &name, entries, truncated, branch);
+                    .tree_loaded(&request, entries, truncated, branch);
                 true
             }
-            Action::TreeFailed { owner, name, error } => {
-                self.status = Some(format!("{owner}/{name}: {}", provider_status(&error)));
+            Action::TreeFailed { request, error } => {
+                self.browser.tree_failed(&request, &error);
                 true
             }
             Action::LoadBlob { sha, name } => {
@@ -149,10 +150,8 @@ impl App {
                     // Conditional refetch: cheap when the ref ETag is
                     // still fresh (304), fresh tree when it moved.
                     self.handle_action(Action::LoadRepoTree { owner, name });
-                    self.status = Some("reloading tree…".into());
-                } else if let Some(org) = self.browser.selected_org() {
+                } else if let Some(org) = self.browser.selected_owner().map(str::to_string) {
                     self.handle_action(Action::LoadOrgRepos(org));
-                    self.status = Some("reloading org repos…".into());
                 } else {
                     self.status = Some("nothing to reload".into());
                 }
@@ -162,10 +161,11 @@ impl App {
                 self.mode = Mode::Browse;
                 let deleted = self.browser.delete_marked_orgs();
                 if deleted.is_empty() {
-                    self.status = Some("no marked orgs (mark orgs in VISUAL, ␣d)".into());
+                    self.status = Some("no marked owners (mark owners in VISUAL, ␣d)".into());
                 } else {
                     // Keep persisted recents in sync.
                     self.state.recent_orgs.retain(|o| !deleted.contains(o));
+                    self.state.recent_owners.retain(|o| !deleted.contains(o));
                     if self
                         .state
                         .last_org
@@ -175,7 +175,7 @@ impl App {
                         self.state.last_org = None;
                     }
                     self.state.save();
-                    self.status = Some(format!("deleted {} org(s)", deleted.len()));
+                    self.status = Some(format!("deleted {} owner(s)", deleted.len()));
                 }
                 true
             }
@@ -238,8 +238,8 @@ impl App {
                         .ok()
                 } else {
                     self.browser
-                        .selected_org()
-                        .and_then(|org| self.provider.org_url(&org).ok())
+                        .selected_owner()
+                        .and_then(|owner| self.provider.org_url(owner).ok())
                 };
                 match url {
                     Some(u) => {
@@ -378,7 +378,7 @@ impl App {
                             }
                         }
                     }
-                    Some(EntryKind::Dir | EntryKind::Repo | EntryKind::Org) => {
+                    Some(EntryKind::Dir | EntryKind::Repo | EntryKind::Org | EntryKind::Owner) => {
                         let follow = self.browser.update(&Action::DrillIn);
                         self.handle_action(follow);
                     }

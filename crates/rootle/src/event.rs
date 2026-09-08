@@ -14,23 +14,21 @@ pub enum AppEvent {
         error: ProviderError,
     },
     OrgReposLoaded {
-        org: String,
+        request: crate::request::OwnerListRequest,
         repos: Vec<rootle_provider::RepoInfo>,
     },
     OrgReposFailed {
-        org: String,
+        request: crate::request::OwnerListRequest,
         error: ProviderError,
     },
     TreeLoaded {
-        owner: String,
-        name: String,
+        request: crate::request::TreeRequest,
         entries: Vec<rootle_provider::TreeNode>,
         truncated: bool,
         branch: String,
     },
     TreeFailed {
-        owner: String,
-        name: String,
+        request: crate::request::TreeRequest,
         error: ProviderError,
     },
     BlobLoaded {

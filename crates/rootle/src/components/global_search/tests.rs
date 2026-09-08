@@ -26,8 +26,22 @@ fn submit(view: &mut GlobalSearch, query: &str) {
         view.handle_key(key(KeyCode::Char(c)));
     }
     let action = view.handle_key(key(KeyCode::Enter));
-    assert!(matches!(action, Action::GlobalSearchSubmitted { .. }));
-    view.update(&action);
+    let Action::GlobalSearchSubmitted {
+        kind,
+        query: submitted,
+        scope,
+        extension,
+    } = action
+    else {
+        panic!("query must submit");
+    };
+    view.start_request(crate::request::ContentSearchRequest {
+        generation: Default::default(),
+        kind,
+        query: submitted,
+        scope,
+        extension,
+    });
     view.update(&Action::GlobalSearchResults {
         hits: mock::hits(SearchKind::Grep, query, ""),
         clipped: false,

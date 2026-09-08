@@ -36,6 +36,7 @@ pub enum SearchContext {
     Scope,
     ScopePopup,
     Fields,
+    Error,
 }
 use SearchCommand::*;
 
@@ -66,6 +67,33 @@ pub(super) static RESULTS: LazyLock<Table<SearchCommand>> = LazyLock::new(|| {
         ),
         Binding::new("␣", "leader", Leader, &[Key::Code(Char(' '))]),
         Binding::new("esc", "clear/close", Cancel, &[Key::Code(Esc)]),
+    ])
+});
+
+pub(super) static ERROR: LazyLock<Table<SearchCommand>> = LazyLock::new(|| {
+    Table::new(vec![
+        Binding::new(
+            "j/k",
+            "scroll error",
+            Next,
+            &[Key::Code(Char('j')), Key::Code(Down)],
+        ),
+        Binding::new(
+            "j/k",
+            "scroll error",
+            Previous,
+            &[Key::Code(Char('k')), Key::Code(Up)],
+        ),
+        Binding::new("g/G", "first/last", First, &[Key::Code(Char('g'))]),
+        Binding::new("g/G", "first/last", Last, &[Key::Code(Char('G'))]),
+        Binding::new("tab", "fields/results", NextField, &[Key::Code(Tab)]),
+        Binding::new(
+            "shift-tab",
+            "previous field",
+            PreviousField,
+            &[Key::Code(BackTab)],
+        ),
+        Binding::new("esc", "close", Cancel, &[Key::Code(Esc)]),
     ])
 });
 
@@ -190,6 +218,7 @@ static FIELDS: LazyLock<Table<SearchCommand>> = LazyLock::new(|| {
 pub(super) fn table(context: SearchContext) -> &'static Table<SearchCommand> {
     match context {
         SearchContext::Results => &RESULTS,
+        SearchContext::Error => &ERROR,
         SearchContext::Facets => &FACETS,
         SearchContext::File => &FILE,
         SearchContext::Scope => &SCOPE,

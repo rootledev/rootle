@@ -14,7 +14,7 @@ pub(crate) use input::{describe_key_with, record_key};
 pub(crate) use state::record_state;
 
 use crate::components::pane::EntryKind;
-use rootle_provider::{ErrorKind, ProviderError};
+use rootle_provider::ProviderError;
 use rootle_trace::EventKind;
 use serde_json::{Value, json};
 
@@ -42,23 +42,11 @@ fn opt_text_with(full: bool, value: &Option<String>) -> Value {
         .unwrap_or(Value::Null)
 }
 
-fn error_kind(kind: ErrorKind) -> &'static str {
-    match kind {
-        ErrorKind::Auth => "auth",
-        ErrorKind::RateLimited => "rate_limited",
-        ErrorKind::NotFound => "not_found",
-        ErrorKind::Network => "network",
-        ErrorKind::Timeout => "timeout",
-        ErrorKind::Provider => "provider",
-        ErrorKind::Other => "other",
-    }
-}
-
 /// Remote errors are classified, never dumped. Full capture records messages
 /// only through the state/frame surfaces that actually display them.
 pub(crate) fn describe_error(error: &ProviderError) -> Value {
     json!({
-        "kind": error_kind(error.kind),
+        "kind": error.kind.as_str(),
         "message_bytes": error.message.len(),
         "retry_after_s": error.retry_after.map(|d| d.as_secs()),
     })
@@ -70,6 +58,7 @@ fn entry_kind(kind: EntryKind) -> &'static str {
         EntryKind::File => "file",
         EntryKind::Repo => "repo",
         EntryKind::Org => "org",
+        EntryKind::Owner => "owner",
     }
 }
 

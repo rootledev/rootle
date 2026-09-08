@@ -45,6 +45,8 @@ impl App {
                 true
             }
             Action::LeaderFileFind | Action::LeaderGrep => {
+                self.view_gen.tick();
+                self.status = None;
                 let kind = if action == Action::LeaderFileFind {
                     SearchKind::FileFind
                 } else {
@@ -79,6 +81,8 @@ impl App {
                 true
             }
             Action::CloseSearchView => {
+                self.view_gen.tick();
+                self.provider.advise_cancel();
                 self.search_view = None;
                 self.mode = Mode::Browse;
                 true
@@ -89,6 +93,8 @@ impl App {
                 ref scope,
                 ref extension,
             } => {
+                self.search_view.as_ref()?;
+                self.status = None;
                 // Persist last-used scope/extension (plans/0002 §6.4).
                 if let Some(view) = &self.search_view {
                     self.state.search_scope = Some(view.scope().stored().to_string());
@@ -99,7 +105,13 @@ impl App {
                 self.provider.advise_cancel(); // superseded in-flight work
                 self.pending_context_sha = None;
                 if let Some(view) = &mut self.search_view {
-                    view.update(&action);
+                    view.start_request(crate::request::ContentSearchRequest {
+                        generation: self.view_gen,
+                        kind: *kind,
+                        query: query.clone(),
+                        scope: scope.clone(),
+                        extension: extension.clone(),
+                    });
                 }
                 if self.offline {
                     // Tests: inject the mock producer, same Action flow.
@@ -126,7 +138,6 @@ impl App {
                         self.handle_action(action);
                     }
                 } else {
-                    self.status = Some("searching code…".into());
                     self.spawn_view_search(
                         self.view_gen,
                         *kind,
