@@ -34,6 +34,14 @@ impl App {
         {
             return Mode::Search;
         }
+        if self.mode == Mode::Commit
+            && self
+                .browser
+                .commit_ref()
+                .is_some_and(|view| view.searching())
+        {
+            return Mode::Find;
+        }
         if let Some(view) = &self.search_view {
             // The leader layer can be raised over the view (␣ from the
             // results) — it owns the keys and the modeline while up.

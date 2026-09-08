@@ -73,14 +73,27 @@ pub fn is_newer(latest: &str) -> bool {
 /// everything was attempted. `ROOTLE_UPDATE_API` points the app half
 /// at a loopback host (tests, PTY evidence runs).
 pub fn update(check_only: bool) -> Result<(), String> {
+    let ui = rootle_manager::progress::ProgressOutput::new();
+    update_application(check_only, &ui)?;
+    sweep_providers(check_only, &ui)
+}
+
+/// Application-only update: never scans or changes provider installations.
+pub fn self_update(check_only: bool) -> Result<(), String> {
+    update_application(check_only, &rootle_manager::progress::ProgressOutput::new())
+}
+
+fn update_application(
+    check_only: bool,
+    ui: &rootle_manager::progress::ProgressOutput,
+) -> Result<(), String> {
     let api =
         std::env::var("ROOTLE_UPDATE_API").unwrap_or_else(|_| "https://api.github.com".to_string());
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let ui = rootle_manager::progress::ProgressOutput::new();
-    if let Some(line) = update_inner(&api, check_only, &exe, channel(), &ui)? {
-        println!("{line}");
+    let executable = std::env::current_exe().map_err(|error| error.to_string())?;
+    if let Some(message) = update_inner(&api, check_only, &executable, channel(), ui)? {
+        println!("{message}");
     }
-    sweep_providers(check_only, &ui)
+    Ok(())
 }
 
 /// The flow, with the API base, target exe, and Ui swapped in tests.
@@ -135,7 +148,7 @@ fn update_inner(
             rootle_trace::EventKind::ExternalCommand,
             || serde_json::json!({"operation":"self_update","phase":"available","latest":tag}),
         );
-        return Ok(format!("{current} → {tag} available (run `rootle update`)").into());
+        return Ok(format!("{current} → {tag} available (run `rootle self-update`)").into());
     }
 
     // 0018 M1: the manager's stage grammar, step for step.

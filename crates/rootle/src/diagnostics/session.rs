@@ -1,6 +1,6 @@
 //! Resolve native log paths before startup and finalize every command outcome.
 
-use crate::cli::{Cli, ProviderCommand};
+use crate::cli::{Cli, ProviderCommand, RootCommand};
 use rootle_trace::{ContentPolicy, EventKind, TraceOptions, TraceSession};
 use serde_json::json;
 use std::ffi::OsStr;
@@ -121,9 +121,9 @@ fn automatic_path() -> io::Result<PathBuf> {
 }
 
 fn driver(cli: &Cli) -> &'static str {
-    if cli.provider.is_some() {
+    if matches!(cli.command, Some(RootCommand::Provider { .. })) {
         "provider"
-    } else if cli.update {
+    } else if cli.command.is_some() || cli.update {
         "update"
     } else if cli.headless.is_some() {
         "headless"
@@ -133,17 +133,23 @@ fn driver(cli: &Cli) -> &'static str {
 }
 
 fn command(cli: &Cli) -> &'static str {
-    match cli.provider.as_ref() {
-        Some(ProviderCommand::Install { .. }) => "install",
-        Some(ProviderCommand::List { .. }) => "list",
-        Some(ProviderCommand::Update { .. }) => "update",
-        Some(ProviderCommand::Upgrade { .. }) => "upgrade",
-        Some(ProviderCommand::Pin { .. }) => "pin",
-        Some(ProviderCommand::Unpin { .. }) => "unpin",
-        Some(ProviderCommand::Remove { .. }) => "remove",
-        Some(ProviderCommand::Use { .. }) => "use",
+    match cli.command.as_ref() {
+        Some(RootCommand::Provider { command }) => match command {
+            ProviderCommand::Install { .. } => "install",
+            ProviderCommand::List { .. } => "list",
+            ProviderCommand::Update { .. } => "provider_update",
+            ProviderCommand::Upgrade { .. } => "upgrade",
+            ProviderCommand::Pin { .. } => "pin",
+            ProviderCommand::Unpin { .. } => "unpin",
+            ProviderCommand::Remove { .. } => "remove",
+            ProviderCommand::Use { .. } => "use",
+        },
+        Some(RootCommand::SelfUpdate { check: true }) => "self_update_check",
+        Some(RootCommand::SelfUpdate { check: false }) => "self_update",
+        Some(RootCommand::Update { check: true }) => "update_check",
+        Some(RootCommand::Update { check: false }) => "update",
         None if cli.update && cli.check => "update_check",
-        None if cli.update => "self_update",
+        None if cli.update => "update",
         None => "browse",
     }
 }

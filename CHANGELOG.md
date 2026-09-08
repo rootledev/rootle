@@ -3,6 +3,29 @@
 User-visible changes per release. Protocol archaeology lives in
 `plans/`; this file is for "what's new for me".
 
+## [0.12.1] — 2026-09-08
+
+- Fixed updater command ownership: `rootle update` updates the application
+  and managed providers; `rootle self-update` updates only the application;
+  `rootle provider update` refreshes provider metadata only. Provider
+  commands now have a real namespace. Conflicting UI/maintenance arguments
+  are rejected rather than silently ignored.
+- **Upgrading a v0.12.0 tarball:** run `rootle --update` once to install this
+  fix, then use `rootle self-update` for application-only updates.
+- Commit diff `/` now searches the focused diff without jumping to the
+  sidebar. `n`/`N` step matches; Esc cancels an edit or clears committed
+  highlights before leaving the diff. Search ranges preserve Unicode bytes.
+- `d` is the single commit-detail key in repository and file history.
+  File-history Enter still opens the historical file.
+- `y` yanks a commit URL from the files/message pane, or a revision-pinned
+  line URL from a source row. Deleted lines use the first parent and old
+  rename path. `Y` copies source text or the full commit message.
+- Changed files are grouped in an expanded, directory-first hierarchy.
+  Filters retain needed ancestors and match both sides of a rename.
+  Directory headings never count as selectable files.
+- Diff/message page keys and `?` help now register in their owning pane;
+  context-specific hints distinguish file filtering from diff search.
+
 ## [0.12.0] — 2026-09-08
 
 - Repository-wide history: `␣ h` from a selected or browsed repository,
@@ -354,3 +377,4 @@ User-visible changes per release. Protocol archaeology lives in
 [0.7.1]: https://github.com/rootledev/rootle/releases/tag/v0.7.1
 [0.7.0]: https://github.com/rootledev/rootle/releases/tag/v0.7.0
 [0.6.0]: https://github.com/rootledev/rootle/releases/tag/v0.6.0
+[0.12.1]: https://github.com/rootledev/rootle/releases/tag/v0.12.1

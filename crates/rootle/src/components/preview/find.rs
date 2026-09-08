@@ -27,31 +27,20 @@ pub(super) struct FindState {
     pub(super) saved_cursor: usize,
 }
 
-/// Case-insensitive substring matches across all lines, in occurrence
-/// order. Byte offsets come from the lowercased text — exact for
-/// ASCII, cosmetic-only drift on exotic unicode case folds (same
-/// tradeoff as the grep view's chip pass).
+/// Matching is shared with diff search and retains original UTF-8 byte ranges.
 fn compute_matches(lines: &[String], query: &str) -> Vec<FindMatch> {
-    let q = query.to_lowercase();
-    if q.is_empty() {
-        return vec![];
-    }
-    let mut out = Vec::new();
-    for (i, line) in lines.iter().enumerate() {
-        let lower = line.to_lowercase();
-        let mut at = 0usize;
-        while let Some(rest) = lower.get(at..) {
-            let Some(pos) = rest.find(&q) else { break };
-            let start = at + pos;
-            out.push(FindMatch {
-                line: i,
-                start,
-                end: start + q.len(),
-            });
-            at = start + q.len();
-        }
-    }
-    out
+    let search = crate::components::text::LiteralSearch::new(query);
+    lines
+        .iter()
+        .enumerate()
+        .flat_map(|(line, text)| {
+            search.ranges(text).into_iter().map(move |range| FindMatch {
+                line,
+                start: range.start,
+                end: range.end,
+            })
+        })
+        .collect()
 }
 
 impl Preview {

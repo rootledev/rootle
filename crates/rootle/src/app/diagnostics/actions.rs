@@ -65,6 +65,16 @@ pub(super) fn describe_action(action: &Action) -> Value {
         Action::CommitFocus => json!({"action": "commit_focus"}),
         Action::CommitLeft => json!({"action": "commit_left"}),
         Action::CommitRight => json!({"action": "commit_right"}),
+        Action::CommitSearchBegin => json!({"action":"commit_search_begin"}),
+        Action::CommitSearchNext => json!({"action":"commit_search_next"}),
+        Action::CommitSearchPrevious => json!({"action":"commit_search_previous"}),
+        Action::CommitCopy => json!({"action":"commit_copy"}),
+        Action::CommitPage { forward, half } => {
+            json!({"action":"commit_page","forward":forward,"half":half})
+        }
+        Action::CommitSearchKey(key) => {
+            json!({"action":"commit_search_key","key":describe_key_with(full,key)})
+        }
         Action::SearchYank => json!({"action": "search_yank"}),
         Action::DeclarationAccept => json!({"action": "declaration_accept"}),
         Action::DeclarationRetry => json!({"action": "declaration_retry"}),

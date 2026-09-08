@@ -43,7 +43,7 @@ def test_repository_history_from_directory_and_sidebar_navigation(tmp_path, bina
     output = run_headless(
         binary,
         'frame\nkeys <space>h\nsettle\nframe\n'
-        'keys <cr>\nsettle\nframe\nkeys <cr>\nframe\n'
+        'keys d\nsettle\nframe\nkeys <cr>\nframe\n'
         'keys <tab>j\nframe\nstate\n',
         'local/proj', '--config', str(config), home=tmp_path / 'home', cols=150,
     )

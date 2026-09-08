@@ -1,6 +1,9 @@
 //! Shared source-text presentation for preview search chips and diff emphasis.
 //! Offsets for overlays are UTF-8 bytes; clipping uses terminal display cells.
 
+mod search;
+pub(crate) use search::LiteralSearch;
+
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use std::ops::Range;

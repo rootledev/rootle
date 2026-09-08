@@ -139,19 +139,15 @@ fn history_table(file_history: bool) -> Table<Action> {
             HistoryUp,
             &[Key::Code(Char('k')), Key::Code(Up)],
         ),
-        Binding::new(
-            "enter",
-            if file_history {
-                "file at commit"
-            } else {
-                "commit detail"
-            },
-            HistoryOpen,
-            &[Key::Code(Enter)],
-        ),
         Binding::new("d", "commit detail", CommitDive, &[Key::Code(Char('d'))]),
     ];
     if file_history {
+        bindings.push(Binding::new(
+            "enter",
+            "file at commit",
+            HistoryOpen,
+            &[Key::Code(Enter)],
+        ));
         bindings.push(Binding::new(
             "y",
             "file permalink",
@@ -198,8 +194,30 @@ pub(super) static PREVIEW: LazyLock<Table<Action>> = LazyLock::new(|| {
     ])
 });
 
-pub(super) static COMMIT: LazyLock<Table<Action>> = LazyLock::new(|| {
-    Table::new(vec![
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommitContext {
+    Files,
+    Message,
+    Diff,
+}
+
+static COMMIT_FILES: LazyLock<Table<Action>> =
+    LazyLock::new(|| commit_bindings(CommitContext::Files));
+static COMMIT_MESSAGE: LazyLock<Table<Action>> =
+    LazyLock::new(|| commit_bindings(CommitContext::Message));
+static COMMIT_DIFF: LazyLock<Table<Action>> =
+    LazyLock::new(|| commit_bindings(CommitContext::Diff));
+
+pub(super) fn commit_table(context: CommitContext) -> &'static Table<Action> {
+    match context {
+        CommitContext::Files => &COMMIT_FILES,
+        CommitContext::Message => &COMMIT_MESSAGE,
+        CommitContext::Diff => &COMMIT_DIFF,
+    }
+}
+
+fn commit_bindings(context: CommitContext) -> Table<Action> {
+    let mut bindings = vec![
         Binding::new(
             "j/k",
             "move",
@@ -211,6 +229,95 @@ pub(super) static COMMIT: LazyLock<Table<Action>> = LazyLock::new(|| {
             "move",
             CommitUp,
             &[Key::Code(Char('k')), Key::Code(Up)],
+        ),
+    ];
+    match context {
+        CommitContext::Files => {
+            bindings.push(Binding::new(
+                "enter",
+                "file delta",
+                CommitOpen,
+                &[Key::Code(Enter)],
+            ));
+            bindings.push(Binding::new(
+                "/",
+                "filter files",
+                CommitFilterBegin,
+                &[Key::Code(Char('/'))],
+            ));
+            bindings.push(Binding::new(
+                "y",
+                "commit URL",
+                CommitYank,
+                &[Key::Code(Char('y'))],
+            ));
+        }
+        CommitContext::Message => {
+            bindings.push(Binding::new(
+                "enter",
+                "file delta",
+                CommitOpen,
+                &[Key::Code(Enter)],
+            ));
+            bindings.push(Binding::new(
+                "y",
+                "commit URL",
+                CommitYank,
+                &[Key::Code(Char('y'))],
+            ));
+            bindings.push(Binding::new(
+                "Y",
+                "copy message",
+                CommitCopy,
+                &[Key::Code(Char('Y'))],
+            ));
+        }
+        CommitContext::Diff => {
+            bindings.push(Binding::new(
+                "/",
+                "find in diff",
+                CommitSearchBegin,
+                &[Key::Code(Char('/'))],
+            ));
+            bindings.push(Binding::new(
+                "n/N",
+                "match",
+                CommitSearchNext,
+                &[Key::Code(Char('n'))],
+            ));
+            bindings.push(Binding::new(
+                "n/N",
+                "match",
+                CommitSearchPrevious,
+                &[Key::Code(Char('N'))],
+            ));
+            bindings.push(Binding::new(
+                "y",
+                "line/commit URL",
+                CommitYank,
+                &[Key::Code(Char('y'))],
+            ));
+            bindings.push(Binding::new(
+                "Y",
+                "copy line",
+                CommitCopy,
+                &[Key::Code(Char('Y'))],
+            ));
+        }
+    }
+    bindings.extend([
+        Binding::new("tab", "files/preview", CommitFocus, &[Key::Code(Tab)]),
+        Binding::new(
+            "]f/[f",
+            "next/prev file",
+            CommitStepNext,
+            &[Key::Chord(']', 'f')],
+        ),
+        Binding::new(
+            "]f/[f",
+            "next/prev file",
+            CommitStepPrev,
+            &[Key::Chord('[', 'f')],
         ),
         Binding::new(
             "gg/G",
@@ -224,47 +331,72 @@ pub(super) static COMMIT: LazyLock<Table<Action>> = LazyLock::new(|| {
             CommitLast,
             &[Key::Code(Char('G')), Key::Code(End)],
         ),
-        Binding::new("enter", "file delta", CommitOpen, &[Key::Code(Enter)]),
-        Binding::new(
-            "]f/[f",
-            "next/prev file",
-            CommitStepNext,
-            &[Key::Chord(']', 'f')],
-        ),
-        Binding::new(
-            "]f/[f",
-            "next/prev file",
-            CommitStepPrev,
-            &[Key::Chord('[', 'f')],
-        ),
-        Binding::new("tab", "files/preview", CommitFocus, &[Key::Code(Tab)]),
-        Binding::new(
-            "h/l",
-            "delta columns",
-            CommitLeft,
-            &[Key::Code(Char('h')), Key::Code(Left)],
-        ),
-        Binding::new(
-            "h/l",
-            "delta columns",
-            CommitRight,
-            &[Key::Code(Char('l')), Key::Code(Right)],
-        ),
-        Binding::new("Y", "yank commit url", CommitYank, &[Key::Code(Char('Y'))]),
-        Binding::new(
-            "/",
-            "filter files",
-            CommitFilterBegin,
-            &[Key::Code(Char('/'))],
-        ),
         Binding::new(
             "esc/q",
             "back",
             CommitClose,
             &[Key::Code(Esc), Key::Code(Char('q'))],
         ),
-    ])
-});
+        Binding::new("?", "keys", KeybindsPopup, &[Key::Code(Char('?'))]),
+    ]);
+    if context == CommitContext::Diff {
+        bindings.extend([
+            Binding::new(
+                "h/l",
+                "columns",
+                CommitLeft,
+                &[Key::Code(Char('h')), Key::Code(Left)],
+            ),
+            Binding::new(
+                "h/l",
+                "columns",
+                CommitRight,
+                &[Key::Code(Char('l')), Key::Code(Right)],
+            ),
+        ]);
+    }
+    if context != CommitContext::Files {
+        bindings.extend([
+            Binding::new(
+                "^d/^u",
+                "half page",
+                CommitPage {
+                    forward: true,
+                    half: true,
+                },
+                &[Key::Control('d')],
+            ),
+            Binding::new(
+                "^d/^u",
+                "half page",
+                CommitPage {
+                    forward: false,
+                    half: true,
+                },
+                &[Key::Control('u')],
+            ),
+            Binding::new(
+                "pgdn/^f",
+                "page down",
+                CommitPage {
+                    forward: true,
+                    half: false,
+                },
+                &[Key::Code(PageDown), Key::Control('f')],
+            ),
+            Binding::new(
+                "pgup/^b",
+                "page up",
+                CommitPage {
+                    forward: false,
+                    half: false,
+                },
+                &[Key::Code(PageUp), Key::Control('b')],
+            ),
+        ]);
+    }
+    Table::new(bindings)
+}
 
 // Input lifecycle bindings are consumed by the VimInput state machine.
 #[derive(Debug, Clone, Copy)]

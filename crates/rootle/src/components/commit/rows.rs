@@ -9,7 +9,29 @@ use ratatui::{
     text::{Line, Span},
 };
 use rootle_diff::LineOrigin;
+use std::ops::Range;
 use unicode_width::UnicodeWidthStr;
+
+#[derive(Clone, Copy)]
+pub(super) struct DiffRowLayout {
+    pub selected: bool,
+    pub number_width: usize,
+    pub horizontal: usize,
+    pub width: usize,
+}
+
+pub(super) fn directory_row(
+    label: &str,
+    depth: usize,
+    width: usize,
+    semantic: &Semantic,
+) -> Line<'static> {
+    let indent = " ".repeat(depth.saturating_mul(2).min(width));
+    Line::from(Span::styled(
+        fit(&format!("  {indent}▾ {label}/"), width),
+        Style::default().fg(semantic.directory),
+    ))
+}
 
 pub(super) fn statistics_row(
     label: &str,
@@ -44,6 +66,7 @@ pub(super) fn statistics_row(
 pub(super) fn file_row(
     file: &FilePresentation,
     selected: bool,
+    depth: usize,
     width: usize,
     semantic: &Semantic,
 ) -> Line<'static> {
@@ -54,11 +77,14 @@ pub(super) fn file_row(
         rootle_provider::FileStatus::Modified => "~",
     };
     let label = match &file.previous_label {
-        Some(previous) => format!("{previous} → {}", file.label),
-        None => file.label.clone(),
+        Some(previous) => format!("{previous} → {}", file.basename),
+        None => file.basename.clone(),
     };
     let mut line = statistics_row(
-        &format!("{marker} {label}"),
+        &format!(
+            "{}{marker} {label}",
+            " ".repeat(depth.saturating_mul(2).min(width))
+        ),
         file.additions.map(u64::from),
         file.deletions.map(u64::from),
         width.saturating_sub(2),
@@ -82,12 +108,12 @@ pub(super) fn file_row(
 
 pub(super) fn patch_row(
     row: &PatchRow,
-    selected: bool,
-    number_width: usize,
-    horizontal: usize,
-    width: usize,
+    layout: DiffRowLayout,
+    search: &[(Range<usize>, Style)],
     semantic: &Semantic,
 ) -> Line<'static> {
+    let selected = layout.selected;
+    let width = layout.width;
     match row {
         PatchRow::Hunk(header) => Line::from(Span::styled(
             fit(
@@ -104,20 +130,20 @@ pub(super) fn patch_row(
             ),
             Style::default().fg(semantic.subtext0),
         )),
-        PatchRow::Content(line) => {
-            content_row(line, selected, number_width, horizontal, width, semantic)
-        }
+        PatchRow::Content(line) => content_row(line, layout, search, semantic),
     }
 }
 
 fn content_row(
     line: &PreparedLine,
-    selected: bool,
-    digits: usize,
-    horizontal: usize,
-    width: usize,
+    layout: DiffRowLayout,
+    search: &[(Range<usize>, Style)],
     semantic: &Semantic,
 ) -> Line<'static> {
+    let selected = layout.selected;
+    let digits = layout.number_width;
+    let horizontal = layout.horizontal;
+    let width = layout.width;
     let (foreground, background, emphasis) = match line.origin {
         LineOrigin::Addition => (
             semantic.diff_add_fg,
@@ -151,18 +177,31 @@ fn content_row(
         Span::styled(marker, Style::default().fg(foreground)),
         Span::styled(gutter, Style::default().fg(semantic.overlay0)),
     ];
-    let overlay = line
-        .changed
-        .as_ref()
-        .map(|changed| (changed.range(), Style::default().bg(emphasis)));
-    let overlays = overlay.as_slice();
+    let changed = line.changed.as_ref().map(|changed| changed.range());
+    let mut overlays = Vec::with_capacity(search.len() + 2);
+    let mut emphasis_start = changed.as_ref().map_or(0, |range| range.start);
+    for (range, style) in search {
+        if let Some(changed) = &changed {
+            let end = range.start.min(changed.end);
+            if emphasis_start < end {
+                overlays.push((emphasis_start..end, Style::default().bg(emphasis)));
+            }
+            emphasis_start = emphasis_start.max(range.end).min(changed.end);
+        }
+        overlays.push((range.clone(), *style));
+    }
+    if let Some(changed) = changed
+        && emphasis_start < changed.end
+    {
+        overlays.push((emphasis_start..changed.end, Style::default().bg(emphasis)));
+    }
     let content = paint_line(
         &line.syntax,
         TextColumns {
             offset: horizontal,
             width: remaining,
         },
-        overlays,
+        &overlays,
     );
     spans.extend(content.spans);
     Line::from(spans).style(Style::default().bg(background))

@@ -10,7 +10,7 @@ use ratatui::crossterm::{
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
 use rootle::app::App;
-use rootle::cli::{Cli, ProviderCommand};
+use rootle::cli::{Cli, ProviderCommand, RootCommand};
 use rootle::config::Config;
 use std::io::{self, stdout};
 use std::time::Duration;
@@ -42,9 +42,17 @@ fn main() -> std::process::ExitCode {
 }
 
 fn execute(cli: Cli) -> io::Result<()> {
-    if let Some(command) = &cli.provider {
-        return run_provider(command)
-            .map_err(|error| io::Error::other(format!("rootle provider: {error}")));
+    cli.validate_execution()
+        .map_err(|message| io::Error::new(io::ErrorKind::InvalidInput, message))?;
+    if let Some(command) = &cli.command {
+        return match command {
+            RootCommand::Provider { command } => run_provider(command)
+                .map_err(|error| io::Error::other(format!("rootle provider: {error}"))),
+            RootCommand::Update { check } => rootle::selfupdate::update(*check)
+                .map_err(|error| io::Error::other(format!("update: {error}"))),
+            RootCommand::SelfUpdate { check } => rootle::selfupdate::self_update(*check)
+                .map_err(|error| io::Error::other(format!("self-update: {error}"))),
+        };
     }
     if cli.update {
         return rootle::selfupdate::update(cli.check)

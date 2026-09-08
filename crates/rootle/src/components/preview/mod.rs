@@ -239,6 +239,10 @@ impl Preview {
         self.prose_viewport.scroll(movement);
     }
 
+    pub(crate) fn page_text(&mut self, forward: bool, half: bool) {
+        self.prose_viewport.page(forward, half);
+    }
+
     pub(crate) fn pane_block(title: String, focused: bool, theme: &Theme) -> Block<'static> {
         Block::default()
             .borders(Borders::ALL)

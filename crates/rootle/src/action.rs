@@ -89,6 +89,15 @@ pub enum Action {
     CommitFocus,
     CommitLeft,
     CommitRight,
+    CommitSearchBegin,
+    CommitSearchKey(ratatui::crossterm::event::KeyEvent),
+    CommitSearchNext,
+    CommitSearchPrevious,
+    CommitCopy,
+    CommitPage {
+        forward: bool,
+        half: bool,
+    },
 
     // Declared-provider lifecycle (plans/0019 M2): the consent popup
     // asks, the app spawns the verified install, the events land.
