@@ -66,6 +66,18 @@ impl Viewport {
         self.offset = RowIndex::default();
     }
 
+    pub(crate) fn page_rows(&self, half: bool) -> usize {
+        (if half { self.height / 2 } else { self.height }).max(1)
+    }
+
+    pub(crate) fn scroll_rows(&mut self, rows: isize) {
+        self.offset.0 = self
+            .offset
+            .0
+            .saturating_add_signed(rows)
+            .min(self.total.saturating_sub(self.height));
+    }
+
     pub fn scroll(&mut self, movement: ScrollMovement) {
         let page = self.height.max(1);
         let bottom = self.total.saturating_sub(self.height);

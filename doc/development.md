@@ -51,12 +51,24 @@ Data flow rules (violations get caught in review):
   clone lists, history and commit files consume the same engine.
 - **Bindings own both dispatch and hints.** Typed command tables feed
   input handlers; multi-key sequences retain prefix state, not aliases.
+  Commit files, prose and diffs use distinct `CommitContext` tables; a
+  transient diff find owns input until submission/cancellation and never
+  falls through to the sidebar filter. Literal matching is shared with
+  preview find and maps case-folded matches back to original UTF-8 bytes.
 - **Commit patches are parsed and highlighted on update**, not during draw.
   `rootle-diff` owns checked hunks and side-correct emphasis; the app's
   commit component builds each hunk's old/new source fragments for the
   shared Tree-sitter highlighter. Missing context is not reconstructed.
   Preview prose, pane chrome, styled range overlays and list/row viewport
   behavior are shared rather than reimplemented inside the commit viewer.
+- **Commit file hierarchy is display-only.** Paths are indexed once;
+  directory headings are not selectable and never count in file stepping.
+  Source-line permalinks use typed path/revision/line targets, with deleted
+  lines anchored to the first parent and pre-rename path.
+- **CLI command ownership is explicit.** `RootCommand` distinguishes
+  application-only `self-update`, combined `update`, and nested `provider`
+  commands. Execution validation rejects ignored UI arguments while global
+  diagnostic flags remain valid before or after a command.
 - **History requests carry full identity:** repository, optional revision,
   file/repository scope and a domain-tagged generation. Both successful
   and failed outcomes must match the current request.

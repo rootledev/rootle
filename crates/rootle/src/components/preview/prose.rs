@@ -24,6 +24,12 @@ impl ProseViewport {
         });
     }
 
+    pub fn page(&mut self, forward: bool, half: bool) {
+        let rows = self.viewport.page_rows(half) as isize;
+        self.viewport
+            .scroll_rows(if forward { rows } else { -rows });
+    }
+
     pub fn render(
         &mut self,
         frame: &mut Frame,

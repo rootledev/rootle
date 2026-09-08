@@ -39,12 +39,12 @@ small stdio script.
 - **Revise** — `␣ b` switches branches/tags (`rootle owner/repo@ref`
   from the CLI); `␣ p h` file history with open-at-commit; `␣ p b`
   blame run-margins; yanks from history anchor to the commit sha.
-- **Inspect commits** — `␣ h` opens repository history; `Enter` inspects
-  a commit. File history (`␣ p h`) still supports open-at-commit and `d`
-  for detail. Changed files stay beside the syntax-highlighted diff;
-  `Tab` switches files/preview, `]f`/`[f` step filtered files, and `Esc`
-  unwinds. Binary, unavailable and truncated patches remain explicit.
-  Read-only; no staging or committing.
+- **Inspect commits** — `␣ h` opens repository history; `d` inspects
+  a commit. File history (`␣ p h`) keeps Enter for the historical file.
+  Changed files form a directory hierarchy beside the syntax-colored diff.
+  `Tab` switches focus; `/` filters files or searches the focused diff;
+  `n/N` step matches and `]f`/`[f` step files. `y` yanks a commit/source-line
+  URL, `Y` copies preview text, and `Esc` unwinds. Read-only throughout.
 - **Search** — find (`␣ f`) and grep (`␣ g`) with a real grammar
   (`"quoted"`, `-negation`, `language:rust`), results streaming into
   decorated per-file boxes with facet chips; `Enter` opens the whole
@@ -61,9 +61,9 @@ small stdio script.
 - **Configure** in-app with `:settings` (writes config.toml, hot
   reloads themes and chrome); every keybinding is in the `?` popup.
 - **Update** — the modeline chips `↑ vX.Y.Z` when a release is newer
-  (24h-cached, silent offline); `rootle update` self-updates tarball
-  installs with checksum verification. `CHANGELOG.md` rides every
-  release.
+  (24h-cached, silent offline); `rootle self-update` updates only rootle,
+  while `rootle update` also upgrades managed providers. Tarball installs
+  are checksum-verified; package-managed installs receive their upgrade command.
 
 ## Quick start
 
@@ -76,8 +76,11 @@ cargo install rootle                # or from crates.io (Rust 1.88+)
 rootle                # repo search on first run; browser after that
 rootle owner/repo     # jump straight into a repo
 rootle owner/repo@release/2.7   # …at a branch, tag, or sha
-rootle update         # self-update (tarball installs), or your channel's hint
+rootle self-update    # application only (tarball installs), or your channel's hint
 ```
+
+On v0.12.0 tarball installs, use `rootle --update` once to install the
+updater routing fix; `self-update` is available starting with v0.12.1.
 
 Auth is zero-friction: if `gh auth login` or `ROOTLE_TOKEN` is already
 set up, rootle just uses it; anonymous works everywhere except code

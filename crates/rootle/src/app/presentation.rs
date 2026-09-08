@@ -26,7 +26,15 @@ impl App {
         if let Some(view) = &self.search_view {
             return view.cursor_style();
         }
-        self.popup.as_ref().and_then(|p| p.cursor_style())
+        if let Some(popup) = &self.popup {
+            return popup.cursor_style();
+        }
+        (self.mode == Mode::Commit
+            && self
+                .browser
+                .commit_ref()
+                .is_some_and(|view| view.searching()))
+        .then_some(ratatui::crossterm::cursor::SetCursorStyle::SteadyBar)
     }
 
     pub fn render(&mut self, frame: &mut Frame, area: Rect) {
@@ -76,6 +84,11 @@ impl App {
                 Paragraph::new(crate::components::modeline::hint_strip_line(
                     if mode == Mode::History && self.browser.repository_history_active() {
                         crate::keymap::repository_history_hints()
+                    } else if mode == Mode::Commit {
+                        self.browser
+                            .commit_ref()
+                            .map(|view| view.hints())
+                            .unwrap_or_else(|| crate::keymap::hints(mode))
                     } else {
                         crate::keymap::hints(mode)
                     },

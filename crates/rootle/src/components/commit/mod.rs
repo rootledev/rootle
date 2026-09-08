@@ -1,9 +1,13 @@
 //! Read-only commit composition: shared list mechanics, a persistent files
 //! sidebar, and the shared preview for prose. Patches are prepared on actions.
 
+mod files;
 mod prepare;
 mod render;
 mod rows;
+mod search;
+mod yank;
+pub(crate) use yank::CommitYankTarget;
 #[cfg(test)]
 mod tests;
 
@@ -37,6 +41,8 @@ struct OpenDelta {
     selection: ListCursor,
     viewport: Viewport,
     horizontal: usize,
+    text_width: usize,
+    search: search::DiffSearch,
 }
 
 pub struct CommitView {
@@ -201,6 +207,8 @@ impl CommitView {
             selection: ListCursor::new(),
             viewport: Viewport::default(),
             horizontal: 0,
+            text_width: 0,
+            search: search::DiffSearch::default(),
         });
     }
 
@@ -218,7 +226,13 @@ impl CommitView {
 
     pub fn escape(&mut self) -> bool {
         let selected = self.selected_file();
-        if self.filter.clear() {
+        if self.focus == CommitFocus::Preview
+            && let Some(delta) = &mut self.delta
+            && delta.search.clear()
+        {
+            return false;
+        }
+        if self.focus == CommitFocus::Files && self.filter.clear() {
             self.restore_selection(selected);
             return false;
         }
@@ -275,13 +289,33 @@ impl CommitView {
     }
 
     fn visible_files(&self, content: &CommitContent) -> Vec<ItemIndex> {
-        self.filter
-            .visible(&content.files, |file, filter| {
-                filter.matches(&file.label) || filter.matches(file.status.label())
+        content
+            .tree
+            .file_order()
+            .iter()
+            .copied()
+            .filter(|index| {
+                let file = &content.files[index.get()];
+                self.filter.matches(&file.label)
+                    || self.filter.matches(file.status.label())
+                    || file
+                        .previous_label
+                        .as_ref()
+                        .is_some_and(|path| self.filter.matches(path))
             })
-            .into_iter()
-            .map(ItemIndex::new)
             .collect()
+    }
+
+    fn input_context(&self) -> crate::keymap::CommitContext {
+        match self.focus {
+            CommitFocus::Files => crate::keymap::CommitContext::Files,
+            CommitFocus::Preview if self.delta.is_some() => crate::keymap::CommitContext::Diff,
+            CommitFocus::Preview => crate::keymap::CommitContext::Message,
+        }
+    }
+
+    pub(crate) fn hints(&self) -> &'static [crate::keymap::Hint] {
+        crate::keymap::commit_hints(self.input_context())
     }
 
     pub fn open_file(&self) -> Option<ItemIndex> {
@@ -306,7 +340,11 @@ impl Component for CommitView {
         if self.filter.active() {
             return Action::CommitFilterKey(key);
         }
-        crate::keymap::commit(key, &mut self.keys)
+        if self.searching() {
+            return Action::CommitSearchKey(key);
+        }
+        let context = self.input_context();
+        crate::keymap::commit(key, &mut self.keys, context)
     }
 
     fn update(&mut self, action: &Action) {
@@ -321,6 +359,14 @@ impl Component for CommitView {
             Action::CommitFocus => self.focus_next(),
             Action::CommitLeft => self.horizontal(false),
             Action::CommitRight => self.horizontal(true),
+            Action::CommitSearchBegin => {
+                self.keys.clear();
+                self.begin_diff_search();
+            }
+            Action::CommitSearchKey(key) => self.diff_search_key(*key),
+            Action::CommitSearchNext => self.step_diff_match(true),
+            Action::CommitSearchPrevious => self.step_diff_match(false),
+            Action::CommitPage { forward, half } => self.page(*forward, *half),
             Action::CommitFilterBegin => {
                 self.keys.clear();
                 self.begin_filter();

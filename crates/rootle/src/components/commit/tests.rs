@@ -227,3 +227,155 @@ fn wrapped_message_tail_is_reachable_through_shared_preview() {
     view.move_cursor(ListMovement::Last);
     assert!(frame(&mut view, 100, 12).contains("END_OF_MESSAGE"));
 }
+
+fn press(view: &mut CommitView, code: KeyCode, modifiers: KeyModifiers) {
+    let action = view.handle_key(KeyEvent::new(code, modifiers));
+    view.update(&action);
+}
+
+#[test]
+fn diff_find_is_reversible_and_keeps_its_source_cursor() {
+    let request = request();
+    let mut detail = detail(&request);
+    detail.files[0].path = "main.rs".into();
+    detail.files[0].patch = Some(
+        "@@ -0,0 +1,3 @@\n+let first_needle = 1;\n+let second_needle = 2;\n+let other = 3;\n"
+            .into(),
+    );
+    let mut view = CommitView::open(request.clone());
+    view.loaded(&request, detail, &Theme::catppuccin_mocha());
+    view.open_delta();
+    frame(&mut view, 140, 20);
+    for character in "/needle".chars() {
+        press(&mut view, KeyCode::Char(character), KeyModifiers::NONE);
+    }
+    assert!(view.searching());
+    assert!(view.copy_text().unwrap().contains("first_needle"));
+    press(&mut view, KeyCode::Enter, KeyModifiers::NONE);
+    press(&mut view, KeyCode::Char('n'), KeyModifiers::NONE);
+    assert!(view.copy_text().unwrap().contains("second_needle"));
+    for character in "/absent".chars() {
+        press(&mut view, KeyCode::Char(character), KeyModifiers::NONE);
+    }
+    assert!(frame(&mut view, 140, 20).contains("0/0"));
+    press(&mut view, KeyCode::Esc, KeyModifiers::NONE);
+    assert!(view.copy_text().unwrap().contains("second_needle"));
+    press(&mut view, KeyCode::Char('N'), KeyModifiers::NONE);
+    assert!(view.copy_text().unwrap().contains("first_needle"));
+}
+
+#[test]
+fn deleted_and_renamed_line_links_use_parent_identity() {
+    let request = request();
+    let mut detail = detail(&request);
+    detail.parents = vec!["first-parent".into(), "other-parent".into()];
+    detail.files[0].path = "src/new.rs".into();
+    detail.files[0].previous_path = Some("old/name.rs".into());
+    detail.files[0].patch = Some("@@ -10 +20 @@\n-old content\n+new content\n".into());
+    let mut view = CommitView::open(request.clone());
+    view.loaded(&request, detail, &Theme::catppuccin_mocha());
+    assert!(matches!(
+        view.yank_target(),
+        Ok(CommitYankTarget::Commit("https://example.test/commit"))
+    ));
+    view.open_delta();
+    view.move_cursor(ListMovement::Next);
+    match view.yank_target().unwrap() {
+        CommitYankTarget::FileLine {
+            path,
+            revision,
+            line,
+            ..
+        } => {
+            assert_eq!(path.as_str(), "old/name.rs");
+            assert_eq!(revision.as_str(), "first-parent");
+            assert_eq!(line.get(), 10);
+        }
+        _ => panic!("deleted source row needs a source link"),
+    }
+    view.move_cursor(ListMovement::Next);
+    match view.yank_target().unwrap() {
+        CommitYankTarget::FileLine {
+            path,
+            revision,
+            line,
+            ..
+        } => {
+            assert_eq!(path.as_str(), "src/new.rs");
+            assert_eq!(revision, &request.revision);
+            assert_eq!(line.get(), 20);
+        }
+        _ => panic!("added source row needs a source link"),
+    }
+    assert_eq!(view.copy_text().unwrap(), "new content\n");
+    view.begin_filter();
+    for character in "old/name".chars() {
+        view.filter_key(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE));
+    }
+    assert!(!frame(&mut view, 140, 20).contains("no matching files"));
+}
+
+#[test]
+fn page_keys_move_source_cursor_by_viewport_not_one_line() {
+    let request = request();
+    let mut detail = detail(&request);
+    let source: String = (0..100)
+        .map(|index| format!("+// line {index}\n"))
+        .collect();
+    detail.files[0].patch = Some(format!("@@ -0,0 +1,100 @@\n{source}"));
+    let mut view = CommitView::open(request.clone());
+    view.loaded(&request, detail, &Theme::catppuccin_mocha());
+    view.open_delta();
+    view.move_cursor(ListMovement::Next);
+    frame(&mut view, 140, 20);
+    let before = view.copy_text().unwrap();
+    press(&mut view, KeyCode::Char('f'), KeyModifiers::CONTROL);
+    let after = view.copy_text().unwrap();
+    assert_ne!(after, before);
+    assert_ne!(after, "// line 1\n");
+    press(&mut view, KeyCode::Char('b'), KeyModifiers::CONTROL);
+    assert_eq!(view.copy_text().unwrap(), before);
+}
+
+#[test]
+fn hierarchy_projection_keeps_only_matching_leaves_and_ancestors() {
+    let request = request();
+    let mut detail = detail(&request);
+    let template = detail.files[0].clone();
+    detail.files = [
+        "root.rs",
+        "src/z.rs",
+        "src/deep/a.rs",
+        "docs/readme.md",
+        "src/a.rs",
+    ]
+    .into_iter()
+    .map(|path| {
+        let mut file = template.clone();
+        file.path = path.into();
+        file
+    })
+    .collect();
+    let content = CommitContent::new(detail);
+    let names: Vec<_> = content
+        .tree
+        .file_order()
+        .iter()
+        .map(|file| content.files[file.get()].label.as_str())
+        .collect();
+    assert_eq!(
+        names,
+        [
+            "docs/readme.md",
+            "src/deep/a.rs",
+            "src/a.rs",
+            "src/z.rs",
+            "root.rs"
+        ]
+    );
+    let rows = content.tree.visible_rows(&[ItemIndex::new(1)]);
+    assert!(matches!(&rows[..], [
+        files::FileTreeRow::Directory { label, depth: 0 },
+        files::FileTreeRow::File { file, depth: 1 },
+    ] if label == "src" && file.get() == 1));
+}

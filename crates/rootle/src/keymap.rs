@@ -9,6 +9,7 @@ mod motions;
 mod search;
 
 use crate::{action::Action, mode::Mode};
+pub use browse::CommitContext;
 pub use lists::{ListCommand, ListContext};
 pub use motion_state::{MotionCount, MotionPrefix};
 pub use motions::MotionCommand;
@@ -159,11 +160,30 @@ pub fn repository_history_hints() -> &'static [Hint] {
 pub fn preview_named(code: KeyCode) -> Action {
     browse::PREVIEW.lookup(plain(code)).unwrap_or(Action::Noop)
 }
-pub fn commit(key: KeyEvent, sequence: &mut KeySequence) -> Action {
+pub fn commit(key: KeyEvent, sequence: &mut KeySequence, context: CommitContext) -> Action {
     sequence
-        .dispatch(&browse::COMMIT, key)
+        .dispatch(browse::commit_table(context), key)
         .unwrap_or(Action::Noop)
 }
+pub fn commit_hints(context: CommitContext) -> &'static [Hint] {
+    browse::commit_table(context).hints()
+}
+
+static COMMIT_HINTS: LazyLock<Vec<Hint>> = LazyLock::new(|| {
+    let mut hints = Vec::new();
+    for context in [
+        CommitContext::Files,
+        CommitContext::Message,
+        CommitContext::Diff,
+    ] {
+        for hint in commit_hints(context) {
+            if !hints.contains(hint) {
+                hints.push(*hint);
+            }
+        }
+    }
+    hints
+});
 pub fn motion(key: KeyEvent) -> Option<MotionCommand> {
     motions::MOTIONS.lookup(key)
 }
@@ -205,7 +225,7 @@ pub fn hints(mode: Mode) -> &'static [Hint] {
         Mode::Visual => browse::VISUAL.hints(),
         Mode::Leader => browse::LEADER.hints(),
         Mode::History => browse::HISTORY.hints(),
-        Mode::Commit => browse::COMMIT.hints(),
+        Mode::Commit => &COMMIT_HINTS,
         Mode::Preview => &PREVIEW_HINTS,
         Mode::Search | Mode::Find => browse::FILTER.hints(),
         Mode::Insert => browse::INSERT.hints(),
@@ -248,24 +268,43 @@ mod tests {
     fn file_step_requires_its_whole_chord_and_escape_cancels_prefix() {
         let mut sequence = KeySequence::default();
         assert_eq!(
-            commit(plain(KeyCode::Char(']')), &mut sequence),
+            commit(
+                plain(KeyCode::Char(']')),
+                &mut sequence,
+                CommitContext::Diff
+            ),
             Action::Noop
         );
         assert_eq!(
-            commit(plain(KeyCode::Char('f')), &mut sequence),
+            commit(
+                plain(KeyCode::Char('f')),
+                &mut sequence,
+                CommitContext::Diff
+            ),
             Action::CommitStepNext
         );
         assert_eq!(
-            commit(plain(KeyCode::Char('[')), &mut sequence),
+            commit(
+                plain(KeyCode::Char('[')),
+                &mut sequence,
+                CommitContext::Diff
+            ),
             Action::Noop
         );
-        assert_eq!(commit(plain(KeyCode::Esc), &mut sequence), Action::Noop);
         assert_eq!(
-            commit(plain(KeyCode::Char('f')), &mut sequence),
+            commit(plain(KeyCode::Esc), &mut sequence, CommitContext::Diff),
             Action::Noop
         );
         assert_eq!(
-            commit(plain(KeyCode::Esc), &mut sequence),
+            commit(
+                plain(KeyCode::Char('f')),
+                &mut sequence,
+                CommitContext::Diff
+            ),
+            Action::Noop
+        );
+        assert_eq!(
+            commit(plain(KeyCode::Esc), &mut sequence, CommitContext::Diff),
             Action::CommitClose
         );
     }

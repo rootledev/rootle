@@ -11,6 +11,7 @@ use std::path::PathBuf;
 pub struct Cli {
     /// Open this repo directly (owner/repo, or owner/repo@branch),
     /// skipping the search popup.
+    #[arg(value_parser = repository_argument)]
     pub repo: Option<String>,
 
     /// Use this config file instead of ~/.config/rootle/config.toml.
@@ -22,18 +23,15 @@ pub struct Cli {
     #[arg(long, value_name = "NAME")]
     pub theme: Option<String>,
 
-    /// Provider management (plans/0010): install, list, update,
-    /// upgrade, pin, remove, use.
+    /// Application maintenance or explicitly namespaced provider management.
     #[command(subcommand)]
-    pub provider: Option<ProviderCommand>,
+    pub command: Option<RootCommand>,
 
-    /// Update rootle itself (tarball/install.sh installs self-update,
-    /// checksum-verified; brew/cargo/mise installs get their channel's
-    /// command).
-    #[arg(long)]
+    /// Update rootle and its managed providers (equivalent to `rootle update`).
+    #[arg(long, conflicts_with_all = ["headless", "repo", "theme", "config"])]
     pub update: bool,
 
-    /// With --update: report only, don't write.
+    /// With --update: report available upgrades without installing them.
     #[arg(long, requires = "update")]
     pub check: bool,
 
@@ -69,6 +67,27 @@ pub struct Cli {
     /// Include sensitive input, visible UI text and provider stderr.
     #[arg(long, global = true)]
     pub log_content: bool,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum RootCommand {
+    /// Update rootle itself, then refresh and upgrade managed providers.
+    Update {
+        /// Report available upgrades without replacing binaries.
+        #[arg(long)]
+        check: bool,
+    },
+    /// Update only rootle (package-manager installs receive their upgrade command).
+    SelfUpdate {
+        /// Report the application update without replacing the executable.
+        #[arg(long)]
+        check: bool,
+    },
+    /// Install, inspect, update or configure provider binaries.
+    Provider {
+        #[command(subcommand)]
+        command: ProviderCommand,
+    },
 }
 
 /// Install a provider from a GitHub release, manage it locally, and
@@ -154,22 +173,49 @@ pub enum ProviderCommand {
     },
 }
 
+fn split_repository(value: &str) -> Option<(&str, &str, Option<&str>)> {
+    let (path, revision) = match value.split_once('@') {
+        Some((path, revision)) => (path, (!revision.is_empty()).then_some(revision)),
+        None => (value, None),
+    };
+    let (owner, name) = path.split_once('/')?;
+    (!owner.is_empty() && !name.is_empty()).then_some((owner, name, revision))
+}
+
+fn repository_argument(value: &str) -> Result<String, String> {
+    split_repository(value)
+        .map(|_| value.to_owned())
+        .ok_or_else(|| "expected owner/repo[@revision]".to_string())
+}
+
 impl Cli {
     /// Split the positional repo argument into (owner, name, ref):
     /// `owner/repo`, or `owner/repo@ref` (plans/0016 M1a — ref is
     /// everything after the first `@`; slashes legal: `release/2.7`).
     pub fn repo_parts(&self) -> Option<(String, String, Option<String>)> {
-        let repo = self.repo.as_ref()?;
-        let (path, ref_) = match repo.split_once('@') {
-            Some((p, r)) if !r.is_empty() => (p, Some(r.to_string())),
-            Some((p, _)) => (p, None), // trailing @ pins nothing
-            None => (repo.as_str(), None),
-        };
-        let (owner, name) = path.split_once('/')?;
-        if owner.is_empty() || name.is_empty() {
-            return None;
+        let (owner, name, revision) = split_repository(self.repo.as_deref()?)?;
+        Some((
+            owner.to_string(),
+            name.to_string(),
+            revision.map(str::to_string),
+        ))
+    }
+
+    /// Reject ignored root-level options while permitting global diagnostics
+    /// on either side of a subcommand.
+    pub fn validate_execution(&self) -> Result<(), &'static str> {
+        if self.command.is_some()
+            && (self.repo.is_some()
+                || self.headless.is_some()
+                || self.update
+                || self.config.is_some()
+                || self.theme.is_some())
+        {
+            return Err(
+                "maintenance commands cannot be combined with a repository, --headless, --update, --config or --theme",
+            );
         }
-        Some((owner.to_string(), name.to_string(), ref_))
+        Ok(())
     }
 
     /// The launch theme: --theme beats config; border/nerd-font/
@@ -193,7 +239,7 @@ mod tests {
             repo: repo.map(str::to_string),
             config: None,
             theme: None,
-            provider: None,
+            command: None,
             update: false,
             check: false,
             headless: None,
@@ -240,13 +286,15 @@ mod tests {
         use clap::Parser;
         let c = Cli::try_parse_from(["rootle", "provider", "list"]).unwrap();
         assert!(matches!(
-            c.provider,
-            Some(ProviderCommand::List { json: false })
+            c.command,
+            Some(RootCommand::Provider {
+                command: ProviderCommand::List { json: false }
+            })
         ));
         let c = Cli::try_parse_from(["rootle", "provider", "install", "gitlab", "--pin"]).unwrap();
         assert!(matches!(
-            c.provider,
-            Some(ProviderCommand::Install { ref_, pin: true, .. }) if ref_ == "gitlab"
+            c.command,
+            Some(RootCommand::Provider { command: ProviderCommand::Install { ref_, pin: true, .. } }) if ref_ == "gitlab"
         ));
         let c = Cli::try_parse_from([
             "rootle",
@@ -259,8 +307,32 @@ mod tests {
         ])
         .unwrap();
         assert!(matches!(
-            c.provider,
-            Some(ProviderCommand::Use { name, extra, .. }) if name == "gitlab" && extra.len() == 2
+            c.command,
+            Some(RootCommand::Provider { command: ProviderCommand::Use { name, extra, .. } }) if name == "gitlab" && extra.len() == 2
         ));
+    }
+    #[test]
+    fn commands_reject_arguments_that_would_otherwise_be_ignored() {
+        for arguments in [
+            vec!["rootle", "owner/repo", "provider", "list"],
+            vec!["rootle", "--headless", "-", "update"],
+            vec!["rootle", "--update", "provider", "list"],
+        ] {
+            let parsed = Cli::try_parse_from(arguments.iter().copied());
+            assert!(
+                match parsed {
+                    Err(_) => true,
+                    Ok(cli) => cli.validate_execution().is_err(),
+                },
+                "{arguments:?} must fail"
+            );
+        }
+        assert!(Cli::try_parse_from(["rootle", "--update", "--headless", "-"]).is_err());
+    }
+
+    #[test]
+    fn global_diagnostics_work_before_and_after_commands() {
+        assert!(Cli::try_parse_from(["rootle", "--log", "provider", "list"]).is_ok());
+        assert!(Cli::try_parse_from(["rootle", "self-update", "--check", "--log"]).is_ok());
     }
 }

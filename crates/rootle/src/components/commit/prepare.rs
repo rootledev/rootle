@@ -15,12 +15,14 @@ pub(super) struct CommitContent {
     pub date: String,
     pub message: String,
     pub files: Vec<FilePresentation>,
+    pub tree: super::files::FileTree,
 }
 
 pub(super) struct FilePresentation {
-    path: RepoPath,
-    previous_path: Option<RepoPath>,
+    pub(super) path: RepoPath,
+    pub(super) previous_path: Option<RepoPath>,
     pub label: String,
+    pub basename: String,
     pub previous_label: Option<String>,
     pub status: FileStatus,
     pub additions: Option<u32>,
@@ -51,13 +53,21 @@ pub(super) struct PreparedLine {
 
 impl CommitContent {
     pub fn new(mut detail: CommitDetail) -> Self {
-        let files = detail
+        let files: Vec<_> = detail
             .files
             .iter_mut()
             .map(|file| FilePresentation {
                 path: file.path.clone(),
                 previous_path: file.previous_path.clone(),
                 label: crate::sanitize::sanitize_inline(file.path.as_str()),
+                basename: crate::sanitize::sanitize_inline(
+                    file.path
+                        .as_str()
+                        .rsplit('/')
+                        .next()
+                        .filter(|name| !name.is_empty())
+                        .unwrap_or(file.path.as_str()),
+                ),
                 previous_label: file
                     .previous_path
                     .as_ref()
@@ -73,12 +83,14 @@ impl CommitContent {
         let author = crate::sanitize::sanitize_inline(&detail.author);
         let date = crate::sanitize::sanitize_inline(&detail.date);
         let message = display_text(&detail.message);
+        let tree = super::files::FileTree::new(&files);
         Self {
             detail,
             author,
             date,
             message,
             files,
+            tree,
         }
     }
 

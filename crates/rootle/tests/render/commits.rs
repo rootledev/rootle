@@ -77,7 +77,7 @@ fn commit_viewer_dive_chain() {
         "header band carries sha + author:\n{screen}"
     );
     assert!(
-        screen.contains("src/lib.rs") && screen.contains("README.md"),
+        screen.contains("src/") && screen.contains("lib.rs") && screen.contains("README.md"),
         "changed files listed:\n{screen}"
     );
     assert!(

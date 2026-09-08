@@ -193,9 +193,7 @@ impl App {
                 true
             }
             Action::HistoryOpen => {
-                if self.browser.repository_history_active() {
-                    self.handle_action(Action::CommitDive);
-                } else if let Some((request, revision)) = self.browser.history_pick()
+                if let Some((request, revision)) = self.browser.history_pick()
                     && let crate::request::HistoryScope::File(path) = request.scope
                     && let Some(entry) = self.browser.history_pick_entry()
                 {
@@ -238,23 +236,58 @@ impl App {
             | Action::CommitLeft
             | Action::CommitRight
             | Action::CommitFilterBegin
-            | Action::CommitFilterKey(_)) => {
+            | Action::CommitFilterKey(_)
+            | Action::CommitSearchBegin
+            | Action::CommitSearchKey(_)
+            | Action::CommitSearchNext
+            | Action::CommitSearchPrevious
+            | Action::CommitPage { .. }) => {
                 if let Some(view) = self.browser.commit() {
                     view.update(&command);
                 }
                 true
             }
             Action::CommitYank => {
-                let url = self
-                    .browser
-                    .commit_ref()
-                    .and_then(|view| view.web_url())
-                    .map(str::to_string);
-                if let Some(url) = url {
-                    self.status = Some(format!("yanked {url}"));
-                    self.pending_clipboard = Some(url);
-                } else {
-                    self.status = Some("provider has no commit permalink".into());
+                use crate::components::commit::CommitYankTarget;
+                let result = match self.browser.commit_ref().map(|view| view.yank_target()) {
+                    Some(Ok(CommitYankTarget::Commit(url))) => Ok(url.to_string()),
+                    Some(Ok(CommitYankTarget::FileLine {
+                        repository,
+                        path,
+                        revision,
+                        line,
+                    })) => self
+                        .provider
+                        .web_url(
+                            repository,
+                            path.as_str(),
+                            Some(&GitRef::from(revision.as_str())),
+                            Some(line.get()),
+                            None,
+                            true,
+                        )
+                        .map_err(|error| provider_status(&error)),
+                    Some(Err(message)) => Err(message.to_string()),
+                    None => Err("commit is not open".into()),
+                };
+                match result {
+                    Ok(url) if !url.chars().any(char::is_control) => {
+                        self.status = Some(format!("yanked {url}"));
+                        self.pending_clipboard = Some(url);
+                    }
+                    Ok(_) => self.status = Some("provider returned an invalid permalink".into()),
+                    Err(message) => self.status = Some(message),
+                }
+                true
+            }
+            Action::CommitCopy => {
+                match self.browser.commit_ref().map(|view| view.copy_text()) {
+                    Some(Ok(text)) => {
+                        self.pending_clipboard = Some(text);
+                        self.status = Some("copied commit text".into());
+                    }
+                    Some(Err(message)) => self.status = Some(message.into()),
+                    None => self.status = Some("commit is not open".into()),
                 }
                 true
             }
