@@ -134,7 +134,7 @@ jobs:
       # Attest build provenance for every tarball (the gripsack
       # pattern): verifiable with
       # `gh attestation verify <tarball> -R rootledev/rootle`.
-      - uses: actions/attest-build-provenance@v2
+      - uses: actions/attest-build-provenance@v4
         with:
           subject-path: dist/rootle-*.tar.gz
 
