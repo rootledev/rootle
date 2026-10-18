@@ -42,7 +42,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      target: builder
+      target: release
     command:
       - sh
       - -c
@@ -53,9 +53,7 @@ services:
         test "$$TARGET" = x86_64-unknown-linux-musl || { echo "unsupported target: $$TARGET" >&2; exit 1; }
         test "$$(rustc -vV | sed -n 's/^host: //p')" = "$$TARGET"
         PKG="rootle-$$VERSION-$$TARGET"
-        cargo build --release --locked \
-        && strip target/release/rootle \
-        && readelf -d target/release/rootle > /tmp/rootle-dynamic \
+        readelf -d target/release/rootle > /tmp/rootle-dynamic \
         && ! grep -q '(NEEDED)' /tmp/rootle-dynamic \
         && file target/release/rootle | grep -qE "static-pie linked|statically linked" \
         && staging="$$(mktemp -d)" \

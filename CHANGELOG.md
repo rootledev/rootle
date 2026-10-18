@@ -15,6 +15,11 @@ User-visible changes per release. Protocol archaeology lives in
 - Linux unit, headless/PTY, protocol-model/mutant, forge-conformance, static
   binary and audit gates remain required. Actions remains the release authority
   while a trusted-code, non-publishing WSL/Docker Buildbot pilot is qualified.
+- Updated the lock to `quinn-proto` 0.11.18 and `rustls` 0.23.46, eliminating
+  the seven RustSec advisories found by the local pilot without audit exceptions.
+- Audit-tool and release compilation use reusable Docker stages. Packaging
+  consumes the compiled static binary instead of rebuilding it in a disposable
+  container; project source edits no longer recompile the audit tool.
 
 ## [0.12.2] — 2026-09-08
 

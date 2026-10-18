@@ -3,7 +3,7 @@
 # The pinned amd64 Rust image uses x86_64-unknown-linux-musl natively.
 # No ARM, macOS, or native Windows build path is supported.
 
-FROM rust:alpine@sha256:3ffeca71d0e4fc30f5537f76b7243e87ac99726b6d3d66591dfc5e497078b9fc AS builder
+FROM rust:alpine@sha256:3ffeca71d0e4fc30f5537f76b7243e87ac99726b6d3d66591dfc5e497078b9fc AS toolchain
 ARG CARGO_BUILD_JOBS=4
 ENV CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS}
 # Complete APK closure is byte-pinned; no repository index participates in
@@ -21,6 +21,8 @@ RUN set -eu; \
     rm -rf /tmp/build-apks; \
     rustup component add --toolchain 1.98.0 clippy rustfmt
 WORKDIR /app
+
+FROM toolchain AS builder
 COPY Cargo.toml Cargo.lock README.md LICENSE install.sh ./
 COPY crates ./crates
 COPY .ci ./.ci
@@ -47,11 +49,14 @@ ENTRYPOINT ["/rootle"]
 
 # Audit tool source and its bundled dependency lock are immutable.
 # Runtime advisory data is intentionally separate from the tool identity.
-FROM builder AS audit
+FROM toolchain AS audit-tool
 ADD --checksum=sha256:700c2b240f7fd330c24b675fe429f73a5b676531fcc6300400b2b67f155ba12a https://static.crates.io/crates/cargo-audit/cargo-audit-0.22.2.crate /tmp/cargo-audit.crate
 RUN tar -xzf /tmp/cargo-audit.crate -C /tmp \
     && cargo install --locked --path /tmp/cargo-audit-0.22.2 \
     && rm -rf /tmp/cargo-audit.crate /tmp/cargo-audit-0.22.2
+
+FROM builder AS audit
+COPY --from=audit-tool /usr/local/cargo/bin/cargo-audit /usr/local/cargo/bin/cargo-audit
 CMD ["cargo", "audit"]
 
 # e2e PTY suite (plans/0002-v0.2 §6, productionize). FROM test reuses
