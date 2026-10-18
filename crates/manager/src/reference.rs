@@ -86,7 +86,7 @@ impl ProviderReference {
 /// tracked by `update`/`upgrade`.
 fn parse_tarball_url(url: &str, tag: Option<String>) -> Result<ProviderReference> {
     let file = url.rsplit('/').next().unwrap_or_default();
-    let target = super::release::platform_target();
+    let target = super::release::platform_target()?;
     let suffix = format!("-{target}.tar.gz");
     let stem = file.strip_suffix(&suffix).ok_or_else(|| {
         ManagerError::User(format!(
@@ -191,7 +191,7 @@ mod tests {
 
     #[test]
     fn plain_http_tarball_urls() {
-        let target = super::super::release::platform_target();
+        let target = super::super::release::platform_target().unwrap();
         let url =
             format!("https://artifacts.corp.example/providers/rootle-gitlab-0.1.0-{target}.tar.gz");
         let r = ProviderReference::parse(&url).unwrap();

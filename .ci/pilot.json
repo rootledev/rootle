@@ -1,0 +1,59 @@
+{
+  "schema": 1,
+  "project": "rootle",
+  "profile": "linux-x64-trusted-pilot",
+  "platform": "linux-x86_64",
+  "policy": "PLATFORM-LINUX-X64-2026-10-09",
+  "version": "0.12.2",
+  "gates": [
+    {
+      "id": "rust",
+      "argv": ["docker", "compose", "run", "--build", "--rm", "test"],
+      "timeout_seconds": 3600,
+      "outputs": []
+    },
+    {
+      "id": "model",
+      "argv": ["docker", "compose", "run", "--build", "--rm", "model"],
+      "timeout_seconds": 1800,
+      "outputs": []
+    },
+    {
+      "id": "e2e",
+      "argv": ["docker", "compose", "run", "--build", "--rm", "e2e"],
+      "timeout_seconds": 3600,
+      "outputs": []
+    },
+    {
+      "id": "forge-conformance",
+      "argv": ["docker", "compose", "run", "--build", "--rm", "e2e", "uv", "run", "--locked", "--no-sync", "python", "/app/.ci/forge_conformance.py", "75c00748f6927e45ec23d42642ee96d96a787648"],
+      "timeout_seconds": 1800,
+      "outputs": []
+    },
+    {
+      "id": "audit",
+      "argv": ["docker", "compose", "run", "--build", "--rm", "audit"],
+      "timeout_seconds": 3600,
+      "outputs": [".ci-output/audit.json"]
+    },
+    {
+      "id": "package",
+      "argv": ["docker", "compose", "run", "--build", "--rm", "-e", "VERSION=0.12.2", "release"],
+      "timeout_seconds": 3600,
+      "outputs": [
+        "dist/rootle-0.12.2-x86_64-unknown-linux-musl.tar.gz",
+        "dist/rootle-0.12.2-x86_64-unknown-linux-musl.tar.gz.sha256"
+      ]
+    },
+    {
+      "id": "artifact-consumer",
+      "argv": ["docker", "compose", "run", "--build", "--rm", "artifact"],
+      "timeout_seconds": 3600,
+      "outputs": []
+    }
+  ],
+  "artifacts": [
+    "dist/rootle-0.12.2-x86_64-unknown-linux-musl.tar.gz",
+    "dist/rootle-0.12.2-x86_64-unknown-linux-musl.tar.gz.sha256"
+  ]
+}

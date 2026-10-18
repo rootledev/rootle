@@ -17,6 +17,7 @@ impl Manager {
     /// deployments, plans/0014); everything else flows through
     /// [`install_inner`] with a live Ui.
     pub fn install(&self, r: &ProviderReference, force: bool) -> Result<Receipt> {
+        platform_target()?;
         if let Some(url) = &r.tarball {
             return self.install_tarball(r, url, force);
         }
@@ -34,6 +35,7 @@ impl Manager {
         ui: &crate::progress::ProgressOutput,
         expect_sha: Option<&str>,
     ) -> Result<Receipt> {
+        let target = platform_target()?;
         if let Some(existing) = self.receipt(&r.name)
             && existing.tag == r.tag.clone().unwrap_or_default()
             && !force
@@ -53,7 +55,6 @@ impl Manager {
             "Resolved",
             &format!("{repo} @ {tag}", repo = r.repo, tag = release.tag_name),
         );
-        let target = platform_target();
         let asset = pick_asset(&release, target)?;
         let sidecar = checksum_sidecar(&release, asset)?;
 
@@ -117,6 +118,7 @@ impl Manager {
     /// no releases API — install-and-pin: `update`/`upgrade` never
     /// track these receipts (#1b).
     fn install_tarball(&self, r: &ProviderReference, url: &str, force: bool) -> Result<Receipt> {
+        platform_target()?;
         let file = url.rsplit('/').next().unwrap_or(url);
         if let Some(existing) = self.receipt(&r.name)
             && existing.source == url
@@ -181,6 +183,7 @@ impl Manager {
     /// Local dev install: symlink a binary, no network (gh's `gh
     /// extension install .` model).
     pub fn install_path(&self, name: &str, path: &Path) -> Result<Receipt> {
+        platform_target()?;
         if !path.is_file() {
             return Err(ManagerError::User(format!(
                 "{} is not a file",
@@ -220,6 +223,7 @@ impl Manager {
     /// receipts. Returns (name, current, latest) for the ones that are
     /// stale.
     pub fn update(&self, name: Option<&str>) -> Result<Vec<(String, String, String)>> {
+        platform_target()?;
         let mut stale = Vec::new();
         for receipt in self.receipts() {
             if let Some(want) = name
@@ -249,6 +253,7 @@ impl Manager {
     /// `upgrade`: swap the binary for the latest-known (or fresh
     /// latest) tag. Pinned skips unless force.
     pub fn upgrade(&self, name: Option<&str>, dry_run: bool, force: bool) -> Result<()> {
+        platform_target()?;
         for receipt in self.receipts() {
             if let Some(want) = name
                 && receipt.name != want

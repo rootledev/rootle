@@ -40,7 +40,7 @@ fn plain_http_install_downloads_verifies_and_pins() {
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
-    let target = super::super::release::platform_target();
+    let target = super::super::release::platform_target().unwrap();
     let file = format!("rootle-gitlab-0.1.0-{target}.tar.gz");
     let tarball = tarball_with("rootle-gitlab", b"#!/bin/sh\necho fake\n");
 
@@ -117,7 +117,7 @@ fn sweep_upgrades_reports_and_isolates() {
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
-    let target = platform_target();
+    let target = platform_target().unwrap();
     let file = format!("rootle-live-0.2.0-{target}.tar.gz");
     let tarball = tarball_with("rootle-live", b"#!/bin/sh\necho live 0.2.0\n");
 

@@ -71,17 +71,8 @@ case "$OS/$ARCH" in
     Linux/x86_64|Linux/amd64)
         TARGET="x86_64-unknown-linux-musl"
         ;;
-    Linux/aarch64|Linux/arm64)
-        TARGET="aarch64-unknown-linux-musl"
-        ;;
-    Darwin/x86_64)
-        TARGET="x86_64-apple-darwin"
-        ;;
-    Darwin/arm64)
-        TARGET="aarch64-apple-darwin"
-        ;;
     *)
-        err "no prebuilt binary for $OS/$ARCH — macOS: brew install --cask rootledev/tap/rootle; otherwise brew install rootledev/tap/rootle (builds from source) or cargo install $BIN"
+        err "unsupported platform $OS/$ARCH — rootle supports Linux/WSL x86_64 only"
         ;;
 esac
 
@@ -125,16 +116,10 @@ trap 'rm -rf "$TMP"' EXIT
 
 fetch_to "$URL" "$TMP/$ARCHIVE"
 
-# Verify the checksum when the release ships one and a tool exists.
-# macOS has no sha256sum — fall back to shasum rather than silently
-# skipping verification.
-if fetch_to "${URL}.sha256" "$TMP/$ARCHIVE.sha256" 2>/dev/null; then
-    if command -v sha256sum >/dev/null 2>&1; then
-        (cd "$TMP" && sha256sum -c "$ARCHIVE.sha256") || err "checksum mismatch — aborting"
-    elif command -v shasum >/dev/null 2>&1; then
-        (cd "$TMP" && shasum -a 256 -c "$ARCHIVE.sha256") || err "checksum mismatch — aborting"
-    fi
-fi
+# Every supported release includes a checksum; never install unverified bytes.
+command -v sha256sum >/dev/null 2>&1 || err "sha256sum is required"
+fetch_to "${URL}.sha256" "$TMP/$ARCHIVE.sha256" || err "missing checksum — aborting"
+(cd "$TMP" && sha256sum -c "$ARCHIVE.sha256") || err "checksum mismatch — aborting"
 
 info "Extracting..."
 tar -xzf "$TMP/$ARCHIVE" -C "$TMP"

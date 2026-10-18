@@ -5,6 +5,7 @@
 
 services:
   test:
+    platform: linux/amd64
     build:
       context: .
       dockerfile: Dockerfile
@@ -16,6 +17,7 @@ services:
   # TLC model check of the provider protocol (plans/0027): base spec
   # clean AND the kept mutant killed, both at image-build time.
   model:
+    platform: linux/amd64
     build:
       context: .
       dockerfile: Dockerfile
@@ -24,6 +26,7 @@ services:
     command: 'echo "gate passed: provider protocol model checks clean, kept mutant killed (TLC)"'
 
   build:
+    platform: linux/amd64
     build:
       context: .
       dockerfile: Dockerfile
@@ -35,6 +38,7 @@ services:
   # The tarball layout is the install.sh contract:
   #   rootle-<VERSION>-<TARGET>.tar.gz containing <dir>/rootle
   release:
+    platform: linux/amd64
     build:
       context: .
       dockerfile: Dockerfile
@@ -45,10 +49,9 @@ services:
       - |
         set -e
         VERSION="$${VERSION:?set VERSION to the release version, e.g. -e VERSION=0.3.0}"
-        # Package triple — the release matrix overrides it per runner;
-        # the build itself is native to the container (rust:alpine is
-        # multi-arch, so an arm runner natively emits aarch64 musl).
         TARGET="$${TARGET:-x86_64-unknown-linux-musl}"
+        test "$$TARGET" = x86_64-unknown-linux-musl || { echo "unsupported target: $$TARGET" >&2; exit 1; }
+        test "$$(rustc -vV | sed -n 's/^host: //p')" = "$$TARGET"
         PKG="rootle-$$VERSION-$$TARGET"
         cargo build --release --locked \
         && strip target/release/rootle \
@@ -66,6 +69,7 @@ services:
       - ./dist:/dist
 
   e2e:
+    platform: linux/amd64
     build:
       context: .
       dockerfile: Dockerfile
@@ -73,3 +77,27 @@ services:
     # PTY suite runs at container start (CMD in the Dockerfile); the
     # `test`-stage gate + compile are reused from the image cache —
     # `docker compose run --build --rm e2e` after source changes.
+
+  # Shared Actions/pilot release consumer: original archive → installer → full suite.
+  artifact:
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: e2e
+    volumes:
+      - ./dist:/dist:ro
+    command: ["uv", "run", "--locked", "--no-sync", "python", "/app/.ci/qualify_release.py", "--dist", "/dist", "--consumer"]
+
+  audit:
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: audit
+    volumes:
+      - ./.ci-output:/receipts
+    command:
+      - sh
+      - -c
+      - 'cargo audit --json > /receipts/audit.json; status=$$?; cat /receipts/audit.json; exit $$status'

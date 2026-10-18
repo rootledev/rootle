@@ -4,7 +4,6 @@ from __future__ import annotations
 import hashlib
 import io
 import json
-import platform
 import shutil
 import subprocess
 import tarfile
@@ -20,8 +19,7 @@ from tui import hermetic_env
 def local_release(binary):
     current = subprocess.run([str(binary), '--version'], check=True, capture_output=True, text=True).stdout.split()[-1]
     version = f'{int(current.split(".")[0]) + 1}.0.0'
-    architecture = 'aarch64' if platform.machine() in ('aarch64', 'arm64') else 'x86_64'
-    target = f'{architecture}-apple-darwin' if platform.system() == 'Darwin' else f'{architecture}-unknown-linux-musl'
+    target = 'x86_64-unknown-linux-musl'
     filename = f'rootle-{version}-{target}.tar.gz'
     payload = f'#!/bin/sh\nprintf "rootle {version}\\n"\n'.encode()
     archive = io.BytesIO()

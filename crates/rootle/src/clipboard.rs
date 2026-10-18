@@ -1,6 +1,6 @@
 //! Clipboard (plans/0003 §1): OSC 52 first — works over SSH and tmux
-//! with zero deps — plus a best-effort local tool fallback (wayland/X/
-//! macOS). `ROOTLE_CLIPBOARD=<path>` redirects to a file for e2e/CI
+//! with zero deps — plus a best-effort local tool fallback (Wayland/X).
+//! `ROOTLE_CLIPBOARD=<path>` redirects to a file for e2e/CI
 //! (no clipboard exists there).
 
 use std::io::Write;
@@ -36,7 +36,7 @@ fn osc52(text: &str) {
     });
 }
 
-/// Wayland/X/macOS clipboard tools, when present. Errors are ignored —
+/// Wayland/X clipboard tools, when present. Errors are ignored —
 /// OSC 52 already tried, and the toast told the user what was yanked.
 fn local_tool(text: &str) {
     use std::process::{Command, Stdio};
@@ -44,7 +44,6 @@ fn local_tool(text: &str) {
         ("wl-copy", None),
         ("xclip", Some("-selection")),
         ("xsel", Some("--clipboard")),
-        ("pbcopy", None),
     ] {
         let mut cmd = Command::new(program);
         if let Some(flag) = flag {

@@ -84,7 +84,7 @@ fn tarball_update_downloads_verifies_and_swaps() {
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
-    let target = rootle_manager::platform_target();
+    let target = rootle_manager::platform_target().unwrap();
     let file = format!("rootle-9.9.9-{target}.tar.gz");
     let payload = b"#!/bin/sh\necho new rootle\n";
 

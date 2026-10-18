@@ -104,6 +104,7 @@ fn update_inner(
     channel: Channel,
     ui: &rootle_manager::progress::ProgressOutput,
 ) -> Result<Option<String>, String> {
+    let target = rootle_manager::platform_target().map_err(|e| e.to_string())?;
     rootle_trace::record_with(rootle_trace::EventKind::ExternalCommand, || {
         serde_json::json!({"operation":"self_update", "phase":"started", "check_only":check_only,
             "channel":format!("{channel:?}")})
@@ -155,7 +156,6 @@ fn update_inner(
     let timer = rootle_manager::progress::Timer::start();
     ui.heading("Updating rootle");
     ui.done("Resolved", &tag);
-    let target = rootle_manager::platform_target();
     let asset = rootle_manager::pick_asset(&release, target).map_err(|e| e.to_string())?;
     let sidecar = rootle_manager::checksum_sidecar(&release, asset).map_err(|e| e.to_string())?;
     let spinner = ui.spinner(&format!("Downloading {}", asset.name));

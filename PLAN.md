@@ -6,6 +6,23 @@ checked out. No local clone required: GitHub ships in-tree, everything
 else is a stdio provider speaking NDJSON-RPC (doc/provider-protocol.md),
 with a content-addressable disk cache under `~/.cache/rootle`.
 
+## Current platform and CI policy
+
+Active support is Linux/WSL x86_64 only (`x86_64-unknown-linux-musl`).
+ARM, macOS and native Windows require a later explicit scope decision.
+Older numbered plans and released evidence below remain historical; their
+multi-platform requirements do not override this policy.
+
+The first shared Buildbot candidate is a trusted-code, non-publishing pilot
+on the existing WSL/Docker host. Actions remains the execution/publication
+authority until qualification and an explicit cutover. Strong isolation and
+signed owner promotion are deferred to the later storage migration. No public
+fork execution, release credentials, new disks or destructive Docker cleanup
+belong to this pilot. Gate and artifact contracts are in
+[development](doc/development.md).
+
+## Plan history
+
 Plans are numbered, oldest first. Status lives in each plan's header;
 per-release notes are on the GitHub releases page:
 

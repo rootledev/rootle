@@ -19,6 +19,10 @@ mod terminal;
 
 fn main() -> std::process::ExitCode {
     let cli = Cli::parse();
+    if let Err(error) = rootle_manager::platform_target() {
+        eprintln!("{error}");
+        return std::process::ExitCode::FAILURE;
+    }
     terminal::install_panic_hook();
     let session = match rootle::diagnostics::Session::start(&cli) {
         Ok(session) => session,

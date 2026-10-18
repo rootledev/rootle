@@ -87,6 +87,10 @@ def build() -> Path:
     (ROOTLE_E2E_IN_DOCKER) — reusing that artifact is the point of the
     compose bootstrap; on the host we build with cargo as before.
     """
+    if supplied := os.environ.get("ROOTLE_E2E_BINARY"):
+        binary = Path(supplied)
+        assert binary.is_absolute() and binary.is_file(), f"invalid ROOTLE_E2E_BINARY: {supplied}"
+        return binary
     if os.environ.get("ROOTLE_E2E_IN_DOCKER"):
         assert BINARY.exists(), f"gate stage should have built {BINARY}"
         return BINARY

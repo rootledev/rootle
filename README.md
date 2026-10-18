@@ -68,11 +68,15 @@ small stdio script.
 
 ## Quick start
 
+Supported platform: **Linux/WSL on x86_64 only**. The release target is
+`x86_64-unknown-linux-musl`; ARM, macOS and native Windows are unsupported.
+This policy also applies to source/package-manager installs. Older published
+releases are historical artifacts, not current platform support.
+
 ```bash
 curl -fsSL https://rootle.dev/install.sh | sh   # linux x86_64, to ~/.local/bin
-brew install rootledev/tap/rootle   # linux (builds from source)
-brew install --cask rootledev/tap/rootle   # macOS (prebuilt binary)
-cargo install rootle                # or from crates.io (Rust 1.88+)
+brew install rootledev/tap/rootle   # Linux x86_64 (builds from source)
+cargo install rootle              # Linux/WSL x86_64, Rust 1.88+
 
 rootle                # repo search on first run; browser after that
 rootle owner/repo     # jump straight into a repo

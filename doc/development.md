@@ -5,6 +5,138 @@ How rootle is built, tested, and shipped. For using the app see the
 contract see [house-style.md](house-style.md); for backend integration
 see [provider-protocol.md](provider-protocol.md).
 
+## Supported platform and pilot authority
+
+Only Linux/WSL x86_64 is actively supported. The release target and package
+suffix are `x86_64-unknown-linux-musl`; source installs obey the same OS/CPU
+policy. ARM, macOS and native Windows are not active targets. Portable
+provider vocabulary, upstream lockfile entries and historical plans are
+retained where they are not active platform implementations.
+
+Actions still owns required checks and publication. The shared Buildbot
+candidate is a **trusted-code, non-publishing pilot** on existing WSL/Docker,
+not a replacement authority or an isolated public-fork worker. It receives
+no registry, signing, tap or site-deployment credentials. Strong isolation
+and signed owner promotion await the later storage migration.
+
+### Candidate gates and exact artifact contract
+
+The ordered machine-readable contract is [`.ci/pilot.json`](../.ci/pilot.json):
+Rust gate → TLC/mutants → full e2e → pinned forge conformance → audit →
+package → exact-package installed consumer. Run its argv vectors serially
+from the clean committed candidate checkout with Docker Compose v2. The
+controller supplies a CI-only HOME and unique Compose project per attempt;
+this does not make sibling Docker build containers strongly isolated.
+
+```sh
+docker compose run --build --rm test
+docker compose run --build --rm model
+docker compose run --build --rm e2e
+# forge-conformance command below
+docker compose run --build --rm audit
+docker compose run --build --rm -e VERSION=0.12.2 release
+docker compose run --build --rm artifact
+```
+
+Docker compilation inherits `CARGO_BUILD_JOBS=4` inside RUN steps, not merely
+from the worker environment. TLC retains `-workers 2` and `-Xmx2g`.
+BuildKit's cached successful test/model layers may be reused: `--build` is
+not a promise of fresh execution. Receipts must distinguish retained cached
+gate evidence from newly executed runtime e2e/audit/consumer gates; do not
+delete owner-wide caches to manufacture freshness.
+
+### Immutable build inputs
+
+Dockerfile pins the linux/amd64 Rust 1.98.0 / Alpine 3.24 image, Java 21 image
+and Dockerfile frontend by observed manifest digest. The Rust image is the
+amd64 child of the qualified `rust:alpine` index
+`sha256:a10e64dd139b7387337c7fbe8aca31b959b57b2fd4c8ae20a02cf1d6ea424dce`.
+[`docker-apk.lock`](../docker-apk.lock) records SHA256-verified complete APK
+closures; installation disables network/index resolution after downloading
+the pinned bytes. Python/uv/git and native compiler dependencies therefore
+cannot silently move with an Alpine repository refresh. uv interpreter
+downloads are disabled; `e2e/uv.lock` and `Cargo.lock` retain dependency hashes.
+Rustfmt/clippy are bound to Rust 1.98.0; cargo-audit 0.22.2 uses a verified
+crate digest and its bundled dependency lock. TLC 1.8.0's currently observed
+release asset is pinned by checksum, rather than trusting its mutable URL.
+These are input identities, not a claim that the candidate has passed gates.
+CDN/registry/Rust/GitHub/crates/Python package retention and network access
+remain prerequisites; missing or replaced pinned bytes fail closed.
+
+The pilot rehearses the existing workspace version, without a version bump,
+tag or publication. Use an empty candidate-owned `dist/`; never clean a user's
+Docker objects or original checkout. The complete artifact inventory is
+exactly:
+
+```text
+rootle-0.12.2-x86_64-unknown-linux-musl.tar.gz
+rootle-0.12.2-x86_64-unknown-linux-musl.tar.gz.sha256
+```
+
+Substitute the workspace/tag version for future releases. The tarball contains
+`rootle-<VERSION>-x86_64-unknown-linux-musl/rootle`. Release CI checks exact
+filenames (not a magic file count), verifies the checksum, rejects ELF
+`NEEDED` dependencies, checks `file` for static linkage, runs the real
+headless popup open/close smoke, and checks `--version`. Preserve all these
+obligations for the pilot; a successful archive command alone is not a gate.
+The model gate retains all four named mutants, not only the positive TLC run.
+
+Forge conformance is a separate required gate against the fs reference
+provider. Its helper fetches a temporary checkout of `rootledev/forge-conformance`,
+requires an immutable full SHA, and verifies HEAD before executing:
+
+```sh
+docker compose run --build --rm e2e \
+  uv run --locked --no-sync python /app/.ci/forge_conformance.py \
+  75c00748f6927e45ec23d42642ee96d96a787648
+```
+
+Use the pinned e2e image's Python, locked pytest dependencies and git:
+missing git must not turn revision conformance into skipped coverage.
+The existing `audit` Actions workflow remains required security evidence
+(lockfile changes and weekly RustSec scan). The pilot's `audit` Compose
+service uses pinned cargo-audit and records its JSON report in
+`.ci-output/audit.json`; retain the advisory-db identity from that report
+with the controller receipt. Advisory data intentionally refreshes at run
+time: a stale advisory snapshot is not a fresh audit.
+
+### Installer and artifact consumers
+
+`install.sh` rejects unsupported OS/CPU pairs before version resolution,
+network or filesystem mutation, requires the checksum sidecar, and installs
+only the Linux x64 tarball. CLI startup checks support before diagnostic
+files; self-update and provider-install APIs also guard their mutation
+boundaries. Existing package-manager installs get their Linux upgrade
+guidance rather than an in-place replacement.
+
+The e2e suite includes unsupported-installer/no-mutation cases, missing/bad
+checksum failures, and verified installation followed by real headless and
+PTY fs-provider browsing. `ROOTLE_E2E_BINARY` accepts an absolute existing
+binary path and bypasses compilation explicitly, so the same suite can
+qualify the extracted release rather than only a debug build:
+
+```sh
+docker compose run --build --rm \
+  -v /absolute/path/to/extracted-package:/candidate:ro \
+  -e ROOTLE_E2E_BINARY=/candidate/rootle \
+  e2e uv run --locked --no-sync pytest
+```
+
+The normal `artifact` gate invokes the same `.ci/qualify_release.py` used by
+Actions: exact inventory/checksum → strict archive layout → static x86_64 ELF
+and version/headless checks → original archive served on loopback →
+`install.sh` into a disposable HOME → full pytest suite against that installed
+binary, including real PTY browsing. It never republishes or rebuilds the
+release binary. `--inventory-only` is the publisher's final pre-attestation
+check; `--version` must match the workspace version. Self-update tests retain
+their isolated replacement and provider-sweep ownership contracts.
+
+Site and tap are separate repositories and must be qualified from isolated
+checkouts. The site serves this repository's installer; land the Linux-only
+installer before a later coordinated site deployment. The Linux x86_64
+Homebrew source formula survives; the active macOS cask and its release bump
+are retired. Historical releases, checksums and provenance stay unchanged.
+
 ## Architecture
 
 One process, one event loop, blocking providers on worker threads. All Rust

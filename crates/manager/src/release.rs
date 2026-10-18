@@ -5,18 +5,18 @@ use super::{ManagerError, Result};
 use serde::Deserialize;
 use std::time::Duration;
 
-/// The GitHub release this rootle downloads for (the 4-target matrix).
-pub fn platform_target() -> &'static str {
-    if cfg!(target_os = "linux") && cfg!(target_arch = "aarch64") {
-        "aarch64-unknown-linux-musl"
-    } else if cfg!(target_os = "linux") {
-        "x86_64-unknown-linux-musl"
-    } else if cfg!(target_os = "macos") && cfg!(target_arch = "aarch64") {
-        "aarch64-apple-darwin"
-    } else if cfg!(target_os = "macos") {
-        "x86_64-apple-darwin"
-    } else {
-        "x86_64-unknown-linux-musl"
+/// The supported release target. Reject unsupported hosts rather than
+/// silently selecting a Linux binary for another OS or architecture.
+pub fn platform_target() -> Result<&'static str> {
+    target_for(std::env::consts::OS, std::env::consts::ARCH)
+}
+
+fn target_for(os: &str, arch: &str) -> Result<&'static str> {
+    match (os, arch) {
+        ("linux", "x86_64") => Ok("x86_64-unknown-linux-musl"),
+        _ => Err(ManagerError::User(format!(
+            "unsupported platform {os}/{arch}: rootle supports Linux/WSL x86_64 only"
+        ))),
     }
 }
 
@@ -159,10 +159,16 @@ pub fn release_by_tag_at(api: &str, repo: &str, tag: &str) -> Result<Release> {
 /// suffix-matched (gh extension's model — tolerate version prefixes
 /// and name variants).
 pub fn pick_asset<'a>(release: &'a Release, target: &str) -> Result<&'a Asset> {
+    if target != "x86_64-unknown-linux-musl" {
+        return Err(ManagerError::User(format!(
+            "unsupported release target {target}: expected x86_64-unknown-linux-musl"
+        )));
+    }
+    let suffix = format!("-{target}.tar.gz");
     release
         .assets
         .iter()
-        .find(|a| a.name.ends_with(&format!("-{target}.tar.gz")))
+        .find(|a| a.name.ends_with(&suffix))
         .ok_or_else(|| {
             ManagerError::User(format!(
                 "release {} has no {target} tarball (assets: {})",
@@ -263,34 +269,46 @@ mod tests {
     use super::*;
 
     #[test]
-    fn asset_picking_matches_the_matrix() {
+    fn platform_policy_rejects_every_other_host() {
+        assert_eq!(
+            target_for("linux", "x86_64").unwrap(),
+            "x86_64-unknown-linux-musl"
+        );
+        for (os, arch) in [
+            ("linux", "aarch64"),
+            ("linux", "x86"),
+            ("linux", "riscv64"),
+            ("macos", "x86_64"),
+            ("macos", "aarch64"),
+            ("windows", "x86_64"),
+            ("freebsd", "x86_64"),
+        ] {
+            assert!(target_for(os, arch).is_err(), "{os}/{arch}");
+        }
+    }
+
+    #[test]
+    fn asset_picking_accepts_only_linux_x64() {
         let release = Release {
             tag_name: "v0.1.0".into(),
             assets: vec![
                 Asset {
                     name: "rootle-gitlab-0.1.0-x86_64-unknown-linux-musl.tar.gz".into(),
-                    browser_download_url: "u1".into(),
-                },
-                Asset {
-                    name: "rootle-gitlab-0.1.0-aarch64-unknown-linux-musl.tar.gz".into(),
-                    browser_download_url: "u2".into(),
-                },
-                Asset {
-                    name: "rootle-gitlab-0.1.0-x86_64-apple-darwin.tar.gz".into(),
-                    browser_download_url: "u3".into(),
+                    browser_download_url: "linux-x64".into(),
                 },
                 Asset {
                     name: "rootle-gitlab-0.1.0-aarch64-apple-darwin.tar.gz".into(),
-                    browser_download_url: "u4".into(),
+                    browser_download_url: "historical".into(),
                 },
             ],
         };
         assert_eq!(
-            pick_asset(&release, "aarch64-apple-darwin")
+            pick_asset(&release, "x86_64-unknown-linux-musl")
                 .unwrap()
                 .browser_download_url,
-            "u4"
+            "linux-x64"
         );
+        assert!(pick_asset(&release, "aarch64-apple-darwin").is_err());
         assert!(pick_asset(&release, "i686-unknown-linux-gnu").is_err());
     }
 }

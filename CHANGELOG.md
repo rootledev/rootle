@@ -3,6 +3,19 @@
 User-visible changes per release. Protocol archaeology lives in
 `plans/`; this file is for "what's new for me".
 
+## [Unreleased]
+
+- Active support is Linux/WSL x86_64 only, with the single
+  `x86_64-unknown-linux-musl` release tarball and mandatory checksum.
+  ARM, macOS and native Windows are outside active support; historical
+  published releases remain unchanged.
+- Installer and update/provider-install paths reject unsupported platforms
+  before downloads or installation changes. The installer requires checksum
+  verification instead of accepting a missing sidecar or verification tool.
+- Linux unit, headless/PTY, protocol-model/mutant, forge-conformance, static
+  binary and audit gates remain required. Actions remains the release authority
+  while a trusted-code, non-publishing WSL/Docker Buildbot pilot is qualified.
+
 ## [0.12.2] — 2026-09-08
 
 - Headless `state` exposes request-scoped tree and search outcomes, accepted

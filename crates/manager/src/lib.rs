@@ -1,7 +1,7 @@
 //! Provider manager (plans/0010): install, list, update, upgrade,
 //! pin, remove, use — for stdio provider binaries distributed as
-//! GitHub release tarballs (the 4-target matrix rootle and its
-//! providers ship: linux+macOS × x86_64+aarch64).
+//! GitHub release tarballs for Linux/WSL x86_64
+//! (`x86_64-unknown-linux-musl`).
 //!
 //! Layout (XDG tiers, one purpose each — see the plan's survey):
 //!
@@ -85,6 +85,7 @@ pub struct Manager {
 
 impl Manager {
     pub fn new() -> Result<Manager> {
+        platform_target()?;
         Ok(Manager {
             store: store::store_root().ok_or_else(|| ManagerError::User("no data dir".into()))?,
             state: store::state_root().ok_or_else(|| ManagerError::User("no state dir".into()))?,

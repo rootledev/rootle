@@ -14,97 +14,33 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Per-platform binaries: linux + macOS, both arches (Windows is out
-  # by design — WSL is the story there). The docker musl path needs no
-  # cross config: rust:alpine is multi-arch, so the same compose build
-  # produces aarch64 musl natively on the arm runner. macOS builds
-  # natively on matching runners.
+  # One supported artifact target: Linux/WSL x86_64, statically linked musl.
   build:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { target: x86_64-unknown-linux-musl, runner: ubuntu-latest, docker: true }
-          - { target: aarch64-unknown-linux-musl, runner: ubuntu-24.04-arm, docker: true }
-          # both darwin targets on the arm runner — x86_64 cross-compiles
-          # with the stock Xcode (no macos-13 queue, which can idle 20-60min)
-          - { target: x86_64-apple-darwin, runner: macos-14, cross: true }
-          - { target: aarch64-apple-darwin, runner: macos-14 }
-    runs-on: ${{ matrix.runner }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
       - name: Build (linux musl, docker)
-        if: matrix.docker
         run: |
           docker compose run --build --rm \
             -e "VERSION=${GITHUB_REF_NAME#v}" \
-            -e "TARGET=${{ matrix.target }}" release
+            release
 
-      - name: Build (macOS, native)
-        if: ${{ !matrix.docker }}
+      # Shared pilot/Actions contract: exact inventory, checksum, static ELF,
+      # version, headless lifecycle, installer and full real-binary PTY/e2e suite.
+      - name: Verify artifact and installed consumers
         run: |
-          rustup target add ${{ matrix.target }}
-          cargo build --release --locked --target ${{ matrix.target }}
-          VERSION="${GITHUB_REF_NAME#v}"
-          PKG="rootle-$VERSION-${{ matrix.target }}"
-          staging="$(mktemp -d)"
-          mkdir -p "$staging/$PKG"
-          install -m755 "target/${{ matrix.target }}/release/rootle" "$staging/$PKG/rootle"
-          mkdir -p dist
-          tar -czf "dist/$PKG.tar.gz" -C "$staging" "$PKG"
-          (cd dist && shasum -a 256 "$PKG.tar.gz" > "$PKG.tar.gz.sha256")
-
-      # Smoke: prove the tarball extracts to a runnable binary and the
-      # published checksum matches. Linux must be fully static; macOS
-      # may link system libs only.
-      - name: "Verify (linux: fully static)"
-        if: matrix.docker
-        run: |
-          cd dist
-          sha256sum -c rootle-*.tar.gz.sha256
-          tmp="$(mktemp -d)"
-          tar -xzf rootle-*-${{ matrix.target }}.tar.gz -C "$tmp"
-          bin="$(find "$tmp" -type f -name rootle | head -1)"
-          file "$bin" | grep -qE "static-pie linked|statically linked"
-          readelf -d "$bin" > "$tmp/dynamic"
-          if grep -q '(NEEDED)' "$tmp/dynamic"; then
-            echo "::error::Linux binary has shared-library dependencies"; exit 1
-          fi
-          # plans/0023 M2: behavioral smoke — the binary doesn't just
-          # link, it renders. Headless needs no terminal (no PTY on a
-          # runner), and the fresh-profile popup must close through real input.
-          HOME="$tmp" XDG_CONFIG_HOME="$tmp/config" XDG_STATE_HOME="$tmp/state" \
-            "$bin" --headless <(printf 'state\nkeys <esc><esc>\nframe\nstate\n') > "$tmp/smoke"
-          python3 -c 'import json,sys; s=[json.loads(x.removeprefix("─── state ")) for x in open(sys.argv[1]) if x.startswith("─── state ")]; assert [x["popup"] for x in s] == [True,False]; assert s[-1]["browser"]["tree"]["phase"] == "idle"' "$tmp/smoke"
-          "$bin" --version
-
-      - name: "Verify (macOS: system libs only)"
-        if: ${{ !matrix.docker }}
-        run: |
-          cd dist
-          shasum -a 256 -c rootle-*.tar.gz.sha256
-          tmp="$(mktemp -d)"
-          tar -xzf rootle-*-${{ matrix.target }}.tar.gz -C "$tmp"
-          bin="$(find "$tmp" -type f -name rootle | head -1)"
-          file "$bin"
-          otool -L "$bin" > "$tmp/libraries"
-          cat "$tmp/libraries"
-          # Ignore otool's filename header, then allow only macOS system libraries.
-          sed '1d' "$tmp/libraries" > "$tmp/dependencies"
-          if grep -qvE '^[[:space:]]+(/usr/lib/lib(System|iconv|c\+\+|c\+\+abi)[^/]*\.dylib|/System/Library/Frameworks/(CoreFoundation|Security|SystemConfiguration)\.framework/)' "$tmp/dependencies"; then
-            echo "::error::macOS binary has non-system dependencies"; exit 1
-          fi
-          "$bin" --version
-          # Same headless smoke as the linux verify (plans/0023 M2).
-          HOME="$tmp" XDG_CONFIG_HOME="$tmp/config" XDG_STATE_HOME="$tmp/state" \
-            "$bin" --headless <(printf 'state\nkeys <esc><esc>\nframe\nstate\n') > "$tmp/smoke"
-          python3 -c 'import json,sys; s=[json.loads(x.removeprefix("─── state ")) for x in open(sys.argv[1]) if x.startswith("─── state ")]; assert [x["popup"] for x in s] == [True,False]; assert s[-1]["browser"]["tree"]["phase"] == "idle"' "$tmp/smoke"
+          docker compose run --build --rm artifact \
+            uv run --locked --no-sync python /app/.ci/qualify_release.py \
+            --dist /dist --consumer --version "${GITHUB_REF_NAME#v}"
 
       - uses: actions/upload-artifact@v7
         with:
-          name: dist-${{ matrix.target }}
-          path: dist/*
+          name: dist-x86_64-unknown-linux-musl
+          path: |
+            dist/rootle-*-x86_64-unknown-linux-musl.tar.gz
+            dist/rootle-*-x86_64-unknown-linux-musl.tar.gz.sha256
+          if-no-files-found: error
 
   release:
     needs: build
@@ -120,16 +56,11 @@ jobs:
 
       - uses: actions/download-artifact@v8
         with:
-          pattern: dist-*
+          name: dist-x86_64-unknown-linux-musl
           path: dist
-          merge-multiple: true
 
-      - name: Verify all four platform tarballs are present
-        run: |
-          ls -la dist/
-          count="$(ls dist/rootle-*.tar.gz | wc -l)"
-          test "$count" -eq 4 || {
-            echo "::error::expected 4 platform tarballs, got $count"; exit 1; }
+      - name: Verify exact Linux x64 artifact inventory
+        run: python3 .ci/qualify_release.py --inventory-only --version "${GITHUB_REF_NAME#v}"
 
       # Attest build provenance for every tarball (the gripsack
       # pattern): verifiable with
@@ -169,15 +100,9 @@ jobs:
             --title "rootle $tag" \
             --generate-notes
 
-      # Keep the tap in sync, both halves:
-      # - Formula/rootle.rb builds from the crate (linux brew / source
-      #   people)
-      # - Casks/rootle.rb installs the prebuilt per-arch macOS binaries
-      #   (no rust toolchain on the user's machine — the better macOS
-      #   path; arm + intel sha256 pairs from this release's tarballs)
-      # Needs HOMEBREW_TAP_TOKEN (PAT, contents:write on the tap repo) —
-      # GITHUB_TOKEN is repo-scoped and can't push to homebrew-tap.
-      - name: Bump homebrew formula + cask
+      # Source formula is Linux x86_64 only; no active macOS cask.
+      # Needs HOMEBREW_TAP_TOKEN (PAT, contents:write on the tap repo).
+      - name: Bump homebrew formula
         env:
           GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
@@ -187,36 +112,13 @@ jobs:
           sed -i -e "s|rootle-[0-9.]*\.crate|rootle-$ver.crate|" \
                  -e "s|sha256 \"[0-9a-f]*\"|sha256 \"$sha\"|" \
                  /tmp/tap/Formula/rootle.rb
-          mkdir -p /tmp/tap/Casks
-          sha_arm="$(cut -d' ' -f1 "dist/rootle-$ver-aarch64-apple-darwin.tar.gz.sha256")"
-          sha_x64="$(cut -d' ' -f1 "dist/rootle-$ver-x86_64-apple-darwin.tar.gz.sha256")"
-          # Canonical brew-cask layout (brew style's stanza order,
-          # grouping, aligned sha256 continuation, capitalized desc,
-          # homepage trailing slash) — the Style step on the tap runs
-          # rubocop against exactly this shape.
-          cat > /tmp/tap/Casks/rootle.rb <<EOF
-          cask "rootle" do
-            arch arm: "aarch64", intel: "x86_64"
-
-            version "$ver"
-            sha256 arm:   "$sha_arm",
-                   intel: "$sha_x64"
-
-            url "https://github.com/rootledev/rootle/releases/download/v#{version}/rootle-#{version}-#{arch}-apple-darwin.tar.gz"
-            name "rootle"
-            desc "Modal TUI for browsing remote source-control systems from the terminal"
-            homepage "https://rootle.dev/"
-
-            binary "rootle-#{version}-#{arch}-apple-darwin/rootle"
-          end
-          EOF
           cd /tmp/tap
           # gh clones without persisting push credentials — authenticate
           # the remote explicitly or `git push` fails with exit 128.
           git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/rootledev/homebrew-tap.git"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Formula/rootle.rb Casks/rootle.rb
+          git add Formula/rootle.rb
           git commit -m "rootle $ver"
           git push
 

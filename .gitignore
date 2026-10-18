@@ -3,3 +3,4 @@ dist/
 e2e/.venv/
 **/__pycache__/
 public/
+.ci-output/
