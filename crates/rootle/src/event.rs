@@ -3,6 +3,14 @@
 
 use rootle_provider::{ProviderError, SearchItem};
 
+/// Both drivers enter through this boundary; terminal IO and waiting policy
+/// stay outside the application. Worker payloads remain owned, not cloned.
+#[derive(Debug)]
+pub enum UiEvent {
+    Terminal(ratatui::crossterm::event::Event),
+    Worker(AppEvent),
+}
+
 #[derive(Debug)]
 pub enum AppEvent {
     SearchResults {
@@ -32,11 +40,13 @@ pub enum AppEvent {
         error: ProviderError,
     },
     BlobLoaded {
+        generation: crate::request::BlobGeneration,
         sha: String,
         name: String,
         bytes: Vec<u8>,
     },
     BlobFailed {
+        generation: crate::request::BlobGeneration,
         sha: String,
         error: ProviderError,
     },
@@ -68,6 +78,7 @@ pub enum AppEvent {
     /// Lazy per-hit context (plans/0006 §1): blob fetched + located on
     /// a worker for the selected bare hit.
     HitContextLoaded {
+        generation: crate::request::HitContextGeneration,
         gen_id: crate::request::ViewGeneration,
         repo: String,
         path: String,
@@ -81,6 +92,7 @@ pub enum AppEvent {
     /// (plans/0008 §4): the hit flips to `unlocatable` instead of
     /// rendering stale forever.
     HitContextMissing {
+        generation: crate::request::HitContextGeneration,
         gen_id: crate::request::ViewGeneration,
         sha: String,
     },
@@ -88,7 +100,7 @@ pub enum AppEvent {
     /// moves collapse into this one dispatch for the hit the cursor
     /// finally rested on.
     HitContextDebounceFired {
-        timer_gen: u64,
+        timer_gen: crate::request::DebounceGeneration,
         hit: crate::components::global_search::SearchHit,
         query: String,
     },
@@ -96,6 +108,7 @@ pub enum AppEvent {
     /// surfaces a status line; other kinds stay quiet (bare path
     /// remains, retry on revisit).
     HitContextFailed {
+        generation: crate::request::HitContextGeneration,
         gen_id: crate::request::ViewGeneration,
         sha: String,
         error: ProviderError,
@@ -103,6 +116,7 @@ pub enum AppEvent {
     /// Expanded file pane (plans/0012 M2): the hit's whole blob, raw
     /// bytes — the UI thread sanitizes + highlights at the boundary.
     HitFileLoaded {
+        generation: crate::request::HitFileGeneration,
         gen_id: crate::request::ViewGeneration,
         repo: String,
         path: String,
@@ -110,6 +124,7 @@ pub enum AppEvent {
         bytes: Vec<u8>,
     },
     HitFileFailed {
+        generation: crate::request::HitFileGeneration,
         gen_id: crate::request::ViewGeneration,
         sha: String,
         error: rootle_provider::ProviderError,
@@ -130,17 +145,23 @@ pub enum AppEvent {
     // repo/path so late landings are dropped by the UI.
     /// Refs for the switcher popup.
     RefsLoaded {
+        generation: crate::request::ReferenceGeneration,
         repo: String,
         refs: rootle_provider::RepoRefs,
     },
     RefsFailed {
+        generation: crate::request::ReferenceGeneration,
         repo: String,
         error: ProviderError,
     },
-    /// Commit log for the history lens.
-    LogLoaded {
+    /// Append-only history batch; this does not complete the request.
+    LogDelta {
         request: crate::request::HistoryRequest,
         entries: Vec<rootle_provider::LogEntry>,
+    },
+    /// Authoritative terminal metadata for a history stream.
+    LogLoaded {
+        request: crate::request::HistoryRequest,
         truncated: bool,
     },
     LogFailed {
@@ -153,16 +174,19 @@ pub enum AppEvent {
         detail: Result<rootle_provider::CommitDetail, rootle_provider::ProviderError>,
     },
     BlameLoaded {
+        generation: crate::request::BlameGeneration,
         path: String,
         ranges: Vec<rootle_provider::BlameRange>,
     },
     BlameFailed {
+        generation: crate::request::BlameGeneration,
         path: String,
         error: ProviderError,
     },
     /// File bytes at a commit (open-at-commit from the history lens);
     /// the commit's subject/author/date dress the header band.
     BlobAtLoaded {
+        generation: crate::request::HistoricalBlobGeneration,
         path: String,
         ref_: String,
         sha: String,
@@ -172,31 +196,26 @@ pub enum AppEvent {
         date: String,
     },
     BlobAtFailed {
+        generation: crate::request::HistoricalBlobGeneration,
         path: String,
         error: ProviderError,
     },
     /// Startup update check (0017 M3): a newer release tag exists.
     /// `toast` (0018 M2): the once-a-day status nag was still due
     /// when the worker consumed it — the chip shows either way.
-    UpdateAvailable {
-        tag: String,
-        toast: bool,
-    },
+    UpdateAvailable { tag: String, toast: bool },
     /// Declared-provider install finished (0019 M2): the app
     /// hot-swaps the provider and drops the consent popup.
-    DeclarationInstalled {
-        name: String,
-    },
+    DeclarationInstalled { name: String },
     /// Declared-provider install refused or failed (0019 M2): honest
     /// degraded mode — github fallback with a persistent status.
-    DeclarationFailed {
-        name: String,
-        error: String,
-    },
+    DeclarationFailed { name: String, error: String },
     /// Ambient band data (0019 polish): the file's latest commit for
     /// the preview header — None means the history is empty or the
     /// provider refused; failures are silent (the band is a nicety).
     LastCommitLoaded {
+        generation: crate::request::LastCommitGeneration,
+        revision: Option<String>,
         repo: String,
         path: String,
         entry: Option<rootle_provider::LogEntry>,

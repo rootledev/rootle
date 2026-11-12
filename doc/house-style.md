@@ -198,8 +198,9 @@ spans, so the layout survives wide characters.
 Identity crosses a boundary only as its newtype from
 `rootle_provider::id`: `OrgId`, `RepoId`, `RepoPath`, `Sha` and `GitRef`.
 The provider seam distinguishes repository, revision and content identity.
-Async staleness uses domain-tagged `Generation<Domain>` values
-(`tick()` / `is_current()`); unrelated pipelines cannot compare clocks.
+Async staleness uses domain-tagged `request::Generation<Domain>` values.
+Generation advancement and request-phase acceptance call `rootle-kernel`;
+stale replies and replies after a terminal transition cannot change the UI.
 VISUAL `MarkKey` variants identify organizations, repositories or
 repository/ref/path entries. Captions, column positions and concatenated
 `"<title>/<name>"` strings are not persistent identity.

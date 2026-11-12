@@ -26,7 +26,7 @@ Set TypingSpeed 10ms
 # The workflow's render matrix rewrites this per palette — VHS paints
 # the window remainder with the tape theme's background, so it must
 # match the app's --theme. Verify a name with `vhs themes`.
-Set Theme "Catppuccin Mocha"
+Set Theme '{"name":"Hone","background":"#15171c","foreground":"#e6e1d6","cursor":"#e8a848","selectionBackground":"#30405a"}'
 
 Type "bash demos/demo_setup.sh && clear" Enter
 Sleep 600ms

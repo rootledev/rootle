@@ -1,311 +1,242 @@
-//! The search query grammar (plans/0012 M1): quoted literals, prefix
-//! negation, and the `language:`/`extension:` qualifiers.
-//!
-//! The raw query still goes out on the wire verbatim — GitHub's
-//! grammar is a superset natively, and stdio adapters translate what
-//! they can. This structure is what ROOTLE itself needs: the local
-//! tree file find and the client-side subtraction filter, plus the
-//! honesty chips when a token can't be applied anywhere.
+//! Rootle's literal search contract with strop-style qualifier tokenization.
+//! Parsing and query coloring share one span lexer. Malformed queries fail
+//! before provider I/O; unsupported qualifiers remain visible as diagnostics.
+//! Content queries keep their raw wire spelling, not a regex translation.
 
 use super::model::RawHit;
 use ratatui::text::Span;
 
-/// A parsed query.
+#[path = "query.rs"]
+mod query;
+pub(super) use crate::languages::path_ext;
+pub use crate::languages::{ext_lang, lang_exts};
+pub(super) use query::file_query;
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Grammar {
-    /// Positive terms; a quoted literal is ONE term (quotes stripped).
     pub terms: Vec<String>,
-    /// Negated terms (`-foo`, `-"a b"`, `NOT foo`).
     pub negated: Vec<String>,
-    /// `language:rust` — extension filter via the static table.
-    pub language: Option<String>,
-    /// `-language:rust` / `NOT language:rust`.
-    pub negated_language: Option<String>,
-    /// Inline `extension:rs` (the extension field's in-query twin).
-    pub extension: Option<String>,
-    /// Qualifiers rootle can't express anywhere (`symbol:`, `-repo:`…)
-    /// — the results title names them.
-    pub unknown: Vec<String>,
+    pub languages: Vec<String>,
+    pub negated_languages: Vec<String>,
+    pub extensions: Vec<String>,
+    pub negated_extensions: Vec<String>,
+    pub paths: Vec<String>,
+    pub negated_paths: Vec<String>,
+    pub repos: Vec<String>,
+    pub negated_repos: Vec<String>,
+    pub orgs: Vec<String>,
+    pub negated_orgs: Vec<String>,
+    pub diagnostics: Vec<String>,
 }
 
-/// Whitespace split honoring double quotes; an unterminated quote
-/// runs to the end of input (the phrase is still one term).
-fn tokenize(q: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut cur = String::new();
-    let mut quoted = false;
-    let mut started = false;
-    for c in q.chars() {
-        match c {
-            '"' => {
-                quoted = !quoted;
-                started = true;
-            }
-            c if c.is_whitespace() && !quoted => {
-                if started {
-                    out.push(std::mem::take(&mut cur));
-                    started = false;
-                }
-            }
-            c => {
-                cur.push(c);
-                started = true;
-            }
+impl Grammar {
+    pub fn validate(&self) -> rootle_provider::ProviderResult<()> {
+        if self.diagnostics.is_empty() {
+            Ok(())
+        } else {
+            Err(rootle_provider::ProviderError::other(
+                self.diagnostics.join("; "),
+            ))
         }
     }
-    if started {
-        out.push(cur);
-    }
-    out
-}
 
-/// Scope qualifiers: adapter/wire-level, never content needles —
-/// parsed out so the local paths don't substring-match the syntax.
-const SCOPE_QUALIFIERS: &[&str] = &["repo:", "org:", "path:"];
-
-/// Syntax eye-candy for the query field (GitHub's qualifier pills):
-/// qualifiers color the key in keyword and the value in string,
-/// quoted literals keep their quotes in string, the negation marker is
-/// warning-colored. The spans partition the input byte-exactly — a
-/// query we can't segment falls through as one plain span, so nothing
-/// ever bleeds or drops a character (tested invariant).
-pub fn style_query(query: &str, theme: &crate::theme::Theme) -> Vec<Span<'static>> {
-    let syntax = &theme.syntax;
-    use ratatui::style::Style;
-    let mut spans: Vec<Span<'static>> = Vec::new();
-    let text = Style::default().fg(theme.semantic.text);
-    let bytes = query.as_bytes();
-    let mut i = 0;
-    let push = |spans: &mut Vec<Span<'static>>, s: &str, style: Style| {
-        spans.push(Span::styled(s.to_string(), style));
-    };
-    while i < query.len() {
-        let b = bytes[i];
-        if b == b' ' || b == b'\t' {
-            let start = i;
-            while i < query.len() && (bytes[i] == b' ' || bytes[i] == b'\t') {
-                i += 1;
-            }
-            push(&mut spans, &query[start..i], text);
-            continue;
-        }
-        // One token: quoted runs hold together, quotes stay visible.
-        let start = i;
-        while i < query.len() && bytes[i] != b' ' && bytes[i] != b'\t' {
-            if bytes[i] == b'"' {
-                i += 1;
-                while i < query.len() && bytes[i] != b'"' {
-                    i += 1;
-                }
-                if i < query.len() {
-                    i += 1; // the closing quote
-                }
-            } else {
-                i += 1;
-            }
-        }
-        let tok = &query[start..i];
-        let (neg, rest) = match tok.strip_prefix('-') {
-            Some(r) => (true, r),
-            None => (false, tok),
+    /// Positive values within a qualifier family are alternatives; different
+    /// families intersect, and exclusions win, as in strop's file plan.
+    pub fn allows_path(&self, path: &str) -> bool {
+        let ext = path_ext(path);
+        let language_ext = path.rsplit_once('.').map_or("", |(_, ext)| ext);
+        let language_matches = |name: &String| {
+            lang_exts(name).is_some_and(|extensions| extensions.contains(&language_ext))
         };
-        if neg {
-            push(&mut spans, "-", Style::default().fg(syntax.invalid));
-        }
-        if tok == "NOT" {
-            push(&mut spans, "NOT", Style::default().fg(syntax.invalid));
-            continue;
-        }
-        let tok = rest;
-        if tok.is_empty() {
-            continue;
-        }
-        // Qualifier with a value → keyword key + string value.
-        if let Some(colon) = tok.find(':')
-            && !tok.starts_with('"')
-        {
-            let key = &tok[..=colon];
-            let known = matches!(
-                key,
-                "repo:" | "org:" | "path:" | "extension:" | "language:" | "symbol:"
-            );
-            if known {
-                push(&mut spans, key, Style::default().fg(syntax.keyword));
-                let value = &tok[colon + 1..];
-                if !value.is_empty() {
-                    push(&mut spans, value, Style::default().fg(syntax.string));
+        self.diagnostics.is_empty()
+            && (self.languages.is_empty() || self.languages.iter().any(language_matches))
+            && !self.negated_languages.iter().any(language_matches)
+            && (self.extensions.is_empty() || self.extensions.contains(&ext))
+            && !self.negated_extensions.contains(&ext)
+            && alternatives(&self.paths, &self.negated_paths, |value| {
+                // strop path: is literal substring with smart case, not regex.
+                if value.chars().any(char::is_uppercase) {
+                    path.contains(value)
+                } else {
+                    path.to_lowercase().contains(value)
                 }
+            })
+    }
+
+    pub fn allows_repo(&self, repo: &str) -> bool {
+        let org = repo.split('/').next().unwrap_or(repo);
+        alternatives(&self.repos, &self.negated_repos, |value| value == repo)
+            && alternatives(&self.orgs, &self.negated_orgs, |value| value == org)
+    }
+}
+
+fn alternatives(positive: &[String], negative: &[String], matches: impl Fn(&str) -> bool) -> bool {
+    (positive.is_empty() || positive.iter().any(|value| matches(value)))
+        && !negative.iter().any(|value| matches(value))
+}
+
+pub fn parse(input: &str) -> Grammar {
+    let mut result = Grammar::default();
+    let mut negate_next = false;
+    let mut pending_not = false;
+    for token in query::lex(input) {
+        if !token.complete {
+            result.diagnostics.push("unclosed quote".into());
+            continue;
+        }
+        if !token.quoted && token.text == "NOT" {
+            negate_next = !negate_next;
+            pending_not = true;
+            continue;
+        }
+        let (prefix_negated, text) = if !token.quoted {
+            token
+                .text
+                .strip_prefix('-')
+                .map_or((false, token.text.as_str()), |s| (true, s))
+        } else {
+            (false, token.text.as_str())
+        };
+        let negated = negate_next ^ prefix_negated;
+        negate_next = false;
+        pending_not = false;
+        if prefix_negated && text.is_empty() {
+            result
+                .diagnostics
+                .push("negation expects a term or qualifier".into());
+            continue;
+        }
+        if !token.quoted && matches!(text, "AND" | "OR") {
+            result
+                .diagnostics
+                .push(format!("unsupported Boolean operator: {text}"));
+            continue;
+        }
+        if let Some((key, value)) = (!token.quoted).then(|| query::qualifier(text)).flatten() {
+            if value.is_empty() {
+                result.diagnostics.push(format!("{key}: expects a value"));
                 continue;
             }
+            let target = match (key, negated) {
+                ("language", _) if lang_exts(value).is_none() => {
+                    result
+                        .diagnostics
+                        .push(format!("unknown language: {value}"));
+                    continue;
+                }
+                ("language", false) => &mut result.languages,
+                ("language", true) => &mut result.negated_languages,
+                ("extension", false) => &mut result.extensions,
+                ("extension", true) => &mut result.negated_extensions,
+                ("path", false) => &mut result.paths,
+                ("path", true) => &mut result.negated_paths,
+                ("repo", false) => &mut result.repos,
+                ("repo", true) => &mut result.negated_repos,
+                ("org", false) => &mut result.orgs,
+                ("org", true) => &mut result.negated_orgs,
+                _ => {
+                    result
+                        .diagnostics
+                        .push(format!("unsupported qualifier: {key}:"));
+                    continue;
+                }
+            };
+            if key == "extension" {
+                let value = value.trim_start_matches('.').to_ascii_lowercase();
+                if value.is_empty() {
+                    result.diagnostics.push("extension: expects a value".into());
+                } else {
+                    target.push(value);
+                }
+            } else {
+                target.push(value.to_string());
+            }
+        } else if negated {
+            result.negated.push(text.to_lowercase());
+        } else if !text.is_empty() {
+            result.terms.push(text.to_string());
         }
-        let style = if tok.starts_with('"') || tok.contains('"') {
-            Style::default().fg(syntax.string)
-        } else {
-            text
-        };
-        push(&mut spans, tok, style);
     }
-    debug_assert_eq!(
-        spans.iter().map(|s| s.content.as_ref()).collect::<String>(),
-        query,
-        "style_query must partition the input"
-    );
+    if pending_not {
+        result
+            .diagnostics
+            .push("NOT expects a term or qualifier".into());
+    }
+    result
+}
+
+pub fn style_query(input: &str, theme: &crate::theme::Theme) -> Vec<Span<'static>> {
+    use ratatui::style::Style;
+    let plain = Style::default().fg(theme.semantic.text);
+    let warning = Style::default().fg(theme.syntax.invalid);
+    let string = Style::default().fg(theme.syntax.string);
+    let keyword = Style::default().fg(theme.syntax.keyword);
+    let mut spans = Vec::new();
+    let mut end = 0;
+    for token in query::lex(input) {
+        if token.range.start > end {
+            spans.push(Span::styled(
+                input[end..token.range.start].to_string(),
+                plain,
+            ));
+        }
+        end = token.range.end;
+        let mut raw = &input[token.range];
+        if !token.complete {
+            spans.push(Span::styled(raw.to_string(), warning));
+            continue;
+        }
+        if !token.quoted && raw.starts_with('-') {
+            spans.push(Span::styled("-".to_string(), warning));
+            raw = &raw[1..];
+        }
+        if !token.quoted && token.text == "NOT" {
+            spans.push(Span::styled(raw.to_string(), warning));
+        } else if !token.quoted
+            && let Some((key, _)) = query::qualifier(token.text.trim_start_matches('-'))
+            && query::known(key)
+            && let Some((raw_key, raw_value)) = raw.split_once(':')
+        {
+            spans.push(Span::styled(format!("{raw_key}:"), keyword));
+            spans.push(Span::styled(raw_value.to_string(), string));
+        } else {
+            let style = if raw.contains(['"', '\'']) {
+                string
+            } else {
+                plain
+            };
+            spans.push(Span::styled(raw.to_string(), style));
+        }
+    }
+    if end < input.len() {
+        spans.push(Span::styled(input[end..].to_string(), plain));
+    }
     spans
 }
 
-pub fn parse(query: &str) -> Grammar {
-    let mut g = Grammar::default();
-    let mut tokens = tokenize(query).into_iter();
-    while let Some(tok) = tokens.next() {
-        let (neg, tok) = if tok == "NOT" {
-            match tokens.next() {
-                Some(t) => (true, t),
-                None => break,
-            }
-        } else if let Some(rest) = tok.strip_prefix('-') {
-            (true, rest.to_string())
-        } else {
-            (false, tok)
-        };
-        if tok.is_empty() {
-            continue;
-        }
-        if let Some(lang) = tok.strip_prefix("language:") {
-            if neg {
-                g.negated_language = Some(lang.to_string());
-            } else {
-                g.language = Some(lang.to_string());
-            }
-        } else if let Some(ext) = tok.strip_prefix("extension:") {
-            if neg {
-                g.unknown.push(format!("-{tok}"));
-            } else {
-                g.extension = Some(ext.trim_start_matches('.').to_string());
-            }
-        } else if SCOPE_QUALIFIERS.iter().any(|p| tok.starts_with(p)) {
-            // Wire-level — the emitted q keeps them verbatim.
-        } else if tok.contains(':') {
-            g.unknown.push(if neg { format!("-{tok}") } else { tok });
-        } else if neg {
-            g.negated.push(tok.to_lowercase());
-        } else {
-            g.terms.push(tok);
-        }
-    }
-    g
-}
-
-/// The one extension↔language mapping (plans/0012): the M1
-/// `language:` qualifier resolves names → extensions, the M3 facet
-/// chips resolve extensions → names. Two lookups over a single
-/// table, so a new language can never land in one and not the other.
-const LANG_TABLE: &[(&str, &[&str], &[&str])] = &[
-    // (canonical name, aliases, extensions)
-    ("rust", &[], &["rs"]),
-    ("python", &[], &["py", "pyi"]),
-    ("javascript", &[], &["js", "jsx", "mjs"]),
-    ("typescript", &[], &["ts", "tsx", "mts"]),
-    ("go", &[], &["go"]),
-    ("c", &[], &["c", "h"]),
-    ("c++", &["cpp"], &["cpp", "cc", "cxx", "hpp"]),
-    ("csharp", &["c#"], &["cs"]),
-    ("java", &[], &["java"]),
-    ("kotlin", &[], &["kt", "kts"]),
-    ("ruby", &[], &["rb"]),
-    ("php", &[], &["php"]),
-    ("swift", &[], &["swift"]),
-    ("shell", &["bash"], &["sh", "bash"]),
-    ("toml", &[], &["toml"]),
-    ("yaml", &[], &["yaml", "yml"]),
-    ("json", &[], &["json"]),
-    ("markdown", &[], &["md"]),
-    ("html", &[], &["html"]),
-    ("css", &[], &["css"]),
-];
-
-/// Linguist-ish extension map for `language:` — small and static on
-/// purpose. Unknown languages pass through unfiltered and land on the
-/// title's `unfiltered` chip instead of silently widening the search.
-pub fn lang_exts(lang: &str) -> Option<&'static [&'static str]> {
-    let lower = lang.to_ascii_lowercase();
-    LANG_TABLE
-        .iter()
-        .find(|(name, aliases, _)| *name == lower || aliases.contains(&lower.as_str()))
-        .map(|(_, _, exts)| *exts)
-}
-
-/// Reverse lookup for the M3 facet chips: extension → canonical
-/// language name, so a chip reads `rust` not `rs`. Same table as
-/// `lang_exts` — there is no second mapping.
-pub fn ext_lang(ext: &str) -> Option<&'static str> {
-    LANG_TABLE
-        .iter()
-        .find(|(_, _, exts)| exts.contains(&ext))
-        .map(|(name, _, _)| *name)
-}
-
-pub(super) fn path_ext(path: &str) -> String {
-    path.rsplit('.').next().unwrap_or_default().to_lowercase()
-}
-
-pub(super) fn lang_matches(lang: &Option<String>, path: &str) -> Option<bool> {
-    let lang = lang.as_ref()?;
-    let exts = lang_exts(lang)?;
-    Some(exts.contains(&path_ext(path).as_str()))
-}
-
-/// Tokens rootle couldn't apply anywhere — the title's honesty chip.
-/// Unknown qualifiers, and `language:` values with no table entry.
 pub fn unexpressible(g: &Grammar) -> Vec<String> {
-    let mut out = g.unknown.clone();
-    for (qual, lang) in [
-        ("language:", &g.language),
-        ("-language:", &g.negated_language),
-    ] {
-        if let Some(lang) = lang
-            && lang_exts(lang).is_none()
-        {
-            out.push(format!("{qual}{lang}"));
-        }
-    }
-    out
+    g.diagnostics.clone()
 }
 
-/// Client-side subtraction (plans/0012 M1): drop the hits a
-/// grammar-incapable backend should have excluded. Exact on paths;
-/// best-effort on content (preview lines only) — the `filtered` chip
-/// owns that honesty. Returns (kept, dropped count). Backends that
-/// applied the grammar natively (GitHub, a conforming adapter) lose
-/// nothing: the filter is a no-op net over their sets.
+/// Path predicates are exact; content exclusion is best-effort over available
+/// preview lines. The filtered count reports this client-side subtraction.
 pub fn filter_hits(g: &Grammar, hits: Vec<RawHit>) -> (Vec<RawHit>, usize) {
-    if g.negated.is_empty() && g.language.is_none() && g.negated_language.is_none() {
-        return (hits, 0);
-    }
-    let mut kept = Vec::with_capacity(hits.len());
-    let mut dropped = 0;
-    'hits: for hit in hits {
-        let path = hit.path.to_lowercase();
-        for needle in &g.negated {
-            if path.contains(needle)
-                || hit
-                    .preview
-                    .iter()
-                    .any(|(_, line)| line.to_lowercase().contains(needle))
-            {
-                dropped += 1;
-                continue 'hits;
-            }
-        }
-        if let Some(false) = lang_matches(&g.language, &hit.path) {
-            dropped += 1;
-            continue;
-        }
-        if let Some(true) = lang_matches(&g.negated_language, &hit.path) {
-            dropped += 1;
-            continue;
-        }
-        kept.push(hit);
-    }
+    let count = hits.len();
+    let kept: Vec<_> = hits
+        .into_iter()
+        .filter(|hit| {
+            g.allows_path(&hit.path)
+                && g.allows_repo(&hit.repo)
+                && !g.negated.iter().any(|needle| {
+                    hit.path.to_lowercase().contains(needle)
+                        || hit
+                            .preview
+                            .iter()
+                            .any(|(_, line)| line.to_lowercase().contains(needle))
+                })
+        })
+        .collect();
+    let dropped = count - kept.len();
     (kept, dropped)
 }
 
@@ -406,9 +337,10 @@ mod tests {
     fn tokenizer_keeps_quoted_literals_whole() {
         let g = parse(r#"alpha "exact phrase" beta"#);
         assert_eq!(g.terms, ["alpha", "exact phrase", "beta"]);
-        // Unterminated quote runs to the end.
+        // Incomplete input is an error, never a broadened partial search.
         let g = parse(r#"a "b c"#);
-        assert_eq!(g.terms, ["a", "b c"]);
+        assert!(g.validate().is_err());
+        assert!(!g.allows_path("anything.rs"));
     }
 
     #[test]
@@ -418,10 +350,11 @@ mod tests {
         );
         assert_eq!(g.terms, ["render"]);
         assert_eq!(g.negated, ["deprecated", "legacy", "dead code"]);
-        assert_eq!(g.language.as_deref(), Some("rust"));
-        assert_eq!(g.negated_language.as_deref(), Some("python"));
-        assert_eq!(g.extension.as_deref(), Some("rs"));
-        assert_eq!(g.unknown, ["symbol:foo"]); // repo: is wire-level, not unknown
+        assert_eq!(g.languages, ["rust"]);
+        assert_eq!(g.negated_languages, ["python"]);
+        assert_eq!(g.extensions, ["rs"]);
+        assert_eq!(g.repos, ["o/r"]);
+        assert_eq!(g.diagnostics, ["unsupported qualifier: symbol:"]);
     }
 
     #[test]
@@ -440,12 +373,12 @@ mod tests {
     }
 
     #[test]
-    fn unknown_language_passes_through_and_is_named() {
+    fn unknown_language_fails_closed_and_is_named() {
         let g = parse("render language:cobol");
-        let hits = vec![hit("src/render.rs", &[])];
-        let (kept, dropped) = filter_hits(&g, hits);
-        assert_eq!((kept.len(), dropped), (1, 0));
-        assert_eq!(unexpressible(&g), ["language:cobol"]);
+        assert!(g.validate().is_err());
+        let (kept, dropped) = filter_hits(&g, vec![hit("src/render.rs", &[])]);
+        assert_eq!((kept.len(), dropped), (0, 1));
+        assert_eq!(unexpressible(&g), ["unknown language: cobol"]);
     }
 
     #[test]
@@ -453,20 +386,89 @@ mod tests {
         // Forward and reverse are one mapping: every extension of
         // every language resolves back to a name that resolves
         // forward to a list containing it.
-        for (_name, _, exts) in LANG_TABLE {
-            for ext in *exts {
+        for row in rootle_stdio::SEARCH_LANGUAGES.lines() {
+            let exts = row.split('\t').nth(2).unwrap();
+            for ext in exts.split(',') {
                 let back = ext_lang(ext).expect("every table ext resolves");
                 assert!(
-                    lang_exts(back).is_some_and(|xs| xs.contains(ext)),
+                    lang_exts(back).is_some_and(|xs| xs.contains(&ext)),
                     "{ext} → {back} must round-trip"
                 );
             }
         }
         // Aliases resolve to the canonical name; unknowns don't.
-        assert_eq!(ext_lang("cpp"), Some("c++"));
-        assert_eq!(ext_lang("cc"), Some("c++"));
-        assert_eq!(ext_lang("bash"), Some("shell"));
+        assert_eq!(ext_lang("cpp"), Some("cpp"));
+        assert_eq!(ext_lang("cc"), Some("cpp"));
+        assert_eq!(ext_lang("bash"), Some("shellscript"));
         assert_eq!(ext_lang("txt"), None);
-        assert_eq!(lang_exts("CPP"), Some(&["cpp", "cc", "cxx", "hpp"][..]));
+        assert_eq!(lang_exts("cpp"), lang_exts("c++"));
+        assert_eq!(lang_exts("cpp"), lang_exts("cxx"));
+        assert!(lang_exts("CPP").is_none());
+    }
+
+    #[test]
+    fn quoted_qualifiers_and_escapes_stay_literal() {
+        let g = parse(r#""language:cpp" 'two words' "a\"b" 'C:\temp' language:"c++""#);
+        assert!(g.validate().is_ok());
+        assert_eq!(g.terms, ["language:cpp", "two words", "a\"b", r"C:\temp"]);
+        assert_eq!(g.languages, ["c++"]);
+    }
+
+    #[test]
+    fn families_union_exclusions_win_and_paths_never_match_content() {
+        let g = parse("language:rs language:'c++' -extension:hh path:src -path:vendor");
+        assert!(g.validate().is_ok());
+        let hits = [
+            "src/a.rs",
+            "src/a.cp",
+            "src/a.hxx",
+            "src/a.hh",
+            "src/vendor/a.cpp",
+            "docs/a.cpp",
+        ]
+        .into_iter()
+        .map(|path| hit(path, &["src"]))
+        .collect();
+        let (hits, dropped) = filter_hits(&g, hits);
+        assert_eq!(dropped, 3);
+        assert_eq!(
+            hits.into_iter().map(|hit| hit.path).collect::<Vec<_>>(),
+            ["src/a.rs", "src/a.cp", "src/a.hxx"]
+        );
+        assert!(!parse("language:cpp").allows_path("folder.cpp/README"));
+        assert!(parse("language:rs").allows_path(".rs"));
+        assert!(!parse("language:cpp").allows_path("src/a.CPP"));
+        assert!(!parse("path:Source").allows_path("source/a.cpp"));
+    }
+
+    #[test]
+    fn incomplete_or_unsupported_queries_never_broaden_results() {
+        for input in [
+            "language:",
+            "language:cp",
+            "extension:.",
+            "'unfinished",
+            "NOT",
+            "NOT NOT",
+            "-",
+            "regex:x",
+            "glob:*.rs",
+            "a OR b",
+        ] {
+            let g = parse(input);
+            assert!(g.validate().is_err(), "{input}");
+            assert!(!g.allows_path("src/a.rs"), "{input}");
+        }
+    }
+
+    #[test]
+    fn namespace_urls_and_drive_prefixes_are_not_qualifiers() {
+        let g = parse(r"std::vector https://example.test C:\temp x:y");
+        assert!(g.validate().is_ok());
+        assert_eq!(
+            g.terms,
+            [r"std::vector", "https://example.test", r"C:\temp", "x:y"]
+        );
+        assert_eq!(parse("path::suffix").paths, [":suffix"]);
     }
 }

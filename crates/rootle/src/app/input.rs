@@ -4,6 +4,39 @@ use super::diagnostics;
 use super::{Action, App, Component, KeyEvent, Mode, Outcome, keymap};
 
 impl App {
+    /// Shared interactive/headless boundary. Drivers own waiting and drawing,
+    /// while input admission, worker lifetimes and diagnostics have one owner.
+    pub fn handle_event(&mut self, event: crate::event::UiEvent) {
+        use crate::event::UiEvent;
+        use ratatui::crossterm::event::Event;
+        match event {
+            UiEvent::Worker(event) => self.handle_app_event(event),
+            UiEvent::Terminal(Event::Key(key)) => self.handle_key(key),
+            UiEvent::Terminal(Event::Resize(columns, rows)) => {
+                rootle_trace::record_with(
+                    rootle_trace::EventKind::Resize,
+                    || serde_json::json!({"columns": columns, "rows": rows, "source": "input"}),
+                );
+            }
+            UiEvent::Terminal(ignored) => {
+                rootle_trace::record_with(rootle_trace::EventKind::Input, || match ignored {
+                    Event::Paste(text) => serde_json::json!({
+                        "kind": "paste", "handled": false, "bytes": text.len(),
+                        "text": rootle_trace::capture_content().then_some(text.as_str()),
+                    }),
+                    Event::FocusGained => {
+                        serde_json::json!({"kind": "focus_gained", "handled": false})
+                    }
+                    Event::FocusLost => {
+                        serde_json::json!({"kind": "focus_lost", "handled": false})
+                    }
+                    Event::Mouse(_) => serde_json::json!({"kind": "mouse", "handled": false}),
+                    Event::Key(_) | Event::Resize(..) => unreachable!(),
+                });
+            }
+        }
+    }
+
     pub(super) fn effective_mode(&self) -> Mode {
         if self.consent.is_some() {
             return Mode::Browse;
@@ -138,6 +171,19 @@ impl App {
     /// notices) applies to every routed action.
     pub fn handle_action(&mut self, action: Action) {
         diagnostics::record_action(&action);
+        match &action {
+            Action::RepoSelected { .. } | Action::OrgSelected(_) | Action::LoadRepoTree { .. } => {
+                self.requests.search = crate::request::LoadState::default();
+                self.requests.invalidate_browser();
+            }
+            Action::BlameToggle => self.requests.blame.invalidate(),
+            Action::HistoryUp | Action::HistoryDown => self.requests.historical_blob.invalidate(),
+            Action::ClosePopup => {
+                self.requests.search = crate::request::LoadState::default();
+                self.requests.references.invalidate();
+            }
+            _ => {}
+        }
         let left = self
             .try_browse(action)
             .and_then(|a| self.try_search(a))
@@ -145,6 +191,9 @@ impl App {
             .and_then(|a| self.try_lifecycle(a));
         debug_assert!(left.is_none(), "unrouted action: {left:?}");
         let _ = left;
+        if !self.browser.history_is_open() {
+            self.requests.historical_blob.invalidate();
+        }
         // Incremental filter: re-apply on every SEARCH keystroke.
         if self.mode == Mode::Search {
             self.browser.apply_filter();

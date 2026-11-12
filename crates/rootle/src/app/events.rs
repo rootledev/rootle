@@ -24,6 +24,10 @@ impl App {
     fn apply_app_event(&mut self, event: AppEvent) {
         let name = diagnostics::event_name(&event);
         diagnostics::record_event_received(&event);
+        if !self.accept_worker_event(&event) {
+            diagnostics::record_event_rejected(name, "stale_or_terminal_request", || json!({}));
+            return;
+        }
         match event {
             AppEvent::SearchResults { gen_id, items } => {
                 if !self.search_gen.is_current(gen_id) {
@@ -112,10 +116,12 @@ impl App {
                     branch,
                 });
             }
-            AppEvent::BlobLoaded { sha, name, bytes } => {
+            AppEvent::BlobLoaded {
+                sha, name, bytes, ..
+            } => {
                 self.handle_action(Action::BlobLoaded { sha, name, bytes });
             }
-            AppEvent::BlobFailed { sha, error } => {
+            AppEvent::BlobFailed { sha, error, .. } => {
                 self.handle_action(Action::BlobFailed { sha, error });
             }
             AppEvent::TreeFailed { request, error } => {
@@ -239,7 +245,7 @@ impl App {
                     query,
                 });
             }
-            AppEvent::HitContextMissing { gen_id, sha } => {
+            AppEvent::HitContextMissing { gen_id, sha, .. } => {
                 if !self.view_gen.is_current(gen_id) {
                     diagnostics::record_event_rejected(name, "stale_view_generation", || {
                         json!({
@@ -251,7 +257,9 @@ impl App {
                 }
                 self.handle_action(Action::HitContextMissing { sha });
             }
-            AppEvent::HitContextFailed { gen_id, sha, error } => {
+            AppEvent::HitContextFailed {
+                gen_id, sha, error, ..
+            } => {
                 if !self.view_gen.is_current(gen_id) {
                     diagnostics::record_event_rejected(name, "stale_view_generation", || {
                         json!({
@@ -272,6 +280,7 @@ impl App {
                 preview,
                 match_count,
                 query,
+                ..
             } => {
                 if !self.view_gen.is_current(gen_id) {
                     diagnostics::record_event_rejected(name, "stale_view_generation", || {
@@ -322,6 +331,7 @@ impl App {
                 path,
                 sha,
                 bytes,
+                ..
             } => {
                 if !self.view_gen.is_current(gen_id) {
                     diagnostics::record_event_rejected(name, "stale_view_generation", || {
@@ -398,7 +408,9 @@ impl App {
                     view.update(&action);
                 }
             }
-            AppEvent::HitFileFailed { gen_id, sha, error } => {
+            AppEvent::HitFileFailed {
+                gen_id, sha, error, ..
+            } => {
                 if !self.view_gen.is_current(gen_id) {
                     diagnostics::record_event_rejected(name, "stale_view_generation", || {
                         json!({
@@ -450,7 +462,7 @@ impl App {
                 self.status = Some(status);
             }
             // v1.5 revision lenses (plans/0016 M1).
-            AppEvent::RefsLoaded { repo: _, refs } => {
+            AppEvent::RefsLoaded { refs, .. } => {
                 if let Some(popup) = &mut self.refs_popup {
                     popup.set_refs(refs);
                 } else {
@@ -463,17 +475,24 @@ impl App {
                     return;
                 }
             }
-            AppEvent::RefsFailed { repo: _, error } => {
+            AppEvent::RefsFailed { error, .. } => {
                 self.status = Some(provider_status(&error));
             }
-            AppEvent::LogLoaded {
-                request,
-                entries,
-                truncated,
-            } => {
+            AppEvent::LogDelta { request, entries } => {
+                if !self.browser.history_accepts(&request) {
+                    diagnostics::record_event_rejected(
+                        name,
+                        "stale_history_request",
+                        || json!({"request": request, "lens": self.browser.history_request()}),
+                    );
+                    return;
+                }
+                self.browser.history_append(entries);
+            }
+            AppEvent::LogLoaded { request, truncated } => {
                 let accepted = self.browser.history_accepts(&request);
                 if accepted {
-                    self.browser.history_loaded(entries, truncated);
+                    self.browser.history_loaded(truncated);
                 } else {
                     diagnostics::record_event_rejected(name, "stale_history_request", || {
                         json!({
@@ -503,7 +522,7 @@ impl App {
                 let accepted = self
                     .browser
                     .commit_ref()
-                    .is_some_and(|view| view.request() == &request);
+                    .is_some_and(|view| view.accepts(&request));
                 let theme = self.effective_theme();
                 match detail {
                     Ok(detail) => self.browser.commit_loaded(&request, detail, &theme),
@@ -525,7 +544,7 @@ impl App {
                     return;
                 }
             }
-            AppEvent::BlameLoaded { path, ranges } => {
+            AppEvent::BlameLoaded { path, ranges, .. } => {
                 // Which surface takes the landing; the browser applies
                 // the ranges only when its lens awaits this path (the
                 // identity check inside blame_store).
@@ -556,7 +575,13 @@ impl App {
                     return;
                 }
             }
-            AppEvent::LastCommitLoaded { repo, path, entry } => {
+            AppEvent::LastCommitLoaded {
+                repo,
+                path,
+                revision,
+                entry,
+                ..
+            } => {
                 if let Some(entry) = entry {
                     // Compact at the boundary: 7-char sha, date-only
                     // — the band is a header, not a ledger.
@@ -571,11 +596,7 @@ impl App {
                             .unwrap_or(&entry.date)
                             .to_string(),
                     };
-                    let ref_ = self
-                        .browser
-                        .current_ref()
-                        .map(str::to_string)
-                        .unwrap_or_default();
+                    let ref_ = revision.unwrap_or_default();
                     self.last_commits
                         .insert((repo.clone(), path.clone(), ref_), entry);
                     // Dress whichever surface is showing this file now:
@@ -593,7 +614,7 @@ impl App {
                     }
                 }
             }
-            AppEvent::BlameFailed { path, error } => {
+            AppEvent::BlameFailed { path, error, .. } => {
                 if let Some(view) = &mut self.search_view
                     && view.blame_loading_for(&path)
                 {
@@ -609,6 +630,7 @@ impl App {
                 subject,
                 author,
                 date,
+                ..
             } => {
                 // Open-at-commit: style like every blob, but show it
                 // directly — the tree cursor still names the
@@ -645,7 +667,7 @@ impl App {
                 self.mode = Mode::Preview;
                 self.status = None;
             }
-            AppEvent::BlobAtFailed { path: _, error } => {
+            AppEvent::BlobAtFailed { error, .. } => {
                 self.status = Some(provider_status(&error));
             }
             AppEvent::UpdateAvailable { tag, toast } => {

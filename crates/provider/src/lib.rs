@@ -20,7 +20,7 @@ pub const RENDER_BUDGET: usize = 500;
 
 pub mod id;
 
-pub use id::{Generation, GitRef, OwnerId, RepoId, RepoPath, Sha};
+pub use id::{GitRef, OwnerId, RepoId, RepoPath, Sha};
 
 mod commit;
 pub use commit::{CommitDetail, CommitFile, CommitStatistics, FileStatus};
@@ -293,17 +293,18 @@ pub trait Provider: Send + Sync {
             "provider has no revision listing",
         ))
     }
-    /// v1.5: commit log, newest first; `limit` rides the bounded-
-    /// compute contract — stop at ~N, the bool is `truncated`
-    /// (capability `log`).
+    /// Commit history, newest first, delivered as owned append-only batches.
+    /// The result is the authoritative truncation flag; an error leaves already
+    /// delivered entries with the caller. Providers honor the bounded `limit`.
     fn log(
         &self,
         repo: &RepoId,
         path: Option<&str>,
         ref_: Option<&GitRef>,
         limit: Option<usize>,
-    ) -> ProviderResult<(Vec<LogEntry>, bool)> {
-        let _ = (repo, path, ref_, limit);
+        on_entries: &mut dyn FnMut(Vec<LogEntry>),
+    ) -> ProviderResult<bool> {
+        let _ = (repo, path, ref_, limit, on_entries);
         Err(ProviderError::new(
             ErrorKind::Provider,
             "provider has no commit log",

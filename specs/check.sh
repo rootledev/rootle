@@ -22,3 +22,19 @@ for scenario in provider-protocol-mutant:CorrelationSafety provider-cancel-mutan
     fi
     printf '%s: killed by %s\n' "$config" "$invariant"
 done
+
+java -Xmx2g -XX:+UseParallelGC -jar "$jar" -workers 2 -cleanup -config cfg/commit-history.cfg CommitHistory.tla > "$work/history.log" 2>&1 || {
+    cat "$work/history.log"; exit 1;
+}
+grep -Fq 'Model checking completed. No error' "$work/history.log" || { cat "$work/history.log"; exit 1; }
+cat "$work/history.log"
+for scenario in stale:FreshLanding unbounded:BoundedRetention after-terminal:UniqueTerminal forget-clipping:TruthfulCompletion erase-partials:FailurePreservesPartials; do
+    fault=${scenario%:*}
+    invariant=${scenario#*:}
+    status=0
+    java -Xmx2g -XX:+UseParallelGC -jar "$jar" -workers 2 -cleanup -config "cfg/commit-history-$fault.cfg" CommitHistory.tla > "$work/history-$fault.log" 2>&1 || status=$?
+    if [ "$status" -ne 12 ] || ! grep -Fq "Invariant $invariant is violated" "$work/history-$fault.log"; then
+        cat "$work/history-$fault.log"; exit 1
+    fi
+    printf 'commit-history-%s: killed by %s\n' "$fault" "$invariant"
+done

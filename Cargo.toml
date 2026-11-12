@@ -1,22 +1,23 @@
 [workspace]
-members = ["crates/rootle", "crates/provider", "crates/stdio", "crates/github", "crates/manager", "crates/diff", "crates/trace"]
+members = ["crates/rootle", "crates/kernel", "crates/provider", "crates/stdio", "crates/github", "crates/manager", "crates/diff", "crates/trace"]
 default-members = ["crates/rootle"]
 resolver = "2"
 
 [workspace.package]
-version = "0.12.2"
+version = "0.13.0"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.100"
 license = "MIT"
 repository = "https://github.com/rootledev/rootle"
 
 [workspace.dependencies]
-rootle-provider = { path = "crates/provider", version = "=0.12.2" }
-rootle-stdio = { path = "crates/stdio", version = "=0.12.2" }
-rootle-github = { path = "crates/github", version = "=0.12.2" }
-rootle-manager = { path = "crates/manager", version = "=0.12.2" }
-rootle-diff = { path = "crates/diff", version = "=0.12.2" }
-rootle-trace = { path = "crates/trace", version = "=0.12.2" }
+rootle-kernel = { path = "crates/kernel", version = "=0.13.0" }
+rootle-provider = { path = "crates/provider", version = "=0.13.0" }
+rootle-stdio = { path = "crates/stdio", version = "=0.13.0" }
+rootle-github = { path = "crates/github", version = "=0.13.0" }
+rootle-manager = { path = "crates/manager", version = "=0.13.0" }
+rootle-diff = { path = "crates/diff", version = "=0.13.0" }
+rootle-trace = { path = "crates/trace", version = "=0.13.0" }
 
 [profile.release]
 lto = "fat"

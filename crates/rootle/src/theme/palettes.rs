@@ -1,8 +1,8 @@
-//! Embedded palettes as data (moved from theme.rs, plans/0021 M2
-//! — a pure move): eleven themes as role→hex tables; `embedded()`
-//! overlays them on the catppuccin-mocha baseline.
+//! Embedded role tables, overlaid on the legacy Mocha baseline.
 
-type RoleValue = (&'static str, u32);
+use super::strop;
+
+pub(super) type RoleValue = (&'static str, u32);
 
 const DRACULA: &[RoleValue] = &[
     ("crust", 0x191a21),
@@ -439,6 +439,12 @@ const ONE_LIGHT_SYNTAX: &[RoleValue] = &[
 ];
 
 pub(crate) const EMBEDDED: &[(&str, &[RoleValue], &[RoleValue])] = &[
+    ("hone", strop::HONE, strop::HONE_SYNTAX),
+    ("slate", strop::SLATE, strop::SLATE_SYNTAX),
+    ("carbide", strop::CARBIDE, strop::CARBIDE_SYNTAX),
+    ("vellum", strop::VELLUM, strop::VELLUM_SYNTAX),
+    ("paper", strop::PAPER, strop::PAPER_SYNTAX),
+    ("paper-dark", strop::PAPER_DARK, strop::PAPER_DARK_SYNTAX),
     ("catppuccin-mocha", &[], &[]), // baseline, constructed directly
     ("dracula", DRACULA, DRACULA_SYNTAX),
     ("gruvbox-dark", GRUVBOX_DARK, GRUVBOX_DARK_SYNTAX),

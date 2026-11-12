@@ -121,7 +121,7 @@ impl SettingsPopup {
             }
             ("theme", "name") => {
                 self.config.theme.name = if value.is_empty() {
-                    "catppuccin-mocha".into()
+                    "hone".into()
                 } else {
                     value.to_string()
                 };
@@ -376,7 +376,7 @@ mod tests {
         let mut p = popup();
         p.handle_key(key(KeyCode::Tab)); // theme section
         // Radio rows: one per theme, then the path field.
-        assert!(matches!(&rows(&p)[0], Row::Radio { option, .. } if option == "catppuccin-mocha"));
+        assert!(matches!(&rows(&p)[0], Row::Radio { option, .. } if option == "hone"));
         assert!(matches!(&rows(&p)[1], Row::Radio { option, .. } if option == "gruvbox-dark"));
         assert!(matches!(rows(&p)[2], Row::Text { .. }));
 
@@ -476,7 +476,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         assert!(
-            screen.contains("○ catppuccin-mocha"),
+            screen.contains("○ hone"),
             "deselected option is a hollow dot"
         );
         assert!(

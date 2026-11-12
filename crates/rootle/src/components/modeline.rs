@@ -123,6 +123,11 @@ impl Modeline {
         } else {
             format!(" {icon} {forge_label} ")
         };
+        let (forge_fg, forge_bg) = if self.degraded {
+            (sem.crust, sem.warning)
+        } else {
+            (sem.forge_fg, sem.forge)
+        };
         let mut spans = vec![
             Span::styled(
                 format!(" {} ", mode.chip()),
@@ -131,16 +136,9 @@ impl Modeline {
                     .bg(chip_bg)
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::styled(arrow, Style::default().fg(chip_bg).bg(sem.forge)),
-            Span::styled(
-                forge_text,
-                Style::default().fg(sem.crust).bg(if self.degraded {
-                    sem.warning
-                } else {
-                    sem.forge
-                }),
-            ),
-            Span::styled(arrow, Style::default().fg(sem.forge).bg(sem.mantle)),
+            Span::styled(arrow, Style::default().fg(chip_bg).bg(forge_bg)),
+            Span::styled(forge_text, Style::default().fg(forge_fg).bg(forge_bg)),
+            Span::styled(arrow, Style::default().fg(forge_bg).bg(sem.mantle)),
         ];
 
         // Transient status, capped at half the line; middle-truncated
@@ -421,5 +419,33 @@ mod tests {
         assert!(line.contains("provider stdio"), "head kept: {line}");
         assert!(line.contains("os error 2"), "tail kept: {line}");
         assert!(line.contains("…"));
+    }
+
+    #[test]
+    fn provider_plane_and_bridges_follow_semantic_tokens() {
+        for name in ["hone", "vellum", "catppuccin-mocha"] {
+            let theme = Theme::embedded(name).unwrap();
+            for degraded in [false, true] {
+                let modeline = Modeline {
+                    degraded,
+                    ..sample()
+                };
+                let mut terminal = Terminal::new(TestBackend::new(100, 1)).unwrap();
+                terminal
+                    .draw(|f| modeline.render(f, f.area(), Mode::Browse, &theme))
+                    .unwrap();
+                let buf = terminal.backend().buffer();
+                let sem = theme.semantic;
+                let provider_bg = if degraded { sem.warning } else { sem.forge };
+                let provider_fg = if degraded { sem.crust } else { sem.forge_fg };
+                // " BROWSE " then bridge, " github ", then bridge.
+                assert_eq!(buf[(0, 0)].bg, sem.mode_browse);
+                assert_eq!(buf[(8, 0)].bg, provider_bg);
+                assert_eq!(buf[(10, 0)].fg, provider_fg);
+                assert_eq!(buf[(10, 0)].bg, provider_bg);
+                assert_eq!(buf[(17, 0)].fg, provider_bg);
+                assert_eq!(buf[(17, 0)].bg, sem.mantle);
+            }
+        }
     }
 }

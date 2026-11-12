@@ -76,6 +76,68 @@ fn fake_provider_child() {
         }
         let _ = handshaken;
         match mode.as_str() {
+            "history-stream" | "history-single" | "history-die" | "history-malformed"
+                if method == "repo/log" =>
+            {
+                let entries: Vec<_> = (0..650)
+                    .map(|index| {
+                        json!({
+                            "sha": format!("revision-{index}"),
+                            "subject": format!("commit {index}"),
+                            "author": "fixture", "date": "2026-11-12",
+                        })
+                    })
+                    .collect();
+                if mode == "history-single" {
+                    writeln!(
+                        stdout,
+                        "{}",
+                        json!({
+                            "jsonrpc": "2.0", "id": id,
+                            "result": {"items": entries, "truncated": false},
+                        })
+                    )
+                    .unwrap();
+                } else {
+                    for batch in entries.chunks(100) {
+                        writeln!(
+                            stdout,
+                            "{}",
+                            json!({
+                                "jsonrpc": "2.0", "method": "$/partial",
+                                "params": {"id": id, "items": batch},
+                            })
+                        )
+                        .unwrap();
+                        stdout.flush().unwrap();
+                        if mode == "history-die" {
+                            std::process::exit(0);
+                        }
+                        if mode == "history-malformed" {
+                            writeln!(
+                                stdout,
+                                "{}",
+                                json!({
+                                    "jsonrpc": "2.0", "method": "$/partial",
+                                    "params": {"id": id, "items": [{"sha": false}]},
+                                })
+                            )
+                            .unwrap();
+                            break;
+                        }
+                    }
+                    writeln!(
+                        stdout,
+                        "{}",
+                        json!({
+                            "jsonrpc": "2.0", "id": id,
+                            "result": {"items": [], "truncated": false},
+                        })
+                    )
+                    .unwrap();
+                }
+                stdout.flush().unwrap();
+            }
             // Out-of-order replies: hold id 2 back; when id 3 lands,
             // answer 3 first, then the stashed 2. The child is
             // strictly sequential — deferring is the only way its

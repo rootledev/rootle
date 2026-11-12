@@ -186,11 +186,12 @@ impl App {
     /// hit's blob and locate the query's context. Cache-first, so the
     /// second visit of a hit is free.
     pub(crate) fn spawn_hit_context(
-        &self,
+        &mut self,
         gen_id: crate::request::ViewGeneration,
         hit: crate::components::global_search::SearchHit,
         query: String,
     ) {
+        let generation = self.requests.hit_context.issue();
         let provider = self.provider.clone();
         let tx = self.tx.clone();
         let op = rootle_trace::operation_id();
@@ -236,6 +237,7 @@ impl App {
                                     })
                                 });
                                 AppEvent::HitContextLoaded {
+                                    generation,
                                     gen_id,
                                     repo: hit.repo,
                                     path: hit.path,
@@ -258,7 +260,11 @@ impl App {
                                         "duration_us": started.map(|clock| clock.elapsed().as_micros()),
                                     })
                                 });
-                                AppEvent::HitContextMissing { gen_id, sha }
+                                AppEvent::HitContextMissing {
+                                    generation,
+                                    gen_id,
+                                    sha,
+                                }
                             }
                         }
                     }
@@ -274,7 +280,12 @@ impl App {
                         });
                         // Auth/throttle surface a status line; other kinds
                         // stay quiet (plans/0008 §2).
-                        AppEvent::HitContextFailed { gen_id, sha, error }
+                        AppEvent::HitContextFailed {
+                            generation,
+                            gen_id,
+                            sha,
+                            error,
+                        }
                     }
                 };
                 if tx.send(event).is_err() {
@@ -291,10 +302,11 @@ impl App {
     /// blob. Cache-first — the lazy context fetch usually warmed the
     /// exact (repo, sha), so expanding a located hit is free.
     pub(crate) fn spawn_hit_file(
-        &self,
+        &mut self,
         gen_id: crate::request::ViewGeneration,
         hit: crate::components::global_search::SearchHit,
     ) {
+        let generation = self.requests.hit_file.issue();
         let provider = self.provider.clone();
         let tx = self.tx.clone();
         let op = rootle_trace::operation_id();
@@ -331,6 +343,7 @@ impl App {
                             })
                         });
                         AppEvent::HitFileLoaded {
+                            generation,
                             gen_id,
                             repo: hit.repo,
                             path: hit.path,
@@ -348,7 +361,12 @@ impl App {
                                 "duration_us": started.map(|clock| clock.elapsed().as_micros()),
                             })
                         });
-                        AppEvent::HitFileFailed { gen_id, sha, error }
+                        AppEvent::HitFileFailed {
+                            generation,
+                            gen_id,
+                            sha,
+                            error,
+                        }
                     }
                 };
                 if tx.send(event).is_err() {

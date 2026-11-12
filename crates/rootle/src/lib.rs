@@ -12,6 +12,7 @@ pub mod event;
 pub mod headless;
 pub mod highlight;
 pub mod keymap;
+pub(crate) mod languages;
 pub mod mode;
 
 pub mod provider;

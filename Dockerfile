@@ -1,58 +1,65 @@
 # syntax=docker/dockerfile:1
-# Multi-stage musl static build (PLAN.md §13).
-# rust:alpine's host triple is the platform's musl native target
-# (x86_64 on amd64, aarch64 on arm), so plain `cargo build` already
-# produces a static musl binary — the release matrix relies on this
-# for native arm builds with zero cross config.
-
-FROM rust:alpine AS builder
-RUN apk add --no-cache build-base file \
-    && rustup component add clippy rustfmt
+# BuildKit caches live in the Docker daemon's admitted NVMe data root.
+# Always copy executable outputs out of cache mounts in the same RUN.
+FROM rust:alpine@sha256:44819b27be4c97b0e4d7203bd2e02c4820f97700211b6a37fb4c246a2de59383 AS builder
+RUN apk add --no-cache build-base file git python3 tar \
+    && rustup toolchain install 1.100.0 --profile minimal --component clippy,rustfmt \
+    && rustup default 1.100.0
+ARG TARGETARCH
+ENV CARGO_TARGET_DIR=/cache/target
 WORKDIR /app
 COPY Cargo.toml Cargo.lock README.md LICENSE ./
 COPY crates ./crates
+COPY .github/scripts ./.github/scripts
 
 FROM builder AS test
-RUN cargo fmt --all --check \
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/cache/target,id=rootle-test-${TARGETARCH},sharing=locked \
+    find crates -type f -exec touch {} + \
+    && cargo fmt --all --check \
     && cargo clippy --locked --workspace --all-targets -- -D warnings \
-    && cargo test --locked --workspace
+    && cargo test --locked --workspace \
+    && cargo build --locked -p rootle \
+    && install -D -m755 /cache/target/debug/rootle /app/target/debug/rootle
 
-# Tree-sitter's C/C++ grammars are compiled into the native musl binary.
-# Static PIE may appear dynamic to ldd; ELF dependencies are the real gate.
 FROM builder AS release
-RUN cargo build --release --locked \
-    && strip target/release/rootle \
-    && readelf -d target/release/rootle > /tmp/rootle-dynamic \
-    && ! grep -q '(NEEDED)' /tmp/rootle-dynamic \
-    && file target/release/rootle | grep -qE "static-pie linked|statically linked" \
-    && echo "static: ok"
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/cache/target,id=rootle-release-${TARGETARCH},sharing=locked \
+    find crates -type f -exec touch {} + \
+    && cargo build --release --locked -p rootle \
+    && install -D -m755 /cache/target/release/rootle /app/target/release/rootle \
+    && strip /app/target/release/rootle \
+    && readelf -d /app/target/release/rootle > /tmp/dynamic \
+    && ! grep -q '(NEEDED)' /tmp/dynamic \
+    && file /app/target/release/rootle | grep -qE 'static-pie linked|statically linked'
+CMD ["sh", ".github/scripts/package.sh"]
 
-# Shipping image: just the binary.
 FROM scratch AS ship
 COPY --from=release /app/target/release/rootle /rootle
 ENTRYPOINT ["/rootle"]
 
-# e2e PTY suite (plans/0002-v0.2 §6, productionize). FROM test reuses
-# the gate's compiled target/ — no second artifact tree, and the gate
-# must have passed for this stage to build at all.
 FROM test AS e2e
-# python3+uv for the harness; git for the clone-wizard e2e (fs provider
-# repos are real local git remotes).
-RUN apk add --no-cache python3 uv git
+RUN apk add --no-cache uv
 COPY e2e/pyproject.toml e2e/uv.lock ./e2e/
-RUN cargo build --locked && cd e2e && uv sync --locked
+RUN cd e2e && uv sync --locked
 COPY e2e ./e2e
-# Binary already compiled by the gate stage; harness must not rebuild.
-ENV ROOTLE_E2E_IN_DOCKER=1
+COPY install.sh ./install.sh
+ENV ROOTLE_E2E_IN_DOCKER=1 CARGO_TARGET_DIR=/app/target
 WORKDIR /app/e2e
 CMD ["uv", "run", "--locked", "--no-sync", "pytest"]
 
-# Bounded protocol model: safety, explicitly fair finite-stream progress,
-# and four kept fault classes. Parser/runtime errors never count as a kill.
-FROM eclipse-temurin:21-jre AS model
-# Upstream asset 551007111 was rebuilt 2026-09-08; digest verified against its release API.
-ARG TLA_TOOLS_SHA256=4c7bb1f6b050d56c197ee9ddd6e57fe521eae175f5043c9fb98b169f7b2d5407
+FROM eclipse-temurin:21-jre@sha256:18bb4a91a3dea3f03ee31d3755af34dfb40f904fc77ab56cdc2f092e32fff9c2 AS model
+ARG TLA_TOOLS_SHA256=e1f11b75c4b5bc4478ba0ac5cb6ae28e40a01b0016bc33e0aa97da22dfdbcd7f
 ADD --checksum=sha256:${TLA_TOOLS_SHA256} https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar /tla/tla2tools.jar
 WORKDIR /work
 COPY specs ./specs
 RUN sh specs/check.sh
+
+# Qualified releases use a reviewed advisory snapshot, not a moving network head.
+FROM builder AS audit
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    cargo install cargo-audit --version 0.23.0 --locked
+RUN git init /advisory-db \
+    && git -C /advisory-db fetch --depth=1 https://github.com/RustSec/advisory-db.git af7b3ec33460b8e2de8d422e16d628518891a519 \
+    && git -C /advisory-db checkout --detach FETCH_HEAD
+RUN cargo audit --no-fetch --db /advisory-db

@@ -1,7 +1,6 @@
 //! Provider manager (plans/0010): install, list, update, upgrade,
 //! pin, remove, use — for stdio provider binaries distributed as
-//! GitHub release tarballs (the 4-target matrix rootle and its
-//! providers ship: linux+macOS × x86_64+aarch64).
+//! GitHub release tarballs for Linux x86_64 and aarch64.
 //!
 //! Layout (XDG tiers, one purpose each — see the plan's survey):
 //!

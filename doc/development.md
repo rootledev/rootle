@@ -13,6 +13,7 @@ source is in workspace crates; the root manifest only defines the workspace.
 ```
 crates/rootle/    application: component tree, actions, worker integration,
                  headless driver, config, terminal lifecycle
+crates/kernel/    dependency-free pure generation and request-transition decisions
 crates/provider/ Provider trait, wire vocabulary, typed identities and paths
 crates/stdio/    request routing, reader epochs, handshake/recovery and RPC wire
 crates/github/   provider implementation, cache, resource-oriented HTTP client
@@ -33,6 +34,9 @@ Data flow rules (violations get caught in review):
 - **Worker results return as `AppEvent`s** with domain-tagged request
   generations. Stale results are rejected by identity; advisory
   cancellation never substitutes for the freshness check.
+  `UiEvent` is the shared interactive/headless input boundary. UI-owned typed
+  request slots consume the kernel's acceptance decisions before applying worker
+  events. Completed requests reject duplicate terminals and later partials.
 - **Provider calls run off the UI thread.**
 - **Styling happens at the boundary** — raw search hits and blobs are
   highlighted once in `App` (`finish_hits`, blob path), not per frame.
@@ -75,6 +79,20 @@ Data flow rules (violations get caught in review):
 - **Fresh profiles have no provider suggestions.** Only user recents
   populate the browser; repository search is the cold-start entry point.
 
+### Proof boundary
+
+`rootle-kernel` contains allocation-free generation advancement and request
+acceptance/phase transitions. Pinned Charon/Aeneas extracts the actual Rust to
+Lean; `proofs/` refuses translation drift, proves its obligations, audits axioms
+and checks deliberately faulty variants. Overflow returns `None`, never a reused
+generation; the app preserves its fatal exhaustion policy.
+
+The proof does **not** verify the entire TUI, payload identity adapters, provider
+I/O, OS scheduling or liveness. Those boundaries have executable tests; the
+provider and history TLA+ models make separate, bounded, fairness-qualified claims.
+History pages stream on workers, retain at most 500 entries, cache their filter
+indices and render only viewport-visible rows. Failures retain accepted partials.
+
 Overlays are exclusive slots on `App` (`popup`, `search_view`, `help`,
 `command_line`, `settings`, `wizard`); dispatch checks them topmost
 first. The leader layer works over the search view by routing keys to
@@ -93,18 +111,32 @@ uv run --directory e2e pytest                            # headless + PTY, host
 docker compose run --build --rm test                     # the gate
 docker compose run --build --rm e2e                      # e2e in-container
 docker compose run --build --rm model                    # bounded TLC + kept faults
-docker compose run --build --rm -e VERSION=0.10.0 release # static musl tarball → ./dist/
+docker compose run --build --rm proofs                   # extracted Rust → Lean + audit + mutants
+docker compose run --build --rm audit                    # pinned RustSec advisory snapshot
+sh .github/scripts/release-local.sh qualify 0.13.0        # owned local Buildbot, all gates + both architectures
 ```
 
-CI (`.github/workflows/ci.yml`) runs the gate and the e2e service on
-every push; tags build the release artifact via `release.yml`.
+Hosted CI retains the required `test` check. Release qualification runs on the
+local Buildbot's admitted NVMe Docker storage, using `.ci/pilot.json`; the large
+proof toolchain is deliberately local. BuildKit registry/target caches are
+architecture-separated, and binaries are copied out of cache mounts into images.
 
-All seven packages share `workspace.package.version`. Release publishing
-orders trace/provider/diff before their consumers and the app last. The model
-checks ten safety invariants plus type correctness and two
-fairness-qualified temporal properties; four kept faults must violate
-their named invariant. The executable routing model and real-child tests
-are a bridge to Rust, not a formal refinement proof.
+Eight packages share `workspace.package.version`; update the profile version too.
+From a clean committed checkout, `release-local.sh qualify VERSION` freezes source,
+profile and runtime identity, runs test/e2e/model/proofs/audit/conformance and native
+Linux x86_64 + arm64 packaging, then admits retained receipts and artifacts.
+The arm64 image needs a native worker or registered QEMU/binfmt.
+
+After the PR is merged, tag the qualified commit `vVERSION` and push that tag.
+Run `release-local.sh draft VERSION`, `crates VERSION`, `publish VERSION`, then
+`verify VERSION`. Every publication command independently checks the qualification
+and source/tag identity; crate publication also runs inside Docker. Credentials
+stay operator-owned. The final verification downloads published assets and
+exercises the checksum-verifying installer. Refresh the site repository and its
+release version stamp; no hosted release job, macOS artifacts or Homebrew tap.
+
+The models check protocol routing and history safety/progress with kept mutants.
+Their executable tests are bridges to Rust, not formal refinement proofs.
 
 Commits: small, theme-grouped, `feat:/fix:/test:/docs:` prefixes.
 Plans live in `plans/` per release; flip milestone status in the same
@@ -287,7 +319,7 @@ Gotchas that have bitten (all covered by the suite):
 
 ## Demo GIFs
 
-`demo.gif` (canonical, Catppuccin Mocha) and the per-palette
+`demo.gif` (canonical, Hone) and the per-palette
 `demo-<theme>.gif` variants (the website's palette picker swaps them
 in) all render from `demos/demo.tape` via the VHS docker image — one
 sed-parameterized run per embedded palette. Local renders land in

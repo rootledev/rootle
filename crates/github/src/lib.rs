@@ -113,10 +113,15 @@ impl Provider for GitHubProvider {
         path: Option<&str>,
         ref_: Option<&GitRef>,
         limit: Option<usize>,
-    ) -> ProviderResult<(Vec<LogEntry>, bool)> {
-        let (owner, name) = split_repo(repo)?;
-        self.client
-            .log(owner, name, path, ref_.map(|r| r.as_str()), limit)
+        on_entries: &mut dyn FnMut(Vec<LogEntry>),
+    ) -> ProviderResult<bool> {
+        self.client.log(
+            repo,
+            path,
+            ref_.map(|revision| revision.as_str()),
+            limit,
+            on_entries,
+        )
     }
 
     /// v1.5: open-at-commit.

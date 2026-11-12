@@ -111,6 +111,7 @@ fn expanded_pane_blame_lens_renders() {
     // render with the run sha + author.
     app.handle_key(key(KeyCode::Char('b')));
     app.handle_app_event(rootle::event::AppEvent::BlameLoaded {
+        generation: app.request_generations().blame,
         path: "src/main.rs".into(),
         ranges: vec![rootle_provider::BlameRange {
             start_line: 1,

@@ -20,13 +20,17 @@ impl App {
     /// 0019 polish: the preview band's last-commit fetch — one
     /// `log(path, limit=1)` call, only for log-capable providers.
     /// Ambient: no status noise, silent on failure.
-    pub(crate) fn spawn_last_commit(&self, repo: String, path: String, ref_: Option<String>) {
+    pub(crate) fn spawn_last_commit(&mut self, repo: String, path: String, ref_: Option<String>) {
         if !self.provider.capabilities().log {
             diagnostics::record_job_rejected(
                 "last_commit",
                 "no_log_capability",
                 || json!({"repo": repo, "path": path}),
             );
+            return;
+        }
+        let generation = self.requests.last_commit.issue();
+        if self.offline {
             return;
         }
         let provider = self.provider.clone();
@@ -49,10 +53,21 @@ impl App {
                 let started = rootle_trace::enabled().then(Instant::now);
                 let repo_id = RepoId::from(repo.clone());
                 let ref_at = ref_.as_deref().map(GitRef::from);
-                let entry = provider
-                    .log(&repo_id, Some(&path), ref_at.as_ref(), Some(1))
-                    .ok()
-                    .and_then(|(entries, _)| entries.into_iter().next());
+                let mut entry = None;
+                let result = provider.log(
+                    &repo_id,
+                    Some(&path),
+                    ref_at.as_ref(),
+                    Some(1),
+                    &mut |entries| {
+                        if entry.is_none() {
+                            entry = entries.into_iter().next();
+                        }
+                    },
+                );
+                if result.is_err() {
+                    entry = None;
+                }
                 rootle_trace::record_with(EventKind::JobFinished, || {
                     json!({
                         "job": "last_commit",
@@ -63,7 +78,13 @@ impl App {
                     })
                 });
                 if tx
-                    .send(AppEvent::LastCommitLoaded { repo, path, entry })
+                    .send(AppEvent::LastCommitLoaded {
+                        generation,
+                        revision: ref_,
+                        repo,
+                        path,
+                        entry,
+                    })
                     .is_err()
                 {
                     rootle_trace::record_with(
@@ -136,7 +157,11 @@ impl App {
 
     /// Revision fetches (v1.5, plans/0016 M1): one worker per lens;
     /// landings are identity-checked by the UI.
-    pub(crate) fn spawn_refs(&self, repo: String) {
+    pub(crate) fn spawn_refs(&mut self, repo: String) {
+        let generation = self.requests.references.issue();
+        if self.offline {
+            return;
+        }
         let provider = self.provider.clone();
         let tx = self.tx.clone();
         let op = rootle_trace::operation_id();
@@ -163,7 +188,11 @@ impl App {
                                 "duration_us": started.map(|clock| clock.elapsed().as_micros()),
                             })
                         });
-                        AppEvent::RefsLoaded { repo, refs }
+                        AppEvent::RefsLoaded {
+                            generation,
+                            repo,
+                            refs,
+                        }
                     }
                     Err(error) => {
                         rootle_trace::record_with(EventKind::JobFinished, || {
@@ -175,7 +204,11 @@ impl App {
                                 "duration_us": started.map(|clock| clock.elapsed().as_micros()),
                             })
                         });
-                        AppEvent::RefsFailed { repo, error }
+                        AppEvent::RefsFailed {
+                            generation,
+                            repo,
+                            error,
+                        }
                     }
                 };
                 if tx.send(event).is_err() {
@@ -212,28 +245,40 @@ impl App {
                 // The lens' render budget, per the bounded-compute
                 // contract: past it, `truncated` tells the user to narrow.
                 let limit = Some(rootle_provider::RENDER_BUDGET);
+                let mut received = 0usize;
+                let mut clipped = false;
+                let mut on_entries = |mut entries: Vec<rootle_provider::LogEntry>| {
+                    let remaining = rootle_provider::RENDER_BUDGET - received;
+                    clipped |= entries.len() > remaining;
+                    entries.truncate(remaining);
+                    received += entries.len();
+                    if !entries.is_empty() {
+                        let _ = tx.send(AppEvent::LogDelta {
+                            request: request.clone(),
+                            entries,
+                        });
+                    }
+                };
                 let event = match provider.log(
                     &request.repository,
                     request.scope.path(),
                     request.revision.as_ref(),
                     limit,
+                    &mut on_entries,
                 ) {
-                    Ok((entries, truncated)) => {
+                    Ok(truncated) => {
+                        let truncated = truncated || clipped;
                         rootle_trace::record_with(EventKind::JobFinished, || {
                             json!({
                                 "job": "log",
                                 "outcome": "ok",
                                 "request": request,
-                                "entries": entries.len(),
+                                "entries": received,
                                 "truncated": truncated,
                                 "duration_us": started.map(|clock| clock.elapsed().as_micros()),
                             })
                         });
-                        AppEvent::LogLoaded {
-                            request,
-                            entries,
-                            truncated,
-                        }
+                        AppEvent::LogLoaded { request, truncated }
                     }
                     Err(error) => {
                         rootle_trace::record_with(EventKind::JobFinished, || {
@@ -258,7 +303,11 @@ impl App {
         });
     }
 
-    pub(crate) fn spawn_blame(&self, repo: String, path: String, ref_: Option<String>) {
+    pub(crate) fn spawn_blame(&mut self, repo: String, path: String, ref_: Option<String>) {
+        let generation = self.requests.blame.issue();
+        if self.offline {
+            return;
+        }
         let provider = self.provider.clone();
         let tx = self.tx.clone();
         let op = rootle_trace::operation_id();
@@ -290,7 +339,11 @@ impl App {
                                 "duration_us": started.map(|clock| clock.elapsed().as_micros()),
                             })
                         });
-                        AppEvent::BlameLoaded { path, ranges }
+                        AppEvent::BlameLoaded {
+                            generation,
+                            path,
+                            ranges,
+                        }
                     }
                     Err(error) => {
                         rootle_trace::record_with(EventKind::JobFinished, || {
@@ -302,7 +355,11 @@ impl App {
                                 "duration_us": started.map(|clock| clock.elapsed().as_micros()),
                             })
                         });
-                        AppEvent::BlameFailed { path, error }
+                        AppEvent::BlameFailed {
+                            generation,
+                            path,
+                            error,
+                        }
                     }
                 };
                 if tx.send(event).is_err() {
@@ -316,7 +373,7 @@ impl App {
     }
 
     pub(crate) fn spawn_blob_at(
-        &self,
+        &mut self,
         repo: String,
         path: String,
         ref_: String,
@@ -324,6 +381,10 @@ impl App {
         author: String,
         date: String,
     ) {
+        let generation = self.requests.historical_blob.issue();
+        if self.offline {
+            return;
+        }
         let provider = self.provider.clone();
         let tx = self.tx.clone();
         let op = rootle_trace::operation_id();
@@ -359,6 +420,7 @@ impl App {
                             })
                         });
                         AppEvent::BlobAtLoaded {
+                            generation,
                             path,
                             ref_,
                             sha: sha.as_str().to_string(),
@@ -378,7 +440,11 @@ impl App {
                                 "duration_us": started.map(|clock| clock.elapsed().as_micros()),
                             })
                         });
-                        AppEvent::BlobAtFailed { path, error }
+                        AppEvent::BlobAtFailed {
+                            generation,
+                            path,
+                            error,
+                        }
                     }
                 };
                 if tx.send(event).is_err() {
@@ -391,11 +457,12 @@ impl App {
         });
     }
 
-    pub(crate) fn spawn_blob(&self, sha: String, name: String) {
+    pub(crate) fn spawn_blob(&mut self, sha: String, name: String) {
         let Some((owner, repo)) = self.browser.repo_coords() else {
             diagnostics::record_job_rejected("blob", "no_repo_coords", || json!({"sha": sha}));
             return;
         };
+        let generation = self.requests.blob.issue();
         let provider = self.provider.clone();
         let tx = self.tx.clone();
         let op = rootle_trace::operation_id();
@@ -429,7 +496,12 @@ impl App {
                                 "duration_us": started.map(|clock| clock.elapsed().as_micros()),
                             })
                         });
-                        AppEvent::BlobLoaded { sha, name, bytes }
+                        AppEvent::BlobLoaded {
+                            generation,
+                            sha,
+                            name,
+                            bytes,
+                        }
                     }
                     Err(error) => {
                         rootle_trace::record_with(EventKind::JobFinished, || {
@@ -441,7 +513,11 @@ impl App {
                                 "duration_us": started.map(|clock| clock.elapsed().as_micros()),
                             })
                         });
-                        AppEvent::BlobFailed { sha, error }
+                        AppEvent::BlobFailed {
+                            generation,
+                            sha,
+                            error,
+                        }
                     }
                 };
                 if tx.send(event).is_err() {

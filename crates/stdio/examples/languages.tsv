@@ -1,0 +1,24 @@
+rust	rs	rs
+c		c,h
+cpp	c++,cxx	cpp,cc,cp,cxx,hpp,hh,hxx,ino,tpp
+lua	lua	lua
+python	py	py,pyi,pyw
+go	golang	go
+javascript	js	js,jsx,mjs,cjs
+typescript	ts	ts,tsx,mts,cts
+json		json,jsonc
+shellscript	sh,bash,shell	sh,bash,zsh,ksh
+sovel	sov	sov
+weft	weft	weft
+splicery	splicery,spl	spl
+csharp	c#	cs,csx
+java		java
+kotlin		kt,kts
+ruby		rb,rbw,rake,gemspec
+php		php,phtml
+swift		swift
+toml		toml
+yaml		yaml,yml
+markdown		md,markdown
+html		html,htm,xhtml
+css		css

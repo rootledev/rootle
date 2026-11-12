@@ -35,7 +35,7 @@ pub struct Highlighter {
 
 impl Default for Highlighter {
     fn default() -> Self {
-        Self::new(&Theme::catppuccin_mocha())
+        Self::new(&Theme::hone())
     }
 }
 

@@ -1,4 +1,4 @@
-# The rootle provider protocol, v1.6
+# The rootle provider protocol, v1.7
 
 rootle talks to source-control backends through one seam (`trait
 Provider`, `crates/provider/src/lib.rs`). The built-in `github` provider is
@@ -85,7 +85,7 @@ These versions are independent:
 - **rootle and provider package versions** identify separately released binaries.
 - **`jsonrpc: "2.0"`** identifies the JSON-RPC envelope.
 - **`protocol: 1`** identifies this application's wire major.
-- **Spec v1.6** documents additive methods and fields within wire major 1.
+- **Spec v1.7** documents additive methods and fields within wire major 1.
   It is not a separately negotiated minor version; initialize still sends `1`.
 
 Feature availability follows capabilities and required methods, not package
@@ -154,7 +154,7 @@ Optional/missing fields noted per method; everything else is required.
 | `repo/blob` | `{"repo","sha"}` | `{"bytes_b64":"…"}` |
 | `repo/blob_at` | `{"repo","path","ref"?}` | `{"bytes_b64":"…", "sha"}` |
 | `repo/refs` | `{"repo"}` | `{"branches":[…], "tags":[…]}` |
-| `repo/log` | `{"repo","path"?,"ref"?,"limit"?}` | `{"items":[…], "truncated"?}` |
+| `repo/log` | `{"repo","path"?,"ref"?,"limit"?,"partial"?}` | `{"items":[…], "truncated"?}` |
 | `repo/blame` | `{"repo","path","ref"?}` | `{"ranges":[…]}` |
 | `repo/commit` | `{"repo","sha"}` | `{"sha","author","date","message","parents"?,"files":[…]}` |
 | `repo/clone_url` | `{"repo"}` | `{"clone_url":"…"}` |
@@ -207,6 +207,21 @@ Details:
   blame API — `false` there is the honest answer). All three date
   fields feed the UI's history/blame lenses verbatim; rootle never
   re-derives authorship.
+- **Progressive history (v1.7):** rootle sends `repo/log` with
+  `"partial": true`, using the same ordered `$/partial` envelope and inactivity
+  deadline as search. Batches contain newest-first, unique `LogEntry` items.
+  After streaming, the final reply contains `items: []` and authoritative
+  `truncated`; older adapters may ignore the opt-in and return a single result.
+  Rootle accepts either form, retains at most 500 entries, and ORs local clipping
+  with the provider's truncation flag. Duplicate commits, malformed batches or
+  a nonempty final after streaming fail the request; received entries remain
+  visible and explicitly incomplete. No late batch or second terminal result
+  may mutate a completed or superseded history view.
+  GitHub pages are pinned to the first returned commit, use fixed page sizes,
+  and have a finite request budget; repeated or empty nonterminal pages fail.
+  The reference Git adapter probes one extra commit to distinguish a complete
+  500-entry history from a clipped one. `/` filters loaded entries, not older
+  server history; choose a revision or file scope to inspect another range.
 - **Commit detail (v1.6, plans/0028):** `repo/commit` →
   `{"sha","author","date","message","parents"?,"files":[…],"truncated"?,"web_url"?}`.
   The message is complete (subject and body), dates are ISO-8601, and
@@ -243,14 +258,16 @@ Details:
   search from content search — absent inherits `code_search`. A forge
   with no global content index (Bitbucket Cloud, GitLab without
   Advanced Search) says `code_search: false, file_search: true`.
-- **Query grammar (v1.2-UX, plans/0012 M1):** `q` is the raw user
-  query — quoted literals (`"exact phrase"` = one term), prefix
-  negation (`-foo`, `NOT foo`, also on qualifiers), and the
-  `language:` qualifier may appear inline. Translate what your backend
-  expresses (GitLab `lang:`, an ext→lang map, a post-filter) and drop
-  what it can't — rootle additionally subtracts negation/`language:`
-  client-side as a no-op net and names whatever nobody could express
-  in the results title, so users always see an honest query.
+- **Query grammar (v1.7):** rootle uses Strop-style span tokenization,
+  quoted/escaped values and a shared language catalog. `language:cpp` and
+  `language:c++` identify the same family; positive language qualifiers union
+  and exclusions win. Literal terms, `-foo` and `NOT foo` remain supported.
+  Malformed queries, empty values and unknown languages report errors rather
+  than widening the search. Rootle does not implement Strop's regex/Boolean
+  expression language. Grep forwards the raw query with selected scope;
+  filename search lowers only free terms to `path:`, preserving qualifiers.
+  Backends translate supported qualifiers; client-side language and negation
+  filtering remains a consistency boundary.
 - **Progressive search (v1.3, plans/0011):** rootle sends
   `search/code` with `"partial": true` and renders `$/partial` batches
   as they arrive — see the section below.
@@ -313,7 +330,7 @@ Rules:
 
 - `"partial": true` in a request's params = the client consumes
   `$/partial` notifications carrying that request's `id`. rootle
-  sends it on every `search/code`.
+  sends it on every `search/code` and, since v1.7, every `repo/log`.
 - `items` are the method's own result-item shape, **append-only**.
   No overwrite mode: a hit the provider later knows better is
   re-sent as another item and the client folds by file identity;
@@ -502,3 +519,11 @@ refinement proof between TLA+ and Rust.
 **Any semantic change to transport, cancellation, streaming or restart
 updates the model and its executable observations in the same PR.** Run
 `docker compose run --build --rm model` together with the Rust/e2e gates.
+
+`specs/CommitHistory.tla` additionally checks bounded retained history, ordered
+prefixes, generation isolation, one terminal transition, truthful clipping and
+partial retention on failure. Its progress claim assumes finite source history,
+finitely many replacements and weakly fair delivery. Five named mutants must
+violate their corresponding invariant. GitHub page tests, real stdio children,
+frame tests and large Git-history e2e scenarios cover the executable boundaries.
+This is bounded model checking, not a formal refinement proof of the transport.

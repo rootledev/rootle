@@ -16,6 +16,7 @@ impl App {
         let _consumed: bool = match action {
             Action::SearchSubmitted(_) => {
                 self.search_gen.tick();
+                self.requests.search.start(self.search_gen);
                 self.provider.advise_cancel(); // superseded in-flight work
                 self.status = Some(format!("searching {}…", self.modeline.forge));
                 if let Some(popup) = &mut self.popup {

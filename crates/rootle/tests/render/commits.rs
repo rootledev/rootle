@@ -21,7 +21,7 @@ fn commit_viewer_dive_chain() {
     app.handle_key(key(KeyCode::Char(' ')));
     app.handle_key(key(KeyCode::Char('p')));
     app.handle_key(key(KeyCode::Char('h')));
-    app.handle_app_event(rootle::event::AppEvent::LogLoaded {
+    app.handle_app_event(rootle::event::AppEvent::LogDelta {
         request: app.active_history_request().unwrap().clone(),
         entries: vec![rootle_provider::LogEntry {
             sha: "feedface1234".into(),
@@ -29,6 +29,9 @@ fn commit_viewer_dive_chain() {
             author: "tarek".into(),
             date: "2026-09-06".into(),
         }],
+    });
+    app.handle_app_event(rootle::event::AppEvent::LogLoaded {
+        request: app.active_history_request().unwrap().clone(),
         truncated: false,
     });
 
@@ -151,7 +154,7 @@ fn repository_history_rejects_stale_successes_and_failures_after_reopening() {
     app.handle_action(rootle::action::Action::LeaderRepositoryHistory);
     let current = app.active_history_request().unwrap().clone();
     let status = app.snapshot()["status"].clone();
-    app.handle_app_event(rootle::event::AppEvent::LogLoaded {
+    app.handle_app_event(rootle::event::AppEvent::LogDelta {
         request: stale.clone(),
         entries: vec![rootle_provider::LogEntry {
             sha: "obsolete".into(),
@@ -159,6 +162,9 @@ fn repository_history_rejects_stale_successes_and_failures_after_reopening() {
             author: "old".into(),
             date: "old".into(),
         }],
+    });
+    app.handle_app_event(rootle::event::AppEvent::LogLoaded {
+        request: stale.clone(),
         truncated: false,
     });
     app.handle_app_event(rootle::event::AppEvent::LogFailed {
@@ -182,4 +188,68 @@ fn repository_history_rejects_stale_successes_and_failures_after_reopening() {
     let screen = render(&mut app, 120, 20).join("\n");
     assert!(screen.contains("current history failed"));
     assert!(!screen.contains("loading history"));
+}
+
+#[test]
+fn failed_history_keeps_partial_rows_and_refuses_late_terminal_or_batches() {
+    let mut app = browsing_app();
+    app.handle_action(rootle::action::Action::LeaderRepositoryHistory);
+    let request = app.active_history_request().unwrap().clone();
+    let entry = |subject: &str| rootle_provider::LogEntry {
+        sha: subject.into(),
+        subject: subject.into(),
+        author: "fixture".into(),
+        date: "2026-11-12".into(),
+    };
+    app.handle_app_event(rootle::event::AppEvent::LogDelta {
+        request: request.clone(),
+        entries: vec![entry("received commit")],
+    });
+    let partial = render(&mut app, 150, 20).join("\n");
+    assert!(partial.contains("received commit") && partial.contains("loading"));
+    app.handle_app_event(rootle::event::AppEvent::LogFailed {
+        request: request.clone(),
+        error: rootle_provider::ProviderError::other("stream interrupted"),
+    });
+    app.handle_app_event(rootle::event::AppEvent::LogDelta {
+        request: request.clone(),
+        entries: vec![entry("late commit")],
+    });
+    app.handle_app_event(rootle::event::AppEvent::LogLoaded {
+        request,
+        truncated: false,
+    });
+    let failed = render(&mut app, 150, 20).join("\n");
+    assert!(failed.contains("received commit") && failed.contains("incomplete"));
+    assert!(failed.contains("stream interrupted") && !failed.contains("late commit"));
+}
+
+#[test]
+fn history_enforces_its_budget_and_filters_commits_beyond_the_first_page() {
+    let mut app = browsing_app();
+    app.handle_action(rootle::action::Action::LeaderRepositoryHistory);
+    let request = app.active_history_request().unwrap().clone();
+    app.handle_app_event(rootle::event::AppEvent::LogDelta {
+        request: request.clone(),
+        entries: (0..650)
+            .map(|index| rootle_provider::LogEntry {
+                sha: format!("revision-{index}"),
+                subject: format!("commit {index:03}"),
+                author: "fixture".into(),
+                date: "2026-11-12".into(),
+            })
+            .collect(),
+    });
+    app.handle_app_event(rootle::event::AppEvent::LogLoaded {
+        request,
+        truncated: false,
+    });
+    let screen = render(&mut app, 150, 20).join("\n");
+    assert!(screen.contains("(500)") && screen.contains("truncated"));
+    for character in "/commit 499".chars() {
+        app.handle_key(key(KeyCode::Char(character)));
+    }
+    app.handle_key(key(KeyCode::Enter));
+    let filtered = render(&mut app, 150, 20).join("\n");
+    assert!(filtered.contains("commit 499") && !filtered.contains("commit 500"));
 }

@@ -128,6 +128,18 @@ def main() -> None:
                     sys.stdout.write(json.dumps(note) + "\n")
                     sys.stdout.flush()
                 result = {"items": [], "truncated": truncated}
+            elif req.get("method") == "repo/log" and params.get("partial"):
+                history = git_log(root, params["repo"], params.get("path"),
+                                  params.get("ref"), params.get("limit"))
+                for start in range(0, len(history["items"]), 100):
+                    note = {
+                        "jsonrpc": "2.0",
+                        "method": "$/partial",
+                        "params": {"id": req["id"], "items": history["items"][start:start + 100]},
+                    }
+                    sys.stdout.write(json.dumps(note) + "\n")
+                    sys.stdout.flush()
+                result = {"items": [], "truncated": history["truncated"]}
             else:
                 result = handle(root, req.get("method", ""), params)
             reply = {"jsonrpc": "2.0", "id": req.get("id"), "result": result}

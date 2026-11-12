@@ -69,7 +69,7 @@ def git_log(root: str, repo: str, path: str | None, ref: str | None, limit: int 
     base = repo_dir(root, repo)
     if not is_git_repo(base):
         raise ValueError(f"{repo} is not a git worktree")
-    want = min(limit or 50, 99)
+    want = min(500, max(0, 50 if limit is None else limit))
     args = ["log", f"-n{want + 1}", "--format=%H%x00%s%x00%an%x00%aI"]
     if ref:
         args.append(ref)

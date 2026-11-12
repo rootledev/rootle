@@ -26,29 +26,8 @@ jobs:
       - name: Provider protocol model (TLC)
         run: docker compose run --build --rm model
 
-  # plans/0023 M3: behavioral coverage on real macOS — APFS
-  # case-insensitivity, symlink topology, BSD-flavored crossterm
-  # edges. Native, not docker: macOS runners have no compose story
-  # worth the latency (the gripsack lesson). Offline, same fs
-  # provider fixtures as the docker suite.
-  e2e-macos:
-    runs-on: macos-14
-    steps:
-      - uses: actions/checkout@v7
-
-      # The suite builds the debug binary itself (e2e/tui.py build()).
-      - name: Build debug binary
-        run: cargo build --locked
-
-      - uses: astral-sh/setup-uv@v7
-
-      # uv, not pip: homebrew's python is PEP-668 externally-managed.
-      # -v + timeout: a wedged test must name itself and fail the job,
-      # never idle the runner for an hour (the 0023 rewrite hang).
-      - name: E2E (headless + PTY suite)
-        working-directory: e2e
-        timeout-minutes: 15
-        run: uv run pytest -v
+      # The pinned Charon/Aeneas/Lean toolchain is qualified on local Buildbot
+      # (the mandatory proofs gate in .ci/pilot.json), not a disk-limited hosted runner.
 
   # plans/0015: the canonical conformance suite gates the reference
   # adapter — protocol changes must keep fs_provider.py green.
@@ -59,6 +38,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: rootledev/forge-conformance
+          ref: 75c00748f6927e45ec23d42642ee96d96a787648
           path: forge-conformance
       - uses: actions/setup-python@v7
       - name: Conformance suite vs the fs reference provider

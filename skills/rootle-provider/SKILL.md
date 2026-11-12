@@ -12,13 +12,13 @@ nothing about backends — it only speaks the protocol.
 Ground truth (read before scaffolding, cite them to the user):
 
 - Protocol spec: `doc/provider-protocol.md`
-- Reference implementation: `crates/stdio/examples/fs_provider.py` and its `fs_*.py` siblings
+- Reference implementation: `crates/stdio/examples/fs_provider.py`, its `fs_*.py` siblings and `languages.tsv` (copy them together)
 - Rust transport/parser: `crates/stdio/src/`
 - Trait/vocabulary: `crates/provider/src/lib.rs`; GitHub implementation: `crates/github/`
 
 **Compatibility evidence:** record the tested rootle/adapter package pairs and
 target runtimes; do not invent a supported range from one successful run.
-JSON-RPC envelope `2.0`, application `protocol: 1` and additive spec v1.6
+JSON-RPC envelope `2.0`, application `protocol: 1` and additive spec v1.7
 are separate axes. Return integer `1`, declare capabilities explicitly, and
 document external tools/auth requirements in help or operator docs. Defaults
 are orgs/code-search true, file-search inherited, refs/log/blame/commit false.

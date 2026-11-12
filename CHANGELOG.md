@@ -3,6 +3,36 @@
 User-visible changes per release. Protocol archaeology lives in
 `plans/`; this file is for "what's new for me".
 
+## [0.13.0] — 2026-11-12
+
+- Request lifetimes now pass through a small allocation-free Rust kernel:
+  domain-typed generations never wrap, stale replies are rejected, and partials
+  cannot follow a terminal result. Interactive and headless input share an event
+  boundary. Lean checks the actual Charon/Aeneas translation, extraction drift,
+  theorem axioms and deliberate faults. This does not prove the entire TUI or I/O.
+- Repository and file history stream past the former 99-commit ceiling, up to
+  500 newest commits. GitHub pages stay pinned to one revision; empty/repeated
+  pages fail instead of looping. Partial history survives failures, local
+  clipping stays visible, and drawing prepares only viewport-visible rows.
+  Protocol v1.7 adds history streaming without changing wire major `1`;
+  older single-result adapters continue to work. TLA+ covers bounded history
+  safety and fairness-qualified progress with negative calibration.
+- Query tokenization and language families follow Strop: `language:cpp` and
+  `language:c++` agree across find, grep, facets and highlighting. Quoted and
+  escaped values retain their boundaries; malformed/unsupported queries report
+  errors. Global file find preserves qualifiers instead of turning them into
+  filename terms. Rootle retains literal/negation syntax, not Strop's regex dialect.
+- Six Strop palettes join the existing eleven: Hone, Slate, Carbide, Vellum,
+  Paper and Paper Dark. Hone is the new default; explicit preferences remain.
+  Mode, syntax, diff and selection tokens preserve each palette's intended roles.
+- Linux x86_64 and arm64 are the supported release platforms. macOS artifacts
+  and Homebrew distribution are retired. Local Buildbot qualification binds
+  source, Docker gates and static artifacts; publishing remains explicit and
+  checks receipts, checksums and the installed binary.
+- Updated Rust to 1.100 and refreshed Rust/Python dependencies. Docker builds
+  keep architecture-separated caches on local NVMe and copy artifacts out of
+  cache mounts before packaging.
+
 ## [0.12.2] — 2026-09-08
 
 - Headless `state` exposes request-scoped tree and search outcomes, accepted
@@ -403,3 +433,4 @@ User-visible changes per release. Protocol archaeology lives in
 [0.6.0]: https://github.com/rootledev/rootle/releases/tag/v0.6.0
 [0.12.1]: https://github.com/rootledev/rootle/releases/tag/v0.12.1
 [0.12.2]: https://github.com/rootledev/rootle/releases/tag/v0.12.2
+[0.13.0]: https://github.com/rootledev/rootle/releases/tag/v0.13.0

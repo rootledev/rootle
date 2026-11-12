@@ -119,7 +119,7 @@ impl Default for Config {
                 read_only: true,
             },
             theme: ThemeConfig {
-                name: "catppuccin-mocha".into(),
+                name: "hone".into(),
                 path: None,
             },
             cache: CacheConfig { max_mb: 512 },

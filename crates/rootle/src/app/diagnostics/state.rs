@@ -96,9 +96,7 @@ fn describe_state(app: &App, reason: &'static str) -> Value {
             "search": app.search_gen,
             "view": app.view_gen,
             "commit": app.commit_generation,
-            "debounce": app
-                .context_debounce_gen
-                .load(std::sync::atomic::Ordering::Relaxed),
+            "debounce": app.requests.debounce.current(),
         },
         "pending_context_sha": app.pending_context_sha,
         "status": opt_text_with(full, &app.status),

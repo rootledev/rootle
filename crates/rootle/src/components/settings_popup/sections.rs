@@ -50,10 +50,10 @@ pub(super) struct Section {
 }
 
 /// Build the section list from the working config: editor, theme
-/// (embedded mocha first, then any discovered palettes), cache, and
-/// the provider backend. `themes` are names found on disk.
+/// (embedded Hone first, then any discovered palettes), cache, and
+/// the provider backend. `themes` includes embedded and on-disk names.
 pub(super) fn build(config: &Config, themes: Vec<String>) -> Vec<Section> {
-    let mut names = vec!["catppuccin-mocha".to_string()];
+    let mut names = vec!["hone".to_string()];
     for t in themes {
         if !names.contains(&t) {
             names.push(t);
@@ -64,7 +64,7 @@ pub(super) fn build(config: &Config, themes: Vec<String>) -> Vec<Section> {
         .map(|option| Row::Radio {
             group: "name",
             option,
-            desc: "palette: ~/.config/rootle/themes/<name>.toml — missing file falls back to embedded mocha",
+            desc: "palette: ~/.config/rootle/themes/<name>.toml overrides the named builtin; unknown names start from Hone",
         })
         .chain([Row::Text {
             key: "path",

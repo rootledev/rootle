@@ -1,11 +1,6 @@
-//! XDG base dirs on **every** platform, macOS included.
-//!
-//! `dirs::config_dir()` & friends ignore the XDG env vars on macOS
-//! (~/Library/Application Support instead of ~/.config) — but the
-//! docs, install.sh, and the e2e sandbox all promise the XDG layout,
-//! and the 0023 macOS CI job caught the divergence (settings
-//! write-back "vanished" into ~/Library). One convention, everywhere:
-//! the XDG var when set, the XDG default (~/.config, …) otherwise.
+//! Linux XDG paths shared by the app, providers and hermetic test sessions.
+//! Use the explicit environment directory when set; otherwise use the XDG
+//! default below the user's home.
 
 use std::path::PathBuf;
 

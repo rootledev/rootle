@@ -208,18 +208,18 @@ impl Provider for StdioProvider {
         q: &str,
         on_hits: &(dyn Fn(&[CodeMatch]) + Send + Sync),
     ) -> ProviderResult<SearchCodeResult> {
-        let sink = |params: &serde_json::Value| {
-            let items: Vec<WireItem> = params
-                .get("items")
-                .cloned()
-                .and_then(|v| serde_json::from_value(v).ok())
-                .unwrap_or_default();
+        let mut sink = |mut params: serde_json::Value| {
+            let items: Vec<WireItem> = match params.get_mut("items") {
+                Some(items) => de(items.take())?,
+                None => Vec::new(),
+            };
             on_hits(&code_matches(&items));
+            Ok(())
         };
         let reply: CodeReply = de(self.exchange_with_partials(
             "search/code",
             json!({ "q": q, "partial": true, "limit": rootle_provider::RENDER_BUDGET }),
-            &sink,
+            &mut sink,
         )?)?;
         Ok(SearchCodeResult {
             hits: Vec::new(),
@@ -263,7 +263,8 @@ impl Provider for StdioProvider {
         path: Option<&str>,
         ref_: Option<&GitRef>,
         limit: Option<usize>,
-    ) -> ProviderResult<(Vec<LogEntry>, bool)> {
+        on_entries: &mut dyn FnMut(Vec<LogEntry>),
+    ) -> ProviderResult<bool> {
         #[derive(serde::Deserialize)]
         struct CommitLogReply {
             #[serde(default)]
@@ -271,11 +272,47 @@ impl Provider for StdioProvider {
             #[serde(default)]
             truncated: bool,
         }
-        let reply: CommitLogReply = de(self.request(
+        let limit = limit.unwrap_or(50).min(rootle_provider::RENDER_BUDGET);
+        let mut remaining = limit;
+        let mut clipped = false;
+        let mut stream_received = false;
+        let mut revisions = std::collections::HashSet::new();
+        let mut deliver = |items: Vec<LogEntry>| {
+            let mut items = items;
+            clipped |= items.len() > remaining;
+            items.truncate(remaining);
+            remaining -= items.len();
+            for entry in &items {
+                if !revisions.insert(entry.sha.clone()) {
+                    return Err(ProviderError::new(
+                        ErrorKind::Provider,
+                        "history stream repeated a commit",
+                    ));
+                }
+            }
+            if !items.is_empty() {
+                on_entries(items);
+            }
+            Ok(())
+        };
+        let mut sink = |params: serde_json::Value| {
+            let batch: CommitLogReply = de(params)?;
+            stream_received = true;
+            deliver(batch.items)
+        };
+        let reply: CommitLogReply = de(self.exchange_with_partials(
             "repo/log",
-            json!({ "repo": repo, "path": path, "ref": ref_, "limit": limit }),
+            json!({ "repo": repo, "path": path, "ref": ref_, "limit": limit, "partial": true }),
+            &mut sink,
         )?)?;
-        Ok((reply.items, reply.truncated))
+        if stream_received && !reply.items.is_empty() {
+            return Err(ProviderError::new(
+                ErrorKind::Provider,
+                "streamed history final must contain metadata only",
+            ));
+        }
+        deliver(reply.items)?;
+        Ok(reply.truncated || clipped)
     }
 
     /// v1.5: file bytes + content id at path@ref (open-at-commit).
