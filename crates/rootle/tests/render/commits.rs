@@ -112,14 +112,20 @@ fn commit_viewer_dive_chain() {
             })
             .unwrap();
         let buf = terminal.backend().buffer();
-        let saw = |hex: u32| {
-            let want = ratatui::style::Color::from_u32(hex);
+        let theme = rootle::theme::Theme::hone();
+        let saw = |want: ratatui::style::Color| {
             buf.content
                 .iter()
                 .any(|c| c.symbol() == "▎" && c.fg == want)
         };
-        assert!(saw(0xa9c47c), "added-line sign in diff_add_fg");
-        assert!(saw(0xe8677a), "deleted-line sign in diff_del_fg");
+        assert!(
+            saw(theme.semantic.diff_add_fg),
+            "added-line sign in diff_add_fg"
+        );
+        assert!(
+            saw(theme.semantic.diff_del_fg),
+            "deleted-line sign in diff_del_fg"
+        );
     }
 
     // ]f: step to the next file (added README — 5 additions).

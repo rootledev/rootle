@@ -121,7 +121,7 @@ fn run(
         // Drain worker outcomes before drawing so a completed fetch
         // renders on this frame, not the next.
         while let Ok(event) = rx.try_recv() {
-            app.handle_event(rootle::event::UiEvent::Worker(event));
+            app.handle_event(event);
         }
         if let Some(failure) = rootle_trace::take_failure() {
             app.report_trace_failure(failure);
@@ -163,7 +163,7 @@ fn run(
         }
 
         if event::poll(Duration::from_millis(250))? {
-            app.handle_event(rootle::event::UiEvent::Terminal(event::read()?));
+            app.handle_event(rootle::event::AppEvent::Terminal(event::read()?));
         }
 
         // Yank: write to the clipboard outside the draw path.

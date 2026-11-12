@@ -47,7 +47,7 @@ Batch(request) ==
        IN /\ requests' = [requests EXCEPT ![request].sent = sent + count]
           /\ IF CanLand(request)
              THEN /\ retained' = retained \o values
-                  /\ clipped' = clipped \/ count > available
+                  /\ clipped' = (clipped \/ count > available)
                   /\ acceptance' = {[source |-> request, current |-> generation,
                                       before |-> phase]}
              ELSE UNCHANGED <<retained, clipped, acceptance>>

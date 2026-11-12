@@ -1,8 +1,8 @@
 # rootle demo tape — renders demos/out/demo.gif (gitignored staging;
 # the demo workflow publishes renders to the site repo). Requires
 # docker: run it via the VHS image with the repo mounted at /vhs.
-# The app under test is ./dist/rootle-linux-x86_64-musl (CI builds it;
-# locally, demo_setup.sh falls back to a debug build).
+# The app under test is ./dist/rootle-linux-x86_64-musl, extracted from this
+# checkout's exact versioned Docker release artifact by demo_setup.sh.
 # The fs stdio provider serves a temp fixture built by demo_setup.sh —
 # alpha is a real git worktree (two branches, a tag, history), so the
 # v1.5 revision lenses work on camera. The render step installs git

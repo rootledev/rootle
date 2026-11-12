@@ -8,6 +8,7 @@ use serde_json::{Value, json};
 /// lockstep with [`describe_event`]'s `"event"` field.
 pub(crate) fn event_name(event: &AppEvent) -> &'static str {
     match event {
+        AppEvent::Terminal(_) => "terminal",
         AppEvent::SearchResults { .. } => "search_results",
         AppEvent::SearchFailed { .. } => "search_failed",
         AppEvent::OrgReposLoaded { .. } => "org_repos_loaded",
@@ -49,6 +50,7 @@ pub(crate) fn event_name(event: &AppEvent) -> &'static str {
 pub(super) fn describe_event(event: &AppEvent) -> Value {
     let full = full();
     match event {
+        AppEvent::Terminal(_) => json!({"source": "terminal"}),
         AppEvent::SearchResults { gen_id, items } => json!({
             "gen": *gen_id,
             "items": items.len(),

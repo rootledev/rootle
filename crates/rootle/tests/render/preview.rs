@@ -34,7 +34,7 @@ fn file_preview_shows_highlighted_blob_and_scrolls() {
 
 #[test]
 fn preview_colors_dirs_and_files_differently() {
-    use ratatui::style::{Color, Modifier};
+    use ratatui::style::Modifier;
 
     let mut app = browsing_app(); // popup closed + org repos loaded → repos pane, preview
     // shows ratatui's root listing
@@ -48,8 +48,7 @@ fn preview_colors_dirs_and_files_differently() {
         .unwrap();
     let buf = terminal.backend().buffer();
 
-    let blue = Color::from_u32(0x89b4fa);
-    let text = Color::from_u32(0xcdd6f4);
+    let theme = rootle::theme::Theme::hone();
 
     // Scan the right column (x ≥ 60) for a dir child and a file child,
     // matching exact cell sequences (the border glyph sits at x=60).
@@ -71,14 +70,14 @@ fn preview_colors_dirs_and_files_differently() {
 
     let (x, y) = find("src/").expect("dir child src/ not found in preview");
     let cell = &buf[(x, y)];
-    assert_eq!(cell.fg, blue, "directories in preview must be blue");
+    assert_eq!(cell.fg, theme.semantic.directory, "directory role");
     assert!(
         cell.modifier.contains(Modifier::BOLD),
         "directories must be bold"
     );
 
     let (x, y) = find("Cargo.toml").expect("file child not found in preview");
-    assert_eq!(buf[(x, y)].fg, text, "files in preview must use text color");
+    assert_eq!(buf[(x, y)].fg, theme.semantic.file, "file role");
 }
 
 #[test]

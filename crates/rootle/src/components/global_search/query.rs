@@ -93,7 +93,7 @@ pub(super) fn known(key: &str) -> bool {
 
 /// Filename searches retain qualifier tokens verbatim; only free terms receive
 /// the provider's path qualifier. This avoids `path:language:cpp` corruption.
-pub(super) fn file_query(input: &str) -> String {
+pub(in crate::components::global_search) fn file_query(input: &str) -> String {
     let tokens = lex(input);
     let mut out = String::with_capacity(input.len() + tokens.len() * 5);
     let mut end = 0;

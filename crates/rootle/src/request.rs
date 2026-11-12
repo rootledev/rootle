@@ -278,9 +278,9 @@ impl<Request: RequestIdentity> LoadState<Request> {
         }
     }
 
-    pub fn finish(&mut self, error: Option<&rootle_provider::ProviderError>) {
+    pub fn finish(&mut self, error: Option<&rootle_provider::ProviderError>) -> bool {
         let Some(request) = &self.request else {
-            return;
+            return false;
         };
         let reply = if error.is_some() {
             Reply::Failed
@@ -295,6 +295,9 @@ impl<Request: RequestIdentity> LoadState<Request> {
         ) {
             self.phase = LoadPhase::from_kernel(phase);
             self.error = error.map(OperationError::from_provider);
+            true
+        } else {
+            false
         }
     }
 }

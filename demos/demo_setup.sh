@@ -86,20 +86,21 @@ cat >> "$DEMO/provider.toml" <<EOF
 nerd_font = true
 EOF
 
-# The tape launches the release binary. Releases ship as a tarball
-# (rootle-<v>-<target>.tar.gz) — ALWAYS re-extract: a previously
-# extracted copy goes stale against a fresh tarball (it did — the
-# render silently showed a weeks-old build).
-tarball="$(ls -t dist/rootle-*-x86_64-unknown-linux-musl.tar.gz 2>/dev/null | head -1)"
-if [ -n "$tarball" ]; then
-    tmp="$(mktemp -d)"
-    tar -xzf "$tarball" -C "$tmp"
-    install -m755 "$tmp"/*/rootle dist/rootle-linux-x86_64-musl
-    rm -rf "$tmp"
-else
-    cargo build --quiet
-    mkdir -p dist
-    cp target/debug/rootle dist/rootle-linux-x86_64-musl
+# Select this checkout's exact release, never a stale archive from an older run.
+version="$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["workspace"]["package"]["version"])')"
+archive="rootle-$version-x86_64-unknown-linux-musl.tar.gz"
+tarball="${ROOTLE_DEMO_TARBALL:-dist/v$version/$archive}"
+if [ ! -f "$tarball" ]; then
+    tarball="dist/$archive"
 fi
+if [ ! -f "$tarball" ]; then
+    echo "missing $archive; build this checkout with Docker Compose release first" >&2
+    exit 1
+fi
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT HUP INT TERM
+tar -xzf "$tarball" -C "$tmp"
+install -m755 "$tmp"/*/rootle dist/rootle-linux-x86_64-musl
+[ "$(dist/rootle-linux-x86_64-musl --version)" = "rootle $version" ]
 
 echo "demo fixture ready: $DEMO"

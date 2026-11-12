@@ -79,7 +79,7 @@ impl Headless {
     fn drain(&mut self) -> bool {
         let mut drained = false;
         while let Ok(event) = self.rx.try_recv() {
-            self.app.handle_event(crate::event::UiEvent::Worker(event));
+            self.app.handle_event(event);
             drained = true;
         }
         if let Some(failure) = rootle_trace::take_failure() {
@@ -202,7 +202,7 @@ impl Headless {
             }
             if let Some(keys) = line.strip_prefix("keys ") {
                 for key in parse_keys(keys) {
-                    self.app.handle_event(crate::event::UiEvent::Terminal(
+                    self.app.handle_event(crate::event::AppEvent::Terminal(
                         ratatui::crossterm::event::Event::Key(key),
                     ));
                 }

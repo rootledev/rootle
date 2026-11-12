@@ -257,7 +257,7 @@ mod tests {
     #[test]
     fn restyle_blobs_recolors_cached_lines_without_refetch() {
         let mut b = Browser::new(&[]);
-        let mocha = Highlighter::default();
+        let mocha = Highlighter::new(&Theme::catppuccin_mocha());
         let lines = mocha.highlight("lib.rs", "fn main() {}\n");
         b.blob_loaded("sha1", "lib.rs", "rust", "fn main() {}\n".into(), lines);
         // Sanity: cached under mocha (mauve keyword).

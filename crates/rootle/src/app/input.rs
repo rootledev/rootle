@@ -6,19 +6,18 @@ use super::{Action, App, Component, KeyEvent, Mode, Outcome, keymap};
 impl App {
     /// Shared interactive/headless boundary. Drivers own waiting and drawing,
     /// while input admission, worker lifetimes and diagnostics have one owner.
-    pub fn handle_event(&mut self, event: crate::event::UiEvent) {
-        use crate::event::UiEvent;
+    pub fn handle_event(&mut self, event: crate::event::AppEvent) {
+        use crate::event::AppEvent;
         use ratatui::crossterm::event::Event;
         match event {
-            UiEvent::Worker(event) => self.handle_app_event(event),
-            UiEvent::Terminal(Event::Key(key)) => self.handle_key(key),
-            UiEvent::Terminal(Event::Resize(columns, rows)) => {
+            AppEvent::Terminal(Event::Key(key)) => self.handle_key(key),
+            AppEvent::Terminal(Event::Resize(columns, rows)) => {
                 rootle_trace::record_with(
                     rootle_trace::EventKind::Resize,
                     || serde_json::json!({"columns": columns, "rows": rows, "source": "input"}),
                 );
             }
-            UiEvent::Terminal(ignored) => {
+            AppEvent::Terminal(ignored) => {
                 rootle_trace::record_with(rootle_trace::EventKind::Input, || match ignored {
                     Event::Paste(text) => serde_json::json!({
                         "kind": "paste", "handled": false, "bytes": text.len(),
@@ -34,6 +33,7 @@ impl App {
                     Event::Key(_) | Event::Resize(..) => unreachable!(),
                 });
             }
+            worker => self.handle_app_event(worker),
         }
     }
 

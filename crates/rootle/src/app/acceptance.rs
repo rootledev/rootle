@@ -82,6 +82,7 @@ impl App {
             | AppEvent::CloneExpanded { .. }
             | AppEvent::UpdateAvailable { .. }
             | AppEvent::DeclarationInstalled { .. }
+            | AppEvent::Terminal(_)
             | AppEvent::DeclarationFailed { .. } => true,
         }
     }
@@ -90,7 +91,7 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::event::{UiEvent, channel};
+    use crate::event::channel;
 
     #[test]
     fn worker_boundary_drops_superseded_and_duplicate_failures_before_effects() {
@@ -99,23 +100,23 @@ mod tests {
         let old = app.requests.blame.issue();
         let current = app.requests.blame.issue();
         app.status = Some("unchanged".into());
-        app.handle_event(UiEvent::Worker(AppEvent::BlameFailed {
+        app.handle_event(AppEvent::BlameFailed {
             generation: old,
             path: "same/path".into(),
             error: "superseded".into(),
-        }));
+        });
         assert_eq!(app.status.as_deref(), Some("unchanged"));
-        app.handle_event(UiEvent::Worker(AppEvent::BlameFailed {
+        app.handle_event(AppEvent::BlameFailed {
             generation: current,
             path: "same/path".into(),
             error: "current failure".into(),
-        }));
+        });
         assert_eq!(app.status.as_deref(), Some("current failure"));
-        app.handle_event(UiEvent::Worker(AppEvent::BlameFailed {
+        app.handle_event(AppEvent::BlameFailed {
             generation: current,
             path: "same/path".into(),
             error: "duplicate failure".into(),
-        }));
+        });
         assert_eq!(app.status.as_deref(), Some("current failure"));
     }
 

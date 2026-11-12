@@ -34,7 +34,7 @@ Data flow rules (violations get caught in review):
 - **Worker results return as `AppEvent`s** with domain-tagged request
   generations. Stale results are rejected by identity; advisory
   cancellation never substitutes for the freshness check.
-  `UiEvent` is the shared interactive/headless input boundary. UI-owned typed
+  `AppEvent` is the shared interactive/headless input boundary. UI-owned typed
   request slots consume the kernel's acceptance decisions before applying worker
   events. Completed requests reject duplicate terminals and later partials.
 - **Provider calls run off the UI thread.**

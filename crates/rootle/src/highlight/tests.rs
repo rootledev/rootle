@@ -150,16 +150,6 @@ fn unknown_extension_renders_plain() {
 // --- palette mapping -----------------------------------------------------
 
 #[test]
-fn rust_keywords_get_mauve() {
-    let h = Highlighter::default();
-    let lines = h.highlight("lib.rs", "fn main() {}\n");
-    assert_eq!(lines.len(), 1);
-    // "fn" should be colored (mocha mauve 203,166,247), not default text.
-    let style = span_style(&lines, "fn");
-    assert_eq!(style.fg, Some(Color::Rgb(203, 166, 247)));
-}
-
-#[test]
 fn theme_switch_recolors_keywords() {
     // The app's restyle path: one highlighter, set_theme, re-render.
     let mut h = Highlighter::default();
@@ -293,13 +283,12 @@ fn markdown_fences_inject_fenced_language() {
 fn markdown_inline_grammar_handles_emphasis() {
     let h = Highlighter::new(&mocha());
     let lines = h.highlight("README.md", "a *em* and **strong** b\n");
-    // Span text includes the delimiters; the injected markdown_inline
-    // parser paints `*…*` as emphasis (keyword color + italic) and
-    // `**…**` as strong (constant color + bold).
-    let em = span_style(&lines, "*em*");
+    // Delimiters have their own punctuation captures; content carries emphasis.
+    assert_eq!(joined(&lines[0]), "a *em* and **strong** b");
+    let em = span_style(&lines, "em");
     assert_eq!(em.fg, Some(mocha().syntax.keyword));
     assert!(em.add_modifier.contains(Modifier::ITALIC));
-    let strong = span_style(&lines, "**strong**");
+    let strong = span_style(&lines, "strong");
     assert_eq!(strong.fg, Some(mocha().syntax.constant));
     assert!(strong.add_modifier.contains(Modifier::BOLD));
 }

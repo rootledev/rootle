@@ -29,6 +29,7 @@ impl App {
             return;
         }
         match event {
+            AppEvent::Terminal(input) => self.handle_event(AppEvent::Terminal(input)),
             AppEvent::SearchResults { gen_id, items } => {
                 if !self.search_gen.is_current(gen_id) {
                     diagnostics::record_event_rejected(name, "stale_search_generation", || {

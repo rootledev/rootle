@@ -1,18 +1,12 @@
-//! App events from background workers (GitHub API calls run on worker
-//! threads; results return over this channel into the event loop).
+//! Terminal input and worker results enter the same application event boundary.
 
 use rootle_provider::{ProviderError, SearchItem};
 
-/// Both drivers enter through this boundary; terminal IO and waiting policy
-/// stay outside the application. Worker payloads remain owned, not cloned.
-#[derive(Debug)]
-pub enum UiEvent {
-    Terminal(ratatui::crossterm::event::Event),
-    Worker(AppEvent),
-}
-
+/// Drivers own terminal I/O and waiting. Payloads move directly into dispatch;
+/// there is no boxed wrapper or duplicate event hierarchy.
 #[derive(Debug)]
 pub enum AppEvent {
+    Terminal(ratatui::crossterm::event::Event),
     SearchResults {
         gen_id: crate::request::SearchGeneration,
         items: Vec<SearchItem>,
@@ -203,13 +197,21 @@ pub enum AppEvent {
     /// Startup update check (0017 M3): a newer release tag exists.
     /// `toast` (0018 M2): the once-a-day status nag was still due
     /// when the worker consumed it — the chip shows either way.
-    UpdateAvailable { tag: String, toast: bool },
+    UpdateAvailable {
+        tag: String,
+        toast: bool,
+    },
     /// Declared-provider install finished (0019 M2): the app
     /// hot-swaps the provider and drops the consent popup.
-    DeclarationInstalled { name: String },
+    DeclarationInstalled {
+        name: String,
+    },
     /// Declared-provider install refused or failed (0019 M2): honest
     /// degraded mode — github fallback with a persistent status.
-    DeclarationFailed { name: String, error: String },
+    DeclarationFailed {
+        name: String,
+        error: String,
+    },
     /// Ambient band data (0019 polish): the file's latest commit for
     /// the preview header — None means the history is empty or the
     /// provider refused; failures are silent (the band is a nicety).
