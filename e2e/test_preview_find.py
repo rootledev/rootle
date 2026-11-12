@@ -114,6 +114,7 @@ def launch(tmp_path: Path, root: Path, env_extra: dict[str, str] | None = None) 
     config.write_text(
         f'[provider]\nkind = "stdio"\n'
         f'command = ["python3", "{FS_PROVIDER}", "{root}"]\n'
+        '[theme]\nname = "catppuccin-mocha"\n'
     )
     return Tui(
         build(), cols=110, rows=30, args=["--config", str(config)], env_extra=env_extra
@@ -152,9 +153,12 @@ def test_theme_switch_recolors_preview_code(tmp_path: Path) -> None:
         tui.key("ENTER")
         tui.expect("editor")
         tui.key("TAB")  # → theme section
-        tui.send("j")
-        tui.send("j")  # mocha → latte → dracula
-        tui.send(" ")  # select dracula (live preview)
+        tui.send("/")
+        tui.type_query("dracula")
+        tui.key("ENTER")
+        tui.send(" ")  # select the filtered palette, independent of list order
+        tui.expect("● dracula")
+        tui.key("ESC")  # clear the committed filter
         tui.key("ESC")  # close: saves + applies
         tui.expect("settings saved")
         assert fg_of(tui, "fn main()") == "ff79c6"  # dracula pink keyword

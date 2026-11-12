@@ -41,11 +41,33 @@ impl GitHubClient {
         url.path_segments_mut()
             .expect("HTTP URL supports path segments")
             .extend(["repos", owner, repository_name, "commits"]);
+        let limit = limit.unwrap_or(50).min(rootle_provider::RENDER_BUDGET);
+        // Resolve the requested tip before paging. The first path-filtered
+        // commit may be on one side of a merge and cannot stand in for HEAD.
+        // A single-page request already has an atomic snapshot and needs no probe.
+        let snapshot = if limit > 100 {
+            #[derive(serde::Deserialize)]
+            struct ResolvedCommit {
+                sha: rootle_provider::Sha,
+            }
+            let mut reference_url = url.clone();
+            reference_url
+                .path_segments_mut()
+                .expect("HTTP URL supports path segments")
+                .push(revision.unwrap_or("HEAD"));
+            reference_url.query_pairs_mut().append_pair("per_page", "1");
+            Some(self.get::<ResolvedCommit>(reference_url.as_str())?.sha)
+        } else {
+            None
+        };
         stream_history(
             url,
             path,
-            revision,
-            limit.unwrap_or(50).min(rootle_provider::RENDER_BUDGET),
+            snapshot
+                .as_ref()
+                .map(rootle_provider::Sha::as_str)
+                .or(revision),
+            limit,
             on_entries,
             |url| self.get_page(url),
         )
@@ -114,7 +136,6 @@ fn stream_history(
 ) -> ProviderResult<bool> {
     // Keep page size constant: changing it between numbered pages skips entries.
     let page_size = limit.clamp(1, 100);
-    let mut pinned_revision = revision.map(str::to_owned);
     let mut retained = 0usize;
     let mut seen = HashSet::new();
     for page_number in 1..=limit.div_ceil(page_size).max(1) {
@@ -126,18 +147,13 @@ fn stream_history(
         if let Some(path) = path {
             query.append_pair("path", path);
         }
-        if let Some(revision) = &pinned_revision {
+        if let Some(revision) = revision {
             query.append_pair("sha", revision);
         }
         drop(query);
         let page = fetch(url.as_str())?;
         if page.body.is_empty() && page.has_next {
             return Err(ProviderError::other("history pagination made no progress"));
-        }
-        if page_number == 1
-            && let Some(first) = page.body.first()
-        {
-            pinned_revision = Some(first.sha.clone());
         }
         let clipped = page.body.len() > limit - retained;
         let mut entries = Vec::with_capacity(page.body.len().min(limit - retained));

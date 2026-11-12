@@ -155,7 +155,7 @@ def test_late_provider_failures_and_sensitive_transport_surfaces(binary, tmp_pat
                      home=tmp_path / name, env_extra={"ROOTLE_TOKEN": "ENV_TRACE_SECRET"})
         records = trace_records(path)
         assert any(record["event"] == "job_rejected"
-                   and record["fields"].get("reason") in {"search_popup_closed", "stale_search_generation"}
+                   and record["fields"].get("event") == "search_failed"
                    for record in records)
         assert any(record["event"] == "rpc_message" and record["fields"].get("routed") == "unknown_id"
                    for record in records)

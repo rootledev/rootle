@@ -21,7 +21,7 @@ fn history_pages_past_ninety_nine_and_pins_the_original_revision() {
         let truncated = stream_history(
             reqwest::Url::parse("https://example.test/repos/o/r/commits").unwrap(),
             Some("src/文字.cpp"),
-            Some("moving-branch"),
+            Some("resolved-head"),
             500,
             &mut |entries| received.extend(entries),
             |url| {
@@ -31,14 +31,9 @@ fn history_pages_past_ninety_nine_and_pins_the_original_revision() {
                     url.query_pairs().into_owned().collect();
                 assert_eq!(query["per_page"], "100");
                 assert_eq!(query["path"], "src/文字.cpp");
-                assert_eq!(
-                    query["sha"],
-                    if calls == 1 {
-                        "moving-branch"
-                    } else {
-                        "revision-0"
-                    }
-                );
+                // A path-filtered first item is not necessarily an ancestor
+                // of commits on another merged branch. Never repin to it.
+                assert_eq!(query["sha"], "resolved-head");
                 let start = (calls - 1) * 100;
                 let end = (start + 100).min(total);
                 Ok(Page {

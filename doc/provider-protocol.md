@@ -217,8 +217,10 @@ Details:
   a nonempty final after streaming fail the request; received entries remain
   visible and explicitly incomplete. No late batch or second terminal result
   may mutate a completed or superseded history view.
-  GitHub pages are pinned to the first returned commit, use fixed page sizes,
-  and have a finite request budget; repeated or empty nonterminal pages fail.
+  GitHub resolves the requested revision before paging, uses fixed page sizes,
+  and has a finite page budget; repeated or empty nonterminal pages fail.
+  A path-filtered first commit is not used as the tip: merged history can contain
+  commits on another parent branch that are not ancestors of that first match.
   The reference Git adapter probes one extra commit to distinguish a complete
   500-entry history from a clipped one. `/` filters loaded entries, not older
   server history; choose a revision or file scope to inspect another range.

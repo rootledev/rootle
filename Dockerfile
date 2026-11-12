@@ -1,13 +1,15 @@
 # syntax=docker/dockerfile:1
 # BuildKit caches live in the Docker daemon's admitted NVMe data root.
 # Always copy executable outputs out of cache mounts in the same RUN.
-FROM rust:alpine@sha256:44819b27be4c97b0e4d7203bd2e02c4820f97700211b6a37fb4c246a2de59383 AS builder
+FROM rust:alpine@sha256:44819b27be4c97b0e4d7203bd2e02c4820f97700211b6a37fb4c246a2de59383 AS toolchain
 RUN apk add --no-cache build-base file git python3 tar \
     && rustup toolchain install 1.100.0 --profile minimal --component clippy,rustfmt \
     && rustup default 1.100.0
 ARG TARGETARCH
 ENV CARGO_TARGET_DIR=/cache/target
 WORKDIR /app
+
+FROM toolchain AS builder
 COPY Cargo.toml Cargo.lock README.md LICENSE ./
 COPY crates ./crates
 COPY .github/scripts ./.github/scripts
@@ -56,10 +58,19 @@ COPY specs ./specs
 RUN sh specs/check.sh
 
 # Qualified releases use a reviewed advisory snapshot, not a moving network head.
-FROM builder AS audit
+FROM toolchain AS audit-tools
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/cache/target,id=rootle-audit-tools-${TARGETARCH},sharing=locked \
     cargo install cargo-audit --version 0.23.0 --locked
 RUN git init /advisory-db \
     && git -C /advisory-db fetch --depth=1 https://github.com/RustSec/advisory-db.git af7b3ec33460b8e2de8d422e16d628518891a519 \
     && git -C /advisory-db checkout --detach FETCH_HEAD
-RUN cargo audit --no-fetch --db /advisory-db
+
+FROM audit-tools AS audit
+COPY Cargo.toml Cargo.lock README.md LICENSE ./
+COPY crates ./crates
+# Populate the same registry cache that the offline audit reads. Without this,
+# cargo-audit can report missing-index errors yet exit successfully.
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    cargo fetch --locked \
+    && cargo audit --no-fetch --db /advisory-db

@@ -87,6 +87,7 @@ def test_settings_write_back_and_toast(tmp_path, binary):
 
 def test_settings_theme_radio_selects_and_saves(tmp_path, binary):
     config = fs_config(tmp_path)
+    config.write_text(config.read_text() + '\n[theme]\nname = "catppuccin-mocha"\n')
     # A second theme in a hermetic XDG dir; save() also writes there.
     xdg = tmp_path / "xdg"
     themes = xdg / "rootle" / "themes"
@@ -99,11 +100,8 @@ def test_settings_theme_radio_selects_and_saves(tmp_path, binary):
         "settle\n"
         "keys <tab>\n"  # → theme section: radio list of palettes
         "frame\n"
-        # Alphabetical: catppuccin-latte → catppuccin-mocha → dracula →
-        # github-light → gruvbox-dark.
-        + "keys " + "j" * 4 + "\n"
-        + "keys <space>\n"  # select gruvbox-dark → live preview + unsaved chip
-        + "frame\n"
+        "keys /gruvbox-dark<cr><space><esc>\n"  # choose by label, then clear the filter
+        "frame\n"
         "keys <esc>\n"  # dirty → ApplySettings
         "settle\n"
         "frame\n",
