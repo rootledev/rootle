@@ -4,20 +4,20 @@ default-members = ["crates/rootle"]
 resolver = "2"
 
 [workspace.package]
-version = "0.13.0"
+version = "0.13.1"
 edition = "2024"
 rust-version = "1.100"
 license = "MIT"
 repository = "https://github.com/rootledev/rootle"
 
 [workspace.dependencies]
-rootle-kernel = { path = "crates/kernel", version = "=0.13.0" }
-rootle-provider = { path = "crates/provider", version = "=0.13.0" }
-rootle-stdio = { path = "crates/stdio", version = "=0.13.0" }
-rootle-github = { path = "crates/github", version = "=0.13.0" }
-rootle-manager = { path = "crates/manager", version = "=0.13.0" }
-rootle-diff = { path = "crates/diff", version = "=0.13.0" }
-rootle-trace = { path = "crates/trace", version = "=0.13.0" }
+rootle-kernel = { path = "crates/kernel", version = "=0.13.1" }
+rootle-provider = { path = "crates/provider", version = "=0.13.1" }
+rootle-stdio = { path = "crates/stdio", version = "=0.13.1" }
+rootle-github = { path = "crates/github", version = "=0.13.1" }
+rootle-manager = { path = "crates/manager", version = "=0.13.1" }
+rootle-diff = { path = "crates/diff", version = "=0.13.1" }
+rootle-trace = { path = "crates/trace", version = "=0.13.1" }
 
 [profile.release]
 lto = "fat"

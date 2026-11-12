@@ -113,7 +113,7 @@ docker compose run --build --rm e2e                      # e2e in-container
 docker compose run --build --rm model                    # bounded TLC + kept faults
 docker compose run --build --rm proofs                   # extracted Rust → Lean + audit + mutants
 docker compose run --build --rm audit                    # pinned RustSec advisory snapshot
-sh .github/scripts/release-local.sh qualify 0.13.0        # owned local Buildbot, all gates + both architectures
+sh .github/scripts/release-local.sh qualify VERSION       # workspace version; all gates + both architectures
 ```
 
 Hosted CI retains the required `test` check. Release qualification runs on the
@@ -129,9 +129,12 @@ The arm64 image needs a native worker or registered QEMU/binfmt.
 
 After the PR is merged, tag the qualified commit `vVERSION` and push that tag.
 Run `release-local.sh draft VERSION`, `crates VERSION`, `publish VERSION`, then
-`verify VERSION`. Every publication command independently checks the qualification
-and source/tag identity; crate publication also runs inside Docker. Credentials
-stay operator-owned. The final verification downloads published assets and
+`verify VERSION`. Publication loads the retained `dist/vVERSION/candidate.json`,
+validates it against the immutable inbox snapshot and its original receipts,
+and checks current source/tree/profile/runtime and the remote tag. It never
+re-freezes Git after tagging: bundle bytes can change while source stays identical.
+Keep the candidate and qualification records with the artifacts. Crate publication
+also runs inside Docker; credentials stay operator-owned. Final verification downloads assets and
 exercises the checksum-verifying installer. Refresh the site repository and its
 release version stamp; no hosted release job, macOS artifacts or Homebrew tap.
 

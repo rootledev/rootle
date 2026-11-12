@@ -3,8 +3,12 @@
 User-visible changes per release. Protocol archaeology lives in
 `plans/`; this file is for "what's new for me".
 
-## [0.13.0] — 2026-11-12
+## [0.13.1] — 2026-11-12
 
+- Publication reuses the exact frozen Buildbot candidate and revalidates source,
+  runtime, bundle and artifact identity. Adding a release tag or repacking Git
+  cannot invalidate a passing qualification. The unpublished v0.13.0 candidate
+  tag is preserved; v0.13.1 is the published release of the changes below.
 - Request lifetimes now pass through a small allocation-free Rust kernel:
   domain-typed generations never wrap, stale replies are rejected, and partials
   cannot follow a terminal result. Interactive and headless input share an event
@@ -433,4 +437,4 @@ User-visible changes per release. Protocol archaeology lives in
 [0.6.0]: https://github.com/rootledev/rootle/releases/tag/v0.6.0
 [0.12.1]: https://github.com/rootledev/rootle/releases/tag/v0.12.1
 [0.12.2]: https://github.com/rootledev/rootle/releases/tag/v0.12.2
-[0.13.0]: https://github.com/rootledev/rootle/releases/tag/v0.13.0
+[0.13.1]: https://github.com/rootledev/rootle/releases/tag/v0.13.1

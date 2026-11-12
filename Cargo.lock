@@ -2119,7 +2119,7 @@ dependencies = [
 
 [[package]]
 name = "rootle"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "base64 0.23.1",
  "clap",
@@ -2168,11 +2168,11 @@ dependencies = [
 
 [[package]]
 name = "rootle-diff"
-version = "0.13.0"
+version = "0.13.1"
 
 [[package]]
 name = "rootle-github"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "base64 0.23.1",
  "filetime",
@@ -2185,11 +2185,11 @@ dependencies = [
 
 [[package]]
 name = "rootle-kernel"
-version = "0.13.0"
+version = "0.13.1"
 
 [[package]]
 name = "rootle-manager"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "flate2",
  "reqwest",
@@ -2207,7 +2207,7 @@ dependencies = [
 
 [[package]]
 name = "rootle-provider"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "dirs",
  "serde",
@@ -2215,7 +2215,7 @@ dependencies = [
 
 [[package]]
 name = "rootle-stdio"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "base64 0.23.1",
  "parking_lot",
@@ -2228,7 +2228,7 @@ dependencies = [
 
 [[package]]
 name = "rootle-trace"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "arc-swap",
  "parking_lot",

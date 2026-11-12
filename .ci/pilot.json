@@ -4,7 +4,7 @@
   "profile": "linux-x64-trusted-pilot",
   "platform": "linux-x86_64",
   "policy": "PLATFORM-LINUX-X64-2026-10-09",
-  "version": "0.13.0",
+  "version": "0.13.1",
   "gates": [
     {
       "id": "rust",
@@ -97,23 +97,23 @@
         "sh",
         ".github/scripts/release-local.sh",
         "package",
-        "0.13.0"
+        "0.13.1"
       ],
       "timeout_seconds": 14400,
       "outputs": [
-        "dist/v0.13.0/rootle-0.13.0-x86_64-unknown-linux-musl.tar.gz",
-        "dist/v0.13.0/rootle-0.13.0-x86_64-unknown-linux-musl.tar.gz.sha256",
-        "dist/v0.13.0/rootle-0.13.0-aarch64-unknown-linux-musl.tar.gz",
-        "dist/v0.13.0/rootle-0.13.0-aarch64-unknown-linux-musl.tar.gz.sha256",
-        "dist/v0.13.0/catalog.json"
+        "dist/v0.13.1/rootle-0.13.1-x86_64-unknown-linux-musl.tar.gz",
+        "dist/v0.13.1/rootle-0.13.1-x86_64-unknown-linux-musl.tar.gz.sha256",
+        "dist/v0.13.1/rootle-0.13.1-aarch64-unknown-linux-musl.tar.gz",
+        "dist/v0.13.1/rootle-0.13.1-aarch64-unknown-linux-musl.tar.gz.sha256",
+        "dist/v0.13.1/catalog.json"
       ]
     }
   ],
   "artifacts": [
-    "dist/v0.13.0/rootle-0.13.0-x86_64-unknown-linux-musl.tar.gz",
-    "dist/v0.13.0/rootle-0.13.0-x86_64-unknown-linux-musl.tar.gz.sha256",
-    "dist/v0.13.0/rootle-0.13.0-aarch64-unknown-linux-musl.tar.gz",
-    "dist/v0.13.0/rootle-0.13.0-aarch64-unknown-linux-musl.tar.gz.sha256",
-    "dist/v0.13.0/catalog.json"
+    "dist/v0.13.1/rootle-0.13.1-x86_64-unknown-linux-musl.tar.gz",
+    "dist/v0.13.1/rootle-0.13.1-x86_64-unknown-linux-musl.tar.gz.sha256",
+    "dist/v0.13.1/rootle-0.13.1-aarch64-unknown-linux-musl.tar.gz",
+    "dist/v0.13.1/rootle-0.13.1-aarch64-unknown-linux-musl.tar.gz.sha256",
+    "dist/v0.13.1/catalog.json"
   ]
 }
