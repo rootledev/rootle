@@ -58,6 +58,12 @@ fn late_replies_cannot_replace_reopened_or_other_repository_commits() {
     assert!(frame(&mut view, 60, 15).contains("loading commit"));
     view.loaded(&fresh, detail(&fresh), &Theme::catppuccin_mocha());
     assert!(frame(&mut view, 60, 15).contains("subject"));
+    view.failed(&fresh, "duplicate terminal failure".into());
+    let mut duplicate = detail(&fresh);
+    duplicate.message = "duplicate terminal content".into();
+    view.loaded(&fresh, duplicate, &Theme::catppuccin_mocha());
+    let screen = frame(&mut view, 60, 15);
+    assert!(screen.contains("subject") && !screen.contains("duplicate terminal"));
 }
 
 #[test]
@@ -174,6 +180,7 @@ fn old_filename_and_hunk_gaps_define_independent_syntax_contexts() {
 
     detail.files[0].previous_path = None;
     detail.files[0].patch = Some("@@ -1 +1 @@\n-/* omitted continuation\n+let first = 1;\n@@ -20 +20 @@\n-let before = 2;\n+let after = 3;\n".into());
+    let mut view = CommitView::open(request.clone());
     view.loaded(&request, detail, &theme);
     view.open_delta();
     assert_eq!(

@@ -50,10 +50,7 @@ def test_command_line_filters_and_opens_settings(tmp_path, binary):
         "frame\n"
         "keys <tab>\n"  # editor → theme section
         "frame\n"
-        # The theme radio is inline: 11 embedded palettes sit between
-        # the `name` row and `path` — walk past all of them.
-        + "keys " + "j" * 11 + "\n"
-        + "keys <cr>\n"  # edit the path field
+        "keys G<cr>\n"  # the final theme field is the editable palette path
         "state\n"  # INSERT
         "keys <esc>\n"  # stop editing
         "keys <esc>\n"  # close settings (clean → no save)

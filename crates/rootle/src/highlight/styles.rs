@@ -25,6 +25,15 @@ enum Role {
     Tag,
     Namespace,
     Invalid,
+    Number,
+    Attribute,
+    Operator,
+    Punctuation,
+    Variable,
+    Property,
+    Heading,
+    Link,
+    Code,
     /// `markup.bold` — constant color, bold.
     MarkupBold,
     /// `markup.italic` — keyword color, italic.
@@ -36,9 +45,8 @@ enum Role {
 /// Recognized captures, in tie-break order. `keyword` precedes
 /// `function` so `keyword.function` (`fn`, `def`) paints as a keyword;
 /// `constructor` precedes `function` so constructor calls read as
-/// calls. Captures absent from this list (plain `variable`, `property`,
-/// `operator`, punctuation) intentionally fall back to the default
-/// style — that mirrors the palette this app has always painted.
+/// calls. Fine-grained roles fall back to the original palette mapping
+/// when a theme does not define them.
 const CAPTURES: &[(&str, Role)] = &[
     // --- code ---
     ("keyword", Role::Keyword),
@@ -54,34 +62,40 @@ const CAPTURES: &[(&str, Role)] = &[
     ("string.special", Role::String),
     ("comment", Role::Comment),
     ("constant", Role::Constant), // covers constant.builtin/numeric
-    ("number", Role::Constant),
+    ("number", Role::Number),
+    ("constant.numeric", Role::Number),
     ("boolean", Role::Constant),
     ("constructor", Role::Function), // `Some(…)`, `new Foo()`
     ("function", Role::Function),
-    ("attribute", Role::Function), // decorators/annotations
-    ("type", Role::Type),          // covers type.builtin
+    ("attribute", Role::Attribute),
+    ("type", Role::Type), // covers type.builtin
     ("tag", Role::Tag),
     ("module", Role::Namespace),
     ("namespace", Role::Namespace), // pre-`module` queries
     ("error", Role::Invalid),       // parse errors
     ("invalid", Role::Invalid),     // invalid.illegal captures
+    ("operator", Role::Operator),
+    ("punctuation", Role::Punctuation),
+    ("variable", Role::Variable),
+    ("property", Role::Property),
+    ("variable.member", Role::Property),
     // --- markdown legacy capture names (tree-sitter-md still uses
     //     the pre-`markup.*` names: text.title, text.literal, …) ---
-    ("text.title", Role::Tag),
-    ("text.literal", Role::String),
+    ("text.title", Role::Heading),
+    ("text.literal", Role::Code),
     ("text.emphasis", Role::MarkupItalic),
     ("text.strong", Role::MarkupBold),
-    ("text.uri", Role::String),
+    ("text.uri", Role::Link),
     ("punctuation.special", Role::Keyword), // heading/list markers
     // --- markup (markdown) ---
-    ("markup.heading", Role::Tag),
-    ("markup.raw", Role::String), // covers raw.inline / raw.block
+    ("markup.heading", Role::Heading),
+    ("markup.raw", Role::Code),
     ("markup.bold", Role::MarkupBold),
     ("markup.italic", Role::MarkupItalic),
     ("markup.strikethrough", Role::MarkupStrike),
     ("markup.list", Role::Keyword),
     ("markup.quote", Role::Comment),
-    ("markup.link.url", Role::String),
+    ("markup.link.url", Role::Link),
 ];
 
 /// Capture names handed to `HighlightConfiguration::configure` — one
@@ -111,13 +125,24 @@ impl StyleTable {
                 .map(|(_, role)| match role {
                     Role::Keyword => fg(syntax.keyword),
                     Role::String => fg(syntax.string),
-                    Role::Comment => fg(syntax.comment),
+                    Role::Comment => fg(syntax.comment).add_modifier(Modifier::ITALIC),
                     Role::Function => fg(syntax.function),
                     Role::Type => fg(syntax.type_),
                     Role::Constant => fg(syntax.constant),
                     Role::Tag => fg(syntax.tag),
                     Role::Namespace => fg(syntax.namespace),
                     Role::Invalid => fg(syntax.invalid),
+                    Role::Number => fg(syntax.number.unwrap_or(syntax.constant)),
+                    Role::Attribute => fg(syntax.attribute.unwrap_or(syntax.function)),
+                    Role::Operator => fg(syntax.operator.unwrap_or(theme.semantic.text)),
+                    Role::Punctuation => fg(syntax.punctuation.unwrap_or(theme.semantic.text)),
+                    Role::Variable => fg(syntax.variable.unwrap_or(theme.semantic.text)),
+                    Role::Property => fg(syntax.property.unwrap_or(theme.semantic.text)),
+                    Role::Heading => fg(syntax.heading.unwrap_or(syntax.tag)),
+                    Role::Link => {
+                        fg(syntax.link.unwrap_or(syntax.string)).add_modifier(Modifier::UNDERLINED)
+                    }
+                    Role::Code => fg(syntax.code.unwrap_or(syntax.string)),
                     Role::MarkupBold => fg(syntax.constant).add_modifier(Modifier::BOLD),
                     Role::MarkupItalic => fg(syntax.keyword).add_modifier(Modifier::ITALIC),
                     Role::MarkupStrike => plain.add_modifier(Modifier::CROSSED_OUT),
@@ -137,5 +162,55 @@ impl StyleTable {
 
     pub(super) fn default_style(&self) -> RStyle {
         self.default
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::style::Color;
+
+    fn capture(theme: &Theme, name: &str) -> RStyle {
+        let index = CAPTURES.iter().position(|(n, _)| *n == name).unwrap();
+        StyleTable::new(theme).style(Some(index))
+    }
+
+    #[test]
+    fn hone_distinguishes_numbers_constants_and_punctuation() {
+        let theme = Theme::hone();
+        assert_eq!(
+            capture(&theme, "number").fg,
+            Some(Color::from_u32(0xe39a7b))
+        );
+        assert_eq!(
+            capture(&theme, "constant").fg,
+            Some(Color::from_u32(0xe8a848))
+        );
+        assert_eq!(
+            capture(&theme, "punctuation").fg,
+            Some(Color::from_u32(0x9da3af))
+        );
+        assert!(
+            capture(&theme, "comment")
+                .add_modifier
+                .contains(Modifier::ITALIC)
+        );
+        assert!(
+            capture(&theme, "text.uri")
+                .add_modifier
+                .contains(Modifier::UNDERLINED)
+        );
+    }
+
+    #[test]
+    fn legacy_roles_and_overrides_remain_the_fallback() {
+        let mut theme = Theme::catppuccin_mocha();
+        theme.syntax.constant = Color::Red;
+        theme.semantic.text = Color::Blue;
+        assert_eq!(capture(&theme, "number").fg, Some(Color::Red));
+        assert_eq!(capture(&theme, "punctuation").fg, Some(Color::Blue));
+        theme.syntax.number = Some(Color::Green);
+        assert_eq!(capture(&theme, "number").fg, Some(Color::Green));
+        assert_eq!(capture(&theme, "constant").fg, Some(Color::Red));
     }
 }

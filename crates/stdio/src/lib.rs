@@ -45,6 +45,10 @@ mod wire;
 #[cfg(test)]
 mod tests;
 
+/// Canonical search language families shared with the standalone reference
+/// adapter. TSV columns are canonical name, comma-separated aliases, extensions.
+pub const SEARCH_LANGUAGES: &str = include_str!("../examples/languages.tsv");
+
 /// Default per-request read deadline; `[provider] timeout_ms`.
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_millis(30_000);
 

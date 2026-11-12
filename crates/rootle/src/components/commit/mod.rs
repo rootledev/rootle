@@ -82,8 +82,25 @@ impl CommitView {
         &self.request
     }
 
+    pub fn accepts(&self, request: &CommitRequest) -> bool {
+        use rootle_kernel::request::{Phase, Reply, accept};
+        let phase = match self.load {
+            CommitLoad::Loading => Phase::Loading,
+            CommitLoad::Failed(_) => Phase::Failed,
+            CommitLoad::Ready(_) => Phase::Ready,
+        };
+        request == &self.request
+            && accept(
+                self.request.generation.value(),
+                phase,
+                request.generation.value(),
+                Reply::Complete,
+            )
+            .is_some()
+    }
+
     pub fn loaded(&mut self, request: &CommitRequest, detail: CommitDetail, theme: &Theme) {
-        if request != &self.request {
+        if !self.accepts(request) {
             return;
         }
         if detail.sha != request.revision {
@@ -110,7 +127,7 @@ impl CommitView {
     }
 
     pub fn failed(&mut self, request: &CommitRequest, error: String) {
-        if request == &self.request {
+        if self.accepts(request) {
             self.load = CommitLoad::Failed(crate::sanitize::sanitize_inline(&error));
         }
     }

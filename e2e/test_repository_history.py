@@ -5,6 +5,7 @@ import os
 import subprocess
 
 from conftest import make_git_root
+import pytest
 from headless import fs_config, frames, run_headless, states
 
 
@@ -70,3 +71,40 @@ def test_file_history_excludes_other_files_and_repo_history_honors_ref(tmp_path,
     )
     assert 'feature: print hi' in branch_output
     assert 'change both files' not in branch_output and 'docs only' not in branch_output
+
+
+@pytest.mark.parametrize("count", [120, 605])
+def test_large_history_streams_past_the_old_limit_and_reports_clipping(tmp_path, binary, count):
+    root = make_git_root(tmp_path)
+    repository = root / "proj"
+    parent = subprocess.check_output(
+        ["git", "-C", str(repository), "rev-parse", "main"], text=True,
+    ).strip()
+    stream = bytearray()
+    for index in range(count):
+        message = f"history {index:04d}".encode()
+        stream.extend(
+            f"commit refs/heads/main\ncommitter History <history@example.test> "
+            f"{1800000000 + index} +0000\ndata {len(message)}\n".encode()
+        )
+        stream.extend(message + b"\n")
+        if index == 0:
+            stream.extend(f"from {parent}\n".encode())
+        stream.extend(b"\n")
+    subprocess.run(
+        ["git", "-C", str(repository), "fast-import", "--quiet"],
+        input=stream, check=True, capture_output=True,
+    )
+    config = fs_config(tmp_path, root)
+    oldest_retained = max(0, count - 500)
+    output = run_headless(
+        binary,
+        f"keys <space>h\nsettle\nframe\n"
+        f"keys /history<space>{oldest_retained:04d}<cr>\nframe\n",
+        "local/proj", "--config", str(config), home=tmp_path / "home", cols=150,
+    )
+    history, filtered = frames(output)
+    assert f"history {count - 1:04d}" in history
+    assert f"history {oldest_retained:04d}" in filtered
+    assert ("truncated" in history) == (count > 500)
+    assert "loading history" not in history

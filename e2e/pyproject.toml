@@ -2,12 +2,12 @@
 name = "rootle-e2e"
 version = "0.1.0"
 description = "End-to-end PTY harness + tests for the rootle TUI"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "pyte>=0.8.2",
-    "pytest>=8.0",
-    "pillow>=11",
-    "fonttools>=4.63.0",
+    "pytest>=9.2,<10",
+    "pillow>=12.3,<13",
+    "fonttools>=4.68.0",
 ]
 
 [tool.pytest.ini_options]

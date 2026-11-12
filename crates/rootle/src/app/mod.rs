@@ -5,6 +5,7 @@
 //! `App::with` constructs an **offline** app for tests: no workers are
 //! spawned; backend outcomes are injected via `handle_action`.
 
+mod acceptance;
 mod diagnostics;
 mod effects;
 mod input;
@@ -95,10 +96,8 @@ pub struct App {
     /// sha of the lazy hit-context fetch in flight (plans/0006 §1) —
     /// dedupes repeat selections and names the cancel target.
     pending_context_sha: Option<String>,
-    /// Cursor-rest debounce generation (plans/0008 §3): bumped on
-    /// every context request; a timer thread fires only if its
-    /// generation is still current when the cursor rests.
-    context_debounce_gen: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    /// Event-loop-owned lifetimes; workers can only send captured identifiers.
+    requests: crate::request::AsyncRequests,
     /// Live worker count (workers/tracker.rs): every spawn counts in
     /// before its thread starts and the ticket counts out after the
     /// worker's last event send. Drivers that need quiescence
@@ -215,7 +214,7 @@ impl App {
             provider::offline(),
             true,
             Config::default(),
-            Theme::catppuccin_mocha(),
+            Theme::hone(),
         )
     }
 
@@ -285,7 +284,7 @@ impl App {
             view_gen: ViewGeneration::default(),
             commit_generation: CommitGeneration::default(),
             pending_context_sha: None,
-            context_debounce_gen: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            requests: crate::request::AsyncRequests::default(),
             outstanding: workers::Outstanding::default(),
             status: None,
             offline,
@@ -305,12 +304,20 @@ impl App {
         self.outstanding.clone()
     }
 
+    /// Captured identities for observers and deterministic event-driven drivers.
+    /// This grants no mutable access to the clocks or their terminal state.
+    pub fn request_generations(&self) -> crate::request::RequestGenerations {
+        self.requests.generations()
+    }
+
     fn invalidate_provider_context(&mut self) {
         self.browser.reset_provider(&self.state.owner_recents());
         self.search_view = None;
         self.view_gen.tick();
         self.search_gen.tick();
         self.commit_generation.tick();
+        self.requests.invalidate();
+        self.pending_context_sha = None;
         self.last_commits.clear();
         self.history_return = None;
         self.refs_popup = None;

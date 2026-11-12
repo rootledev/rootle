@@ -2,7 +2,8 @@
 
 use super::Browser;
 use crate::components::list_view::{
-    Boundary, FilterOutcome, ItemIndex, ListCursor, ListFilter, ListMovement, RowSpan, Viewport,
+    Boundary, FilterOutcome, ItemIndex, ListCursor, ListFilter, ListMovement, RowLayout, RowSpan,
+    Viewport,
 };
 use crate::request::{HistoryRequest, HistoryScope};
 use crate::theme::Theme;
@@ -11,7 +12,7 @@ use ratatui::{
     layout::Rect,
     style::Style,
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Borders},
 };
 use rootle_provider::{GitRef, RepoId, Sha};
 
@@ -24,6 +25,7 @@ pub struct History {
     selection: ListCursor,
     viewport: Viewport,
     entries: Vec<HistoryEntry>,
+    visible_entries: Vec<usize>,
     truncated: bool,
     loading: bool,
     /// Enter-from-blame: position the cursor at this sha on landing.
@@ -40,6 +42,7 @@ pub struct HistoryEntry {
     pub subject: String,
     pub author: String,
     pub date: String,
+    revision_caption: String,
 }
 
 impl History {
@@ -50,6 +53,7 @@ impl History {
             selection: ListCursor::new(),
             viewport: Viewport::default(),
             entries: Vec::new(),
+            visible_entries: Vec::new(),
             truncated: false,
             loading: true,
             pending_sha,
@@ -58,41 +62,44 @@ impl History {
         }
     }
 
-    fn loaded(&mut self, entries: Vec<rootle_provider::LogEntry>, truncated: bool) {
-        let previous = self.selected().map(|entry| entry.revision.clone());
-        self.loading = false;
-        self.truncated = truncated;
-        self.failure = None;
-        self.entries = entries
-            .into_iter()
-            .map(|entry| HistoryEntry {
-                revision: entry.sha.into(),
-                subject: crate::sanitize::sanitize_inline(&entry.subject),
-                author: crate::sanitize::sanitize_inline(&entry.author),
-                date: crate::sanitize::sanitize_inline(&entry.date),
-            })
-            .collect();
-        // The blamed-commit composition lands the cursor on its row.
-        if let Some(sha) = self.pending_sha.take().or(previous)
-            && let Some(i) = self.entries.iter().position(|entry| entry.revision == sha)
+    fn append(&mut self, entries: Vec<rootle_provider::LogEntry>) {
+        let remaining = rootle_provider::RENDER_BUDGET.saturating_sub(self.entries.len());
+        self.truncated |= entries.len() > remaining;
+        self.entries
+            .extend(entries.into_iter().take(remaining).map(|entry| {
+                let revision = Sha::from(entry.sha);
+                HistoryEntry {
+                    revision_caption: crate::sanitize::sanitize_inline(&revision.short()),
+                    revision,
+                    subject: crate::sanitize::sanitize_inline(&entry.subject),
+                    author: crate::sanitize::sanitize_inline(&entry.author),
+                    date: crate::sanitize::sanitize_inline(&entry.date),
+                }
+            }));
+        self.refilter();
+        // A blamed commit can arrive in any batch; do not consume the target early.
+        if let Some(revision) = &self.pending_sha
+            && let Some(index) = self
+                .visible_entries
+                .iter()
+                .position(|&index| &self.entries[index].revision == revision)
         {
-            self.selection.select(ItemIndex::new(
-                self.visible()
-                    .iter()
-                    .position(|&index| index == i)
-                    .unwrap_or(0),
-            ));
+            self.selection.select(ItemIndex::new(index));
+            self.pending_sha = None;
         }
-        self.selection.clamp(self.visible().len());
     }
 
-    /// Entry indices surviving the committed filter.
-    fn visible(&self) -> Vec<usize> {
-        self.filter.visible(&self.entries, |entry, filter| {
+    fn refilter(&mut self) {
+        self.visible_entries = self.filter.visible(&self.entries, |entry, filter| {
             filter.matches(&entry.subject)
                 || filter.matches(entry.revision.as_str())
                 || filter.matches(&entry.author)
-        })
+        });
+        self.selection.clamp(self.visible_entries.len());
+    }
+
+    fn visible(&self) -> &[usize] {
+        &self.visible_entries
     }
 
     fn selected(&self) -> Option<&HistoryEntry> {
@@ -171,9 +178,24 @@ impl Browser {
     }
 
     pub fn history_accepts(&self, request: &HistoryRequest) -> bool {
-        self.history_request() == Some(request)
+        let Some(history) = &self.history else {
+            return false;
+        };
+        let phase = if history.loading {
+            rootle_kernel::request::Phase::Loading
+        } else {
+            rootle_kernel::request::Phase::Ready
+        };
+        history.request == *request
             && self.history_repository().as_ref() == Some(&request.repository)
             && self.current_ref() == request.revision.as_ref().map(GitRef::as_str)
+            && rootle_kernel::request::accept(
+                history.request.generation.value(),
+                phase,
+                request.generation.value(),
+                rootle_kernel::request::Reply::Partial,
+            )
+            .is_some()
     }
 
     pub fn repository_history_active(&self) -> bool {
@@ -188,10 +210,17 @@ impl Browser {
         }
     }
 
-    /// Log entries landed from the provider.
-    pub fn history_loaded(&mut self, entries: Vec<rootle_provider::LogEntry>, truncated: bool) {
-        if let Some(h) = &mut self.history {
-            h.loaded(entries, truncated);
+    /// A streamed page landed; the request remains open until its final result.
+    pub fn history_append(&mut self, entries: Vec<rootle_provider::LogEntry>) {
+        if let Some(history) = &mut self.history {
+            history.append(entries);
+        }
+    }
+
+    pub fn history_loaded(&mut self, truncated: bool) {
+        if let Some(history) = &mut self.history {
+            history.loading = false;
+            history.truncated |= truncated;
         }
     }
 
@@ -228,6 +257,7 @@ impl Browser {
         {
             history.selection.reset();
             history.viewport.reset();
+            history.refilter();
         }
     }
 
@@ -239,6 +269,7 @@ impl Browser {
         {
             h.selection.reset();
             h.viewport.reset();
+            h.refilter();
             return false;
         }
         self.close_history();
@@ -285,6 +316,14 @@ impl Browser {
             HistoryScope::File(path) => format!("history — {path}"),
         };
         let mut title = format!(" {} ", crate::sanitize::sanitize_inline(&label));
+        title.push_str(&format!("({}) ", h.entries.len()));
+        if h.failure.is_some() {
+            title.push_str("incomplete ");
+        } else if h.loading {
+            title.push_str("loading ");
+        } else if h.truncated {
+            title.push_str("truncated ");
+        }
         if h.filter.active() || !h.filter.is_empty() {
             title = format!("{title}/{} ", h.filter.text());
         }
@@ -297,74 +336,75 @@ impl Browser {
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
-        if h.loading {
-            frame.render_widget(
-                Paragraph::new(Line::from(Span::styled(
-                    "  loading history…",
-                    Style::default().fg(sem.subtext0),
-                ))),
-                inner,
-            );
-            return;
-        }
-        if let Some(message) = &h.failure {
-            frame.render_widget(
-                Paragraph::new(message.as_str()).style(Style::default().fg(sem.error)),
-                inner,
-            );
-            return;
-        }
-        let vis = h.visible();
-        let mut lines: Vec<Line> = Vec::new();
-        for (row, &i) in vis.iter().enumerate() {
-            let c = &h.entries[i];
-            let selected = row == h.selection.selected().get();
-            let style = if selected {
-                Style::default().fg(sem.selection_fg).bg(sem.selection_bg)
-            } else {
-                Style::default().fg(sem.text)
-            };
-            let dim = if selected {
-                style
-            } else {
-                Style::default().fg(sem.subtext0)
-            };
-            lines.push(Line::from(vec![
-                Span::styled(
-                    if selected { "▌ " } else { "  " },
-                    Style::default().fg(sem.border_focused),
-                ),
-                Span::styled(
-                    format!("{} ", crate::sanitize::sanitize_inline(&c.revision.short())),
-                    Style::default().fg(sem.warning),
-                ),
-                Span::styled(c.subject.clone(), style),
-            ]));
-            lines.push(Line::from(vec![
-                Span::raw("    "),
-                Span::styled(format!("{} · {}", c.author, c.date), dim),
-            ]));
-        }
-        if vis.is_empty() {
-            lines.push(Line::from(Span::styled(
-                "  no matching commits",
-                Style::default().fg(sem.subtext0),
-            )));
-        }
-        // Bounded compute: past the render budget the provider said
-        // truncated — narrow with /.
-        if h.truncated {
-            lines.push(Line::from(Span::styled(
-                "  ⋮ truncated — / filters",
-                Style::default().fg(sem.subtext0),
-            )));
-        }
-        let selected = (!vis.is_empty()).then(|| {
-            let row = h.selection.selected().get() * 2;
-            RowSpan::new(row, row + 2)
-        });
-        h.viewport
-            .render(frame, area, inner, lines, selected, theme);
+        let visible = &h.visible_entries;
+        let entries = &h.entries;
+        let selection = h.selection.selected().get();
+        let selected =
+            (!visible.is_empty()).then(|| RowSpan::new(selection * 2, selection * 2 + 2));
+        let footer = if let Some(message) = &h.failure {
+            Some((message.as_str(), sem.error))
+        } else if h.loading {
+            Some(("  loading history…", sem.subtext0))
+        } else if h.truncated {
+            Some((
+                "  ⋮ truncated — showing newest commits; / filters loaded entries",
+                sem.warning,
+            ))
+        } else if visible.is_empty() {
+            Some(("  no matching commits", sem.subtext0))
+        } else {
+            None
+        };
+        // Do not prepare hundreds of off-screen lines on every key or repaint.
+        h.viewport.render_virtual(
+            frame,
+            area,
+            inner,
+            RowLayout {
+                total: visible.len() * 2 + usize::from(footer.is_some()),
+                selected,
+            },
+            |row| {
+                let Some(&index) = visible.get(row / 2) else {
+                    let (text, color) = footer.expect("footer row");
+                    return Line::from(Span::styled(text, Style::default().fg(color)));
+                };
+                let entry = &entries[index];
+                let selected = row / 2 == selection;
+                let style = if selected {
+                    Style::default().fg(sem.selection_fg).bg(sem.selection_bg)
+                } else {
+                    Style::default().fg(sem.text)
+                };
+                if row % 2 == 0 {
+                    Line::from(vec![
+                        Span::styled(
+                            if selected { "▌ " } else { "  " },
+                            Style::default().fg(sem.border_focused),
+                        ),
+                        Span::styled(
+                            entry.revision_caption.as_str(),
+                            Style::default().fg(sem.warning),
+                        ),
+                        Span::styled(" ", style),
+                        Span::styled(entry.subject.as_str(), style),
+                    ])
+                } else {
+                    let dim = if selected {
+                        style
+                    } else {
+                        Style::default().fg(sem.subtext0)
+                    };
+                    Line::from(vec![
+                        Span::raw("    "),
+                        Span::styled(entry.author.as_str(), dim),
+                        Span::styled(" · ", dim),
+                        Span::styled(entry.date.as_str(), dim),
+                    ])
+                }
+            },
+            theme,
+        );
     }
 }
 

@@ -69,16 +69,18 @@ small stdio script.
 ## Quick start
 
 ```bash
-curl -fsSL https://rootle.dev/install.sh | sh   # linux x86_64, to ~/.local/bin
-brew install rootledev/tap/rootle   # linux (builds from source)
-brew install --cask rootledev/tap/rootle   # macOS (prebuilt binary)
-cargo install rootle                # or from crates.io (Rust 1.88+)
+curl -fsSL https://rootle.dev/install.sh | sh   # Linux x86_64 or arm64, to ~/.local/bin
+cargo install rootle --locked                # or from crates.io (Rust 1.100+)
 
 rootle                # repo search on first run; browser after that
 rootle owner/repo     # jump straight into a repo
 rootle owner/repo@release/2.7   # …at a branch, tag, or sha
 rootle self-update    # application only (tarball installs), or your channel's hint
 ```
+
+Linux is the supported platform. Releases are static musl binaries built and
+qualified on our local Buildbot; macOS and Homebrew distribution ended in 0.13.
+Hone is the default palette; all previous palettes remain selectable.
 
 On v0.12.0 tarball installs, use `rootle --update` once to install the
 updater routing fix; `self-update` is available starting with v0.12.1.

@@ -86,6 +86,12 @@ def test_viewport_override(tmp_path, binary):
 
 
 EMBEDDED_THEMES = (
+    "hone",
+    "slate",
+    "carbide",
+    "vellum",
+    "paper",
+    "paper-dark",
     "catppuccin-mocha",
     "dracula",
     "gruvbox-dark",
@@ -109,8 +115,9 @@ def test_embedded_themes_in_settings_radio(tmp_path, binary):
         binary,
         "keys <esc><esc>\n"  # close the launch popup (INSERT→NORMAL→close)
         "keys :settings<cr>\n"
-        "keys <tab><cr>\n"  # editor → theme section, open the radio
-        "frame\n",
+        "keys <tab><cr>\n"  # editor → theme section, select Hone
+        "frame\n"
+        + "keys j<cr>\nframe\n" * (len(EMBEDDED_THEMES) - 1),
         "--config",
         str(config),
         home=tmp_path / "home",

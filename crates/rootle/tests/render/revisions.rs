@@ -21,6 +21,8 @@ fn last_commit_band_dresses_the_preview_header() {
     assert!(!screen.contains("shader cache"), "no commit yet:\n{screen}");
 
     app.handle_app_event(rootle::event::AppEvent::LastCommitLoaded {
+        generation: app.request_generations().last_commit,
+        revision: None,
         repo: "ratatui/ratatui".into(),
         path: "Cargo.toml".into(),
         entry: Some(rootle_provider::LogEntry {
@@ -54,6 +56,7 @@ fn refs_switcher_preview_commit_revert() {
     );
 
     app.handle_app_event(rootle::event::AppEvent::RefsLoaded {
+        generation: app.request_generations().references,
         repo: "ratatui/ratatui".into(),
         refs: rootle_provider::RepoRefs {
             branches: vec![
@@ -104,6 +107,7 @@ fn refs_switcher_preview_commit_revert() {
     app.handle_key(key(KeyCode::Char(' ')));
     app.handle_key(key(KeyCode::Char('b')));
     app.handle_app_event(rootle::event::AppEvent::RefsLoaded {
+        generation: app.request_generations().references,
         repo: "ratatui/ratatui".into(),
         refs: rootle_provider::RepoRefs {
             branches: vec![rootle_provider::RefInfo {
@@ -152,6 +156,7 @@ fn preview_submode_zoom_blame_history() {
     // b: blame fetches; marks render when ranges land.
     app.handle_key(key(KeyCode::Char('b')));
     app.handle_app_event(rootle::event::AppEvent::BlameLoaded {
+        generation: app.request_generations().blame,
         path: "Cargo.toml".into(),
         ranges: vec![
             // Complete provider identities; only the rendered margin shortens them.
@@ -193,7 +198,7 @@ fn preview_submode_zoom_blame_history() {
 
     // Enter on a blame line: history lens at that commit (composition).
     app.handle_key(key(KeyCode::Enter));
-    app.handle_app_event(rootle::event::AppEvent::LogLoaded {
+    app.handle_app_event(rootle::event::AppEvent::LogDelta {
         request: app.active_history_request().unwrap().clone(),
         entries: vec![
             rootle_provider::LogEntry {
@@ -209,6 +214,9 @@ fn preview_submode_zoom_blame_history() {
                 date: "2026-06-11".into(),
             },
         ],
+    });
+    app.handle_app_event(rootle::event::AppEvent::LogLoaded {
+        request: app.active_history_request().unwrap().clone(),
         truncated: false,
     });
     let screen = render(&mut app, 200, 30).join("\n");
@@ -227,6 +235,7 @@ fn preview_submode_zoom_blame_history() {
     // Enter opens the file at the commit; Esc restores the present.
     app.handle_key(key(KeyCode::Enter));
     app.handle_app_event(rootle::event::AppEvent::BlobAtLoaded {
+        generation: app.request_generations().historical_blob,
         path: "Cargo.toml".into(),
         ref_: "c7d8e9f0a1b2".into(),
         sha: "f00dbabe".into(),
@@ -289,6 +298,7 @@ fn blame_loaded_clears_only_its_own_transient() {
     // The happy path: blame lands, its transient is gone.
     let mut fresh = app;
     fresh.handle_app_event(rootle::event::AppEvent::BlameLoaded {
+        generation: fresh.request_generations().blame,
         path: "Cargo.toml".into(),
         ranges: vec![],
     });
@@ -310,10 +320,12 @@ fn blame_loaded_clears_only_its_own_transient() {
     app.handle_key(key(KeyCode::Char('p')));
     app.handle_key(key(KeyCode::Char('b')));
     app.handle_app_event(rootle::event::AppEvent::BlameFailed {
+        generation: app.request_generations().blame,
         path: "Cargo.toml".into(),
         error: rootle_provider::ProviderError::other("boom"),
     });
     app.handle_app_event(rootle::event::AppEvent::BlameLoaded {
+        generation: app.request_generations().blame,
         path: "Cargo.toml".into(),
         ranges: vec![],
     });

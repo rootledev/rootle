@@ -21,7 +21,7 @@ fn query_field_restyles_grammar_tokens() {
         })
         .unwrap();
     let buf = terminal.backend().buffer();
-    let syntax = rootle::theme::Theme::catppuccin_mocha().syntax;
+    let syntax = rootle::theme::Theme::hone().syntax;
     let row_y = (0..buf.area.height).find(|y| {
         (0..buf.area.width)
             .map(|x| buf[(x, *y)].symbol().to_string())
@@ -43,7 +43,7 @@ fn query_field_restyles_grammar_tokens() {
     assert_eq!(fg_at("-legacy"), syntax.invalid, "negation marker color");
     assert_eq!(fg_at("rust"), syntax.string, "qualifier value color");
     // The plain term keeps the default text color — nothing bleeds.
-    let text_fg = rootle::theme::Theme::catppuccin_mocha().semantic.text;
+    let text_fg = rootle::theme::Theme::hone().semantic.text;
     assert_eq!(fg_at("render"), text_fg, "plain term color");
 }
 
@@ -243,9 +243,7 @@ fn delayed_hits_keep_submitted_query_highlighting_after_input_edits() {
                 .map(|byte| (text[..byte].chars().count() as u16, row))
         })
         .expect("delayed hit visible");
-    let highlight = rootle::theme::Theme::catppuccin_mocha()
-        .semantic
-        .search_match;
+    let highlight = rootle::theme::Theme::hone().semantic.search_match;
     assert_eq!(buffer[(column, row)].bg, highlight);
     assert_ne!(buffer[(column + 7, row)].bg, highlight);
 }

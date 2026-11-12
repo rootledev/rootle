@@ -78,6 +78,17 @@ fn code_query_maps_scope_and_extension() {
         code_query(SearchKind::Grep, "q", "org:x", "rs"),
         "q org:x extension:rs"
     );
+    assert_eq!(
+        code_query(
+            SearchKind::FileFind,
+            r#"language:"c++" "my file" -extension:hh"#,
+            "global",
+            ""
+        ),
+        r#"language:"c++" path:"my file" -extension:hh"#
+    );
+    let raw = r#"  'language:cpp' language:"c++" -path:'vendor files'  "#;
+    assert_eq!(code_query(SearchKind::Grep, raw, "global", ""), raw);
 }
 
 /// The index can lie by omission (young repos aren't in GitHub's
@@ -110,6 +121,10 @@ fn scoped_grep_falls_back_to_tarball_on_silent_zero() {
     add("src/b.rs", b_rs);
     add("src/c.rs", c_rs);
     add("img.bin", &bin);
+    add("src/cppneedle.cp", b"cppneedle\n");
+    add("src/cppneedle.hxx", b"cppneedle\n");
+    add("vendor/cppneedle.hpp", b"cppneedle\n");
+    add("src/cppneedle.rs", b"cppneedle\n");
     let tarball = builder.into_inner().unwrap().finish().unwrap();
 
     struct Mock(Vec<u8>);
@@ -140,7 +155,20 @@ fn scoped_grep_falls_back_to_tarball_on_silent_zero() {
             _: Option<&rootle_provider::GitRef>,
         ) -> ProviderResult<TreeResult> {
             Ok(TreeResult {
-                entries: Vec::new(),
+                entries: [
+                    "src/cppneedle.cp",
+                    "src/cppneedle.hxx",
+                    "vendor/cppneedle.hpp",
+                    "src/cppneedle.rs",
+                ]
+                .into_iter()
+                .map(|path| rootle_provider::TreeNode {
+                    path: path.into(),
+                    is_dir: false,
+                    sha: path.into(),
+                    size: None,
+                })
+                .collect(),
                 truncated: false,
                 branch: "main".into(),
             })
@@ -235,4 +263,55 @@ fn scoped_grep_falls_back_to_tarball_on_silent_zero() {
     let hits = run("target -again");
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].path, "src/a.rs");
+
+    // Repo-local file selection and fallback content selection share the same
+    // family aliases, quoted values and exclusion-winning path predicates.
+    for alias in ["cpp", "c++", "cxx"] {
+        let query = format!("cppneedle language:'{alias}' -path:vendor");
+        let content = run(&query);
+        let files = std::sync::Mutex::new(Vec::new());
+        run_view_search(
+            &provider,
+            SearchKind::FileFind,
+            &query,
+            "repo:o/r",
+            "",
+            &|batch| files.lock().unwrap().extend(batch),
+        )
+        .unwrap();
+        let mut file_paths: Vec<_> = files
+            .into_inner()
+            .unwrap()
+            .into_iter()
+            .map(|h| h.path)
+            .collect();
+        file_paths.sort();
+        let mut content_paths: Vec<_> = content.into_iter().map(|h| h.path).collect();
+        content_paths.sort();
+        assert_eq!(file_paths, ["src/cppneedle.cp", "src/cppneedle.hxx"]);
+        assert_eq!(content_paths, file_paths);
+    }
+    let metadata_only = run("language:cpp");
+    assert_eq!(metadata_only.len(), 3);
+    assert!(metadata_only.iter().all(|hit| hit.match_count == 0));
+    let narrowed = std::sync::Mutex::new(Vec::new());
+    run_view_search(
+        &provider,
+        SearchKind::Grep,
+        "cppneedle language:cpp",
+        "repo:o/r",
+        "hxx",
+        &|batch| narrowed.lock().unwrap().extend(batch),
+    )
+    .unwrap();
+    let narrowed = narrowed.into_inner().unwrap();
+    assert_eq!(narrowed.len(), 1);
+    assert_eq!(narrowed[0].path, "src/cppneedle.hxx");
+    for kind in [SearchKind::FileFind, SearchKind::Grep] {
+        let error = run_view_search(&provider, kind, "language:cp", "repo:o/r", "", &|_| {
+            panic!("invalid query emitted hits")
+        })
+        .unwrap_err();
+        assert!(error.message.contains("unknown language: cp"));
+    }
 }

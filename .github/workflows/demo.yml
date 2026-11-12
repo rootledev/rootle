@@ -2,7 +2,7 @@ name: demo
 
 # Re-render the demo GIFs whenever the app or the demo tooling changes —
 # the README and the website always show the current look. One render
-# per embedded palette: catppuccin-mocha is the canonical demo.gif
+# per embedded palette: Hone is the canonical demo.gif
 # (README hero); the rest land in img/demo-<theme>.gif for the site's
 # palette picker. Renders publish to the SITE repo
 # (rootledev/rootledev.github.io) as a bot PR — the code repo stays
@@ -17,6 +17,7 @@ on:
       - "e2e/**"
       - "Cargo.toml"
       - "Cargo.lock"
+      - ".github/workflows/demo.yml"
 
 permissions:
   contents: read
@@ -30,7 +31,9 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Build binary for the tape
-        run: docker compose run --build --rm -e VERSION=0.0.0-demo release
+        run: |
+          VERSION=$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["workspace"]["package"]["version"])')
+          docker compose run --build --rm -e VERSION="$VERSION" -e SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)" release
 
       - uses: actions/upload-artifact@v7
         with:
@@ -47,6 +50,12 @@ jobs:
       fail-fast: false
       matrix:
         theme:
+          - hone
+          - slate
+          - carbide
+          - vellum
+          - paper
+          - paper-dark
           - catppuccin-mocha
           - dracula
           - gruvbox-dark
@@ -73,11 +82,17 @@ jobs:
           # Renders land in gitignored staging (demos/out/); the publish
           # job carries them to the site repo.
           out="demos/out/demo.gif"
-          [ "$THEME" = "catppuccin-mocha" ] || out="demos/out/demo-$THEME.gif"
+          [ "$THEME" = "hone" ] || out="demos/out/demo-$THEME.gif"
           # VHS paints the window remainder (rows×cell < Height) with the
           # tape theme's background — map each palette to its VHS theme
           # or light renders get a dark band.
           case "$THEME" in
+            hone)              vhs_theme='{"name":"Hone","background":"#15171c","foreground":"#e6e1d6","cursor":"#e8a848","selectionBackground":"#30405a"}' ;;
+            slate)             vhs_theme='{"name":"Slate","background":"#1a1c20","foreground":"#dcd9d2","cursor":"#c9b27e"}' ;;
+            carbide)           vhs_theme='{"name":"Carbide","background":"#0b0c0f","foreground":"#f4f2ec","cursor":"#ffb74a"}' ;;
+            vellum)            vhs_theme='{"name":"Vellum","background":"#f6f2e9","foreground":"#262a30","cursor":"#8a510f"}' ;;
+            paper)             vhs_theme='{"name":"Paper","background":"#f8f8f3","foreground":"#20362d","cursor":"#1a6650"}' ;;
+            paper-dark)        vhs_theme='{"name":"Paper Dark","background":"#151d19","foreground":"#e3e9dd","cursor":"#9bc7ac"}' ;;
             catppuccin-mocha)  vhs_theme="Catppuccin Mocha" ;;
             dracula)           vhs_theme="Dracula" ;;
             gruvbox-dark)      vhs_theme="GruvboxDark" ;;
@@ -92,24 +107,24 @@ jobs:
           esac
           mkdir -p demos/out
           sed -e "s|^Output .*|Output $out|" \
-              -e "s|^Set Theme .*|Set Theme \"$vhs_theme\"|" \
+              -e "s|^Set Theme .*|Set Theme '$vhs_theme'|" \
               -e "s|--config /tmp/rootle-demo/provider.toml|--theme $THEME --config /tmp/rootle-demo/provider.toml|" \
               demos/demo.tape > "demos/.tape-$THEME"
           # VHS resolves fonts via fontconfig: install the vendored
           # JetBrains Mono into the container first.
-          docker run --rm -v "$PWD:/vhs" -w /vhs --entrypoint sh ghcr.io/charmbracelet/vhs -c \
+          docker run --rm -v "$PWD:/vhs" -w /vhs --entrypoint sh ghcr.io/charmbracelet/vhs@sha256:9d5fc3dc0c160b0fb1d2212baff07e6bdf3fa9438c504a3237484567302fcf93 -c \
             "mkdir -p /usr/share/fonts/truetype/jbmono && \
              cp /vhs/demos/fonts/JetBrainsMono-*.ttf /usr/share/fonts/truetype/jbmono/ && \
                           fc-cache -f >/dev/null 2>&1; \
              (apt-get update -qq && apt-get install -y -qq git >/dev/null) 2>&1 | tail -1; \
-             git --version; exec vhs /vhs/demos/.tape-$THEME"
+             git --version; vhs /vhs/demos/.tape-$THEME && test -s /vhs/$out"
           rm "demos/.tape-$THEME"
 
       - uses: actions/upload-artifact@v7
         with:
           name: demo-gif-${{ matrix.theme }}
           # Exactly the file this job rendered.
-          path: demos/out/${{ matrix.theme == 'catppuccin-mocha' && 'demo.gif' || format('demo-{0}.gif', matrix.theme) }}
+          path: demos/out/${{ matrix.theme == 'hone' && 'demo.gif' || format('demo-{0}.gif', matrix.theme) }}
           if-no-files-found: error
 
   # Land the renders in the site repo (img/) as a direct commit on its
@@ -118,8 +133,7 @@ jobs:
   # render commits nothing, so this never loops (a site-repo push
   # doesn't re-trigger this workflow either — it watches this repo's
   # src/demos/e2e). Needs SITE_REPO_TOKEN (fine-grained PAT:
-  # contents:write on rootledev/rootledev.github.io) — same shape as
-  # HOMEBREW_TAP_TOKEN.
+  # contents:write on rootledev/rootledev.github.io).
   publish:
     needs: render
     runs-on: ubuntu-latest

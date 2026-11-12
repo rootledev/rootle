@@ -19,7 +19,7 @@ pub struct Cli {
     pub config: Option<PathBuf>,
 
     /// Theme name, resolved against ~/.config/rootle/themes/<name>.toml
-    /// (missing keys fall back to the embedded catppuccin-mocha).
+    /// (overrides the named builtin; unknown names start from Hone).
     #[arg(long, value_name = "NAME")]
     pub theme: Option<String>,
 

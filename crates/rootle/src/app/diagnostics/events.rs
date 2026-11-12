@@ -8,6 +8,7 @@ use serde_json::{Value, json};
 /// lockstep with [`describe_event`]'s `"event"` field.
 pub(crate) fn event_name(event: &AppEvent) -> &'static str {
     match event {
+        AppEvent::Terminal(_) => "terminal",
         AppEvent::SearchResults { .. } => "search_results",
         AppEvent::SearchFailed { .. } => "search_failed",
         AppEvent::OrgReposLoaded { .. } => "org_repos_loaded",
@@ -29,6 +30,7 @@ pub(crate) fn event_name(event: &AppEvent) -> &'static str {
         AppEvent::CloneExpanded { .. } => "clone_expanded",
         AppEvent::RefsLoaded { .. } => "refs_loaded",
         AppEvent::RefsFailed { .. } => "refs_failed",
+        AppEvent::LogDelta { .. } => "log_delta",
         AppEvent::LogLoaded { .. } => "log_loaded",
         AppEvent::LogFailed { .. } => "log_failed",
         AppEvent::CommitLoaded { .. } => "commit_loaded",
@@ -48,6 +50,7 @@ pub(crate) fn event_name(event: &AppEvent) -> &'static str {
 pub(super) fn describe_event(event: &AppEvent) -> Value {
     let full = full();
     match event {
+        AppEvent::Terminal(_) => json!({"source": "terminal"}),
         AppEvent::SearchResults { gen_id, items } => json!({
             "gen": *gen_id,
             "items": items.len(),
@@ -79,12 +82,23 @@ pub(super) fn describe_event(event: &AppEvent) -> Value {
             "request": request,
             "error": describe_error(error),
         }),
-        AppEvent::BlobLoaded { sha, name, bytes } => json!({
+        AppEvent::BlobLoaded {
+            generation,
+            sha,
+            name,
+            bytes,
+        } => json!({
+            "generation": generation,
             "sha": sha,
             "path": name,
             "bytes": bytes.len(),
         }),
-        AppEvent::BlobFailed { sha, error } => json!({
+        AppEvent::BlobFailed {
+            generation,
+            sha,
+            error,
+        } => json!({
+            "generation": generation,
             "sha": sha,
             "error": describe_error(error),
         }),
@@ -112,6 +126,7 @@ pub(super) fn describe_event(event: &AppEvent) -> Value {
             "error": describe_error(error),
         }),
         AppEvent::HitContextLoaded {
+            generation,
             gen_id,
             repo,
             path,
@@ -121,6 +136,7 @@ pub(super) fn describe_event(event: &AppEvent) -> Value {
             match_count,
             query,
         } => json!({
+            "generation": generation,
             "gen": *gen_id,
             "repo": repo,
             "path": path,
@@ -130,7 +146,12 @@ pub(super) fn describe_event(event: &AppEvent) -> Value {
             "matches": match_count,
             "query": text_with(full, query),
         }),
-        AppEvent::HitContextMissing { gen_id, sha } => json!({
+        AppEvent::HitContextMissing {
+            generation,
+            gen_id,
+            sha,
+        } => json!({
+            "generation": generation,
             "gen": *gen_id,
             "sha": sha,
         }),
@@ -145,25 +166,39 @@ pub(super) fn describe_event(event: &AppEvent) -> Value {
             "sha": hit.sha,
             "query": text_with(full, query),
         }),
-        AppEvent::HitContextFailed { gen_id, sha, error } => json!({
+        AppEvent::HitContextFailed {
+            generation,
+            gen_id,
+            sha,
+            error,
+        } => json!({
+            "generation": generation,
             "gen": *gen_id,
             "sha": sha,
             "error": describe_error(error),
         }),
         AppEvent::HitFileLoaded {
+            generation,
             gen_id,
             repo,
             path,
             sha,
             bytes,
         } => json!({
+            "generation": generation,
             "gen": *gen_id,
             "repo": repo,
             "path": path,
             "sha": sha,
             "bytes": bytes.len(),
         }),
-        AppEvent::HitFileFailed { gen_id, sha, error } => json!({
+        AppEvent::HitFileFailed {
+            generation,
+            gen_id,
+            sha,
+            error,
+        } => json!({
+            "generation": generation,
             "gen": *gen_id,
             "sha": sha,
             "error": describe_error(error),
@@ -176,22 +211,31 @@ pub(super) fn describe_event(event: &AppEvent) -> Value {
             "repos": repos.len(),
             "org_errors": errors.len(),
         }),
-        AppEvent::RefsLoaded { repo, refs } => json!({
+        AppEvent::RefsLoaded {
+            generation,
+            repo,
+            refs,
+        } => json!({
+            "generation": generation,
             "repo": repo,
             "branches": refs.branches.len(),
             "tags": refs.tags.len(),
         }),
-        AppEvent::RefsFailed { repo, error } => json!({
+        AppEvent::RefsFailed {
+            generation,
+            repo,
+            error,
+        } => json!({
+            "generation": generation,
             "repo": repo,
             "error": describe_error(error),
         }),
-        AppEvent::LogLoaded {
-            request,
-            entries,
-            truncated,
-        } => json!({
+        AppEvent::LogDelta { request, entries } => json!({
             "request": request,
             "entries": entries.len(),
+        }),
+        AppEvent::LogLoaded { request, truncated } => json!({
+            "request": request,
             "truncated": truncated,
         }),
         AppEvent::LogFailed { request, error } => json!({
@@ -208,27 +252,44 @@ pub(super) fn describe_event(event: &AppEvent) -> Value {
                 Err(error) => describe_error(error),
             },
         }),
-        AppEvent::BlameLoaded { path, ranges } => json!({
+        AppEvent::BlameLoaded {
+            generation,
+            path,
+            ranges,
+        } => json!({
+            "generation": generation,
             "path": path,
             "ranges": ranges.len(),
         }),
-        AppEvent::BlameFailed { path, error } => json!({
+        AppEvent::BlameFailed {
+            generation,
+            path,
+            error,
+        } => json!({
+            "generation": generation,
             "path": path,
             "error": describe_error(error),
         }),
         AppEvent::BlobAtLoaded {
+            generation,
             path,
             ref_,
             sha,
             bytes,
             ..
         } => json!({
+            "generation": generation,
             "path": path,
             "ref": ref_,
             "sha": sha,
             "bytes": bytes.len(),
         }),
-        AppEvent::BlobAtFailed { path, error } => json!({
+        AppEvent::BlobAtFailed {
+            generation,
+            path,
+            error,
+        } => json!({
+            "generation": generation,
             "path": path,
             "error": describe_error(error),
         }),
@@ -243,7 +304,15 @@ pub(super) fn describe_event(event: &AppEvent) -> Value {
             "name": name,
             "error": text_with(full, error),
         }),
-        AppEvent::LastCommitLoaded { repo, path, entry } => json!({
+        AppEvent::LastCommitLoaded {
+            generation,
+            revision,
+            repo,
+            path,
+            entry,
+        } => json!({
+            "generation": generation,
+            "revision": revision,
             "repo": repo,
             "path": path,
             "entry": entry.is_some(),

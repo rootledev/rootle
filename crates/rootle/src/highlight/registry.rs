@@ -53,8 +53,6 @@ pub(super) struct Entry {
     pub(super) lang: Lang,
     /// Footer label ("rust", "c#", …).
     label: &'static str,
-    /// Lowercase extensions, no dot.
-    exts: &'static [&'static str],
     /// Lowercase exact basenames (dotfiles, Gemfile, PKGBUILD…).
     files: &'static [&'static str],
     /// Lowercase names accepted from injection queries, after
@@ -66,91 +64,78 @@ pub(super) const ENTRIES: &[Entry] = &[
     Entry {
         lang: Lang::Rust,
         label: "rust",
-        exts: &["rs"],
         files: &[],
         inject: &["rust", "rs"],
     },
     Entry {
         lang: Lang::Python,
         label: "python",
-        exts: &["py", "pyi", "pyw"],
         files: &[],
         inject: &["python", "py", "python3"],
     },
     Entry {
         lang: Lang::Javascript,
         label: "javascript",
-        exts: &["js", "jsx", "mjs", "cjs"],
         files: &[],
         inject: &["javascript", "js", "node"],
     },
     Entry {
         lang: Lang::Typescript,
         label: "typescript",
-        exts: &["ts", "mts", "cts"],
         files: &[],
         inject: &["typescript", "ts"],
     },
     Entry {
         lang: Lang::Tsx,
         label: "tsx",
-        exts: &["tsx"],
         files: &[],
         inject: &["tsx"],
     },
     Entry {
         lang: Lang::Go,
         label: "go",
-        exts: &["go"],
         files: &[],
         inject: &["go", "golang"],
     },
     Entry {
         lang: Lang::C,
         label: "c",
-        exts: &["c", "h"],
         files: &[],
         inject: &["c"],
     },
     Entry {
         lang: Lang::Cpp,
         label: "cpp",
-        exts: &["cpp", "cc", "cp", "cxx", "hpp", "hh", "hxx", "ino", "tpp"],
         files: &[],
         inject: &["cpp", "c++"],
     },
     Entry {
         lang: Lang::Java,
         label: "java",
-        exts: &["java"],
         files: &[],
         inject: &["java"],
     },
     Entry {
         lang: Lang::CSharp,
         label: "c#",
-        exts: &["cs", "csx"],
         files: &[],
         inject: &["csharp", "c#", "cs"],
     },
     Entry {
         lang: Lang::Ruby,
         label: "ruby",
-        exts: &["rb", "rbw", "rake", "gemspec"],
         files: &["gemfile", "rakefile", "vagrantfile", "guardfile"],
         inject: &["ruby", "rb"],
     },
     Entry {
         lang: Lang::Php,
         label: "php",
-        exts: &["php", "phtml"],
         files: &[],
         inject: &["php"],
     },
     Entry {
         lang: Lang::Bash,
         label: "bash",
-        exts: &["sh", "bash", "zsh", "ksh"],
         files: &[
             ".bashrc",
             ".bash_profile",
@@ -168,56 +153,48 @@ pub(super) const ENTRIES: &[Entry] = &[
     Entry {
         lang: Lang::Lua,
         label: "lua",
-        exts: &["lua"],
         files: &[],
         inject: &["lua"],
     },
     Entry {
         lang: Lang::Json,
         label: "json",
-        exts: &["json", "jsonc"],
         files: &[],
         inject: &["json"],
     },
     Entry {
         lang: Lang::Toml,
         label: "toml",
-        exts: &["toml"],
         files: &[],
         inject: &["toml"],
     },
     Entry {
         lang: Lang::Yaml,
         label: "yaml",
-        exts: &["yaml", "yml"],
         files: &[],
         inject: &["yaml", "yml"],
     },
     Entry {
         lang: Lang::Html,
         label: "html",
-        exts: &["html", "htm", "xhtml"],
         files: &[],
         inject: &["html"],
     },
     Entry {
         lang: Lang::Css,
         label: "css",
-        exts: &["css"],
         files: &[],
         inject: &["css"],
     },
     Entry {
         lang: Lang::Markdown,
         label: "markdown",
-        exts: &["md", "markdown"],
         files: &[],
         inject: &["markdown", "md"],
     },
     Entry {
         lang: Lang::MarkdownInline,
         label: "markdown",
-        exts: &[],
         files: &[],
         inject: &["markdown_inline"],
     },
@@ -238,9 +215,18 @@ pub(super) fn detect(filename: &str) -> Option<Lang> {
         return Some(entry.lang);
     }
     let (_, ext) = base.rsplit_once('.').filter(|(stem, _)| !stem.is_empty())?;
+    // TSX is a grammar specialization of the TypeScript search family.
+    if ext.eq_ignore_ascii_case("tsx") {
+        return Some(Lang::Tsx);
+    }
     ENTRIES
         .iter()
-        .find(|e| e.exts.iter().any(|name| name.eq_ignore_ascii_case(ext)))
+        .filter(|e| !matches!(e.lang, Lang::Tsx | Lang::MarkdownInline))
+        .find(|e| {
+            crate::languages::lang_exts(e.label).is_some_and(|extensions| {
+                extensions.iter().any(|name| name.eq_ignore_ascii_case(ext))
+            })
+        })
         .map(|e| e.lang)
 }
 

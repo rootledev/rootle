@@ -18,7 +18,6 @@ use std::path::Path;
 pub enum Channel {
     /// install.sh / release tarball — self-updates.
     Tarball,
-    Brew,
     Cargo,
     Mise,
     /// Unknown layout — self-update conservatively.
@@ -32,8 +31,6 @@ pub fn channel() -> Channel {
         .unwrap_or_default();
     if exe.contains(".cargo/bin") {
         Channel::Cargo
-    } else if exe.contains("Cellar") || exe.contains("homebrew") || exe.contains("linuxbrew") {
-        Channel::Brew
     } else if exe.contains("/mise/") {
         Channel::Mise
     } else if exe.contains("/.local/") || exe.contains("/usr/local/") {
@@ -123,13 +120,11 @@ fn update_inner(
         format!(
             "{current} → {tag} — you installed via {how}: run `{cmd}`",
             how = match channel {
-                Channel::Brew => "homebrew",
                 Channel::Cargo => "cargo",
                 Channel::Mise => "mise",
                 _ => "your package manager",
             },
             cmd = match channel {
-                Channel::Brew => "brew upgrade rootle",
                 Channel::Cargo => "cargo install rootle",
                 Channel::Mise => "mise up rootle",
                 _ => "your package manager's upgrade",

@@ -111,7 +111,7 @@ fn settings_popup_switches_tabs() {
     app.handle_key(key(KeyCode::Tab)); // editor → theme
     let rows = render(&mut app, 100, 30);
     let screen = rows.join("\n");
-    assert!(screen.contains("catppuccin-mocha"), "theme value missing");
+    assert!(screen.contains("hone"), "theme value missing");
 
     app.handle_key(key(KeyCode::Esc)); // close
     let rows = render(&mut app, 100, 30);

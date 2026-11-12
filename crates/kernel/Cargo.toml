@@ -1,0 +1,12 @@
+[package]
+name = "rootle-kernel"
+description = "Allocation-free request lifetime decisions extracted to Lean with Charon and Aeneas"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+
+[package.metadata.charon]
+start_from = ["rootle_kernel::generation", "rootle_kernel::request"]

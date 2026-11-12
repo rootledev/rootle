@@ -5,7 +5,7 @@ use clap::Parser;
 use ratatui::crossterm::{
     ExecutableCommand,
     cursor::SetCursorStyle,
-    event::{self, Event},
+    event,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
@@ -121,7 +121,7 @@ fn run(
         // Drain worker outcomes before drawing so a completed fetch
         // renders on this frame, not the next.
         while let Ok(event) = rx.try_recv() {
-            app.handle_app_event(event);
+            app.handle_event(event);
         }
         if let Some(failure) = rootle_trace::take_failure() {
             app.report_trace_failure(failure);
@@ -163,33 +163,7 @@ fn run(
         }
 
         if event::poll(Duration::from_millis(250))? {
-            match event::read()? {
-                Event::Key(key) => app.handle_key(key),
-                Event::Resize(columns, rows) => {
-                    rootle_trace::record_with(
-                        rootle_trace::EventKind::Resize,
-                        || serde_json::json!({"columns":columns,"rows":rows,"source":"terminal"}),
-                    );
-                }
-                ignored => {
-                    // Keep existing dispatch behavior; diagnostics explain ignored input.
-                    rootle_trace::record_with(rootle_trace::EventKind::Input, || match ignored {
-                        Event::Paste(text) => serde_json::json!({
-                            "source":"terminal", "kind":"paste", "handled":false,
-                            "bytes":text.len(),
-                            "text":rootle_trace::capture_content().then_some(text.as_str()),
-                        }),
-                        Event::FocusGained => {
-                            serde_json::json!({"kind":"focus_gained","handled":false})
-                        }
-                        Event::FocusLost => {
-                            serde_json::json!({"kind":"focus_lost","handled":false})
-                        }
-                        Event::Mouse(_) => serde_json::json!({"kind":"mouse","handled":false}),
-                        Event::Key(_) | Event::Resize(..) => unreachable!(),
-                    });
-                }
-            }
+            app.handle_event(rootle::event::AppEvent::Terminal(event::read()?));
         }
 
         // Yank: write to the clipboard outside the draw path.

@@ -1,8 +1,8 @@
 # rootle demo tape — renders demos/out/demo.gif (gitignored staging;
 # the demo workflow publishes renders to the site repo). Requires
 # docker: run it via the VHS image with the repo mounted at /vhs.
-# The app under test is ./dist/rootle-linux-x86_64-musl (CI builds it;
-# locally, demo_setup.sh falls back to a debug build).
+# The app under test is ./dist/rootle-linux-x86_64-musl, extracted from this
+# checkout's exact versioned Docker release artifact by demo_setup.sh.
 # The fs stdio provider serves a temp fixture built by demo_setup.sh —
 # alpha is a real git worktree (two branches, a tag, history), so the
 # v1.5 revision lenses work on camera. The render step installs git
@@ -26,7 +26,7 @@ Set TypingSpeed 10ms
 # The workflow's render matrix rewrites this per palette — VHS paints
 # the window remainder with the tape theme's background, so it must
 # match the app's --theme. Verify a name with `vhs themes`.
-Set Theme "Catppuccin Mocha"
+Set Theme '{"name":"Hone","background":"#15171c","foreground":"#e6e1d6","cursor":"#e8a848","selectionBackground":"#30405a"}'
 
 Type "bash demos/demo_setup.sh && clear" Enter
 Sleep 600ms

@@ -132,9 +132,11 @@ impl Browser {
     pub(crate) fn reset_provider(&mut self, owners: &[String]) {
         let tree_generation = self.tree_generation.tick();
         let owner_generation = self.owner_generation.tick();
+        let history_generation = self.history_generation.tick();
         *self = Self::new(owners);
         self.tree_generation = tree_generation;
         self.owner_generation = owner_generation;
+        self.history_generation = history_generation;
     }
 
     pub(crate) fn load_failed(&self) -> bool {

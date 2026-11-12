@@ -5,22 +5,23 @@ description: Record rootle's demo GIFs — one VHS tape, rendered once per embed
 
 # rootle demo capture
 
-One tape, eleven renders — one per embedded palette:
+One tape, seventeen renders — one per embedded palette:
 
 | Artifact | Palette | Used by |
 |---|---|---|
-| `demo.gif` | catppuccin-mocha | README hero, site default |
-| `demo-<theme>.gif` | the other ten | site palette picker |
+| `demo.gif` | Hone | README hero, site default |
+| `demo-<theme>.gif` | the other sixteen | site palette picker |
 
 Local renders land in gitignored `demos/out/`; the published GIFs live
 in the site repo (`rootledev/rootledev.github.io`, `img/`). The `demo`
-workflow renders all of them on pushes touching `src/`, `demos/`, or
+workflow renders all of them on pushes touching `crates/`, `demos/`, or
 `e2e/` and commits them to the site repo's `img/` — prefer letting CI
 do it. To render locally:
 
 ```
-docker compose run --build --rm -e VERSION=0.0.0-demo release   # binary for the tape
-docker run --rm -v "$PWD:/vhs" -w /vhs --entrypoint sh ghcr.io/charmbracelet/vhs -c \
+VERSION="$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["workspace"]["package"]["version"])')"
+docker compose run --build --rm -e VERSION="$VERSION" -e SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)" release
+docker run --rm -v "$PWD:/vhs" -w /vhs --entrypoint sh ghcr.io/charmbracelet/vhs@sha256:9d5fc3dc0c160b0fb1d2212baff07e6bdf3fa9438c504a3237484567302fcf93 -c \
   "mkdir -p /usr/share/fonts/truetype/jbmono && \
    cp /vhs/demos/fonts/JetBrainsMono-*.ttf /usr/share/fonts/truetype/jbmono/ && \
    fc-cache -f >/dev/null 2>&1; exec vhs demos/demo.tape"
@@ -47,8 +48,9 @@ Gotchas (all were hit, all cost time):
   its VHS theme (`vhs themes` lists valid names), or light renders get
   a dark band. The app's own colors come from `--theme`, not VHS.
 - `demos/demo_setup.sh` must run INSIDE the tape (it writes the config
-  with `$PWD` of the mounted repo). It extracts the release binary
-  from `dist/*.tar.gz`, falling back to a debug build.
+  with `$PWD` of the mounted repo). It extracts this checkout's exact version
+  from `dist/vVERSION/` or `dist/` and verifies the binary version; no host build
+  fallback or newest-file guessing.
 - The GIF loop: end the tape with the app quit (`q`) and a small
   `Sleep`, so the last frame isn't mid-redraw.
 - The VHS image is DEBIAN (no apk!) and ships python3 but NO git: the

@@ -36,6 +36,7 @@ impl App {
                 true
             }
             Action::LeaderSearch => {
+                self.requests.search = crate::request::LoadState::default();
                 // Resume: prefill with the last repo — one Enter
                 // re-runs the query back to where the user was.
                 let mut popup = SearchPopup::with_prefill(self.state.last_repo.as_deref());
@@ -46,6 +47,8 @@ impl App {
             }
             Action::LeaderFileFind | Action::LeaderGrep => {
                 self.view_gen.tick();
+                self.requests.invalidate_view();
+                self.pending_context_sha = None;
                 self.status = None;
                 let kind = if action == Action::LeaderFileFind {
                     SearchKind::FileFind
@@ -82,6 +85,8 @@ impl App {
             }
             Action::CloseSearchView => {
                 self.view_gen.tick();
+                self.requests.invalidate_view();
+                self.pending_context_sha = None;
                 self.provider.advise_cancel();
                 self.search_view = None;
                 self.mode = Mode::Browse;
@@ -102,6 +107,8 @@ impl App {
                     self.state.save();
                 }
                 self.view_gen.tick();
+                self.requests.invalidate_view();
+                self.requests.view.start(self.view_gen);
                 self.provider.advise_cancel(); // superseded in-flight work
                 self.pending_context_sha = None;
                 if let Some(view) = &mut self.search_view {
@@ -179,11 +186,7 @@ impl App {
                 // per selection change. Holding j through N hits costs
                 // one provider call — the resting one — instead of N
                 // requests plus N-1 advisory cancels.
-                let timer_gen = self
-                    .context_debounce_gen
-                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
-                    + 1;
-                let shared = self.context_debounce_gen.clone();
+                let timer_gen = self.requests.debounce.issue();
                 let tx = self.tx.clone();
                 let hit = *hit;
                 let op = rootle_trace::operation_id();
@@ -202,23 +205,21 @@ impl App {
                     let _ticket = ticket;
                     rootle_trace::in_operation(op, || {
                         std::thread::sleep(std::time::Duration::from_millis(200));
-                        let still_current =
-                            shared.load(std::sync::atomic::Ordering::SeqCst) == timer_gen;
+                        // Only the UI decides freshness; timers never read shared state.
                         rootle_trace::record_with(rootle_trace::EventKind::JobFinished, || {
                             json!({
                                 "job": "hit_context_debounce",
                                 "timer_gen": timer_gen,
-                                "outcome": if still_current { "fired" } else { "superseded" },
+                                "outcome": "fired",
                             })
                         });
-                        if still_current
-                            && tx
-                                .send(AppEvent::HitContextDebounceFired {
-                                    timer_gen,
-                                    hit,
-                                    query,
-                                })
-                                .is_err()
+                        if tx
+                            .send(AppEvent::HitContextDebounceFired {
+                                timer_gen,
+                                hit,
+                                query,
+                            })
+                            .is_err()
                         {
                             rootle_trace::record_with(rootle_trace::EventKind::Error, || {
                                 json!({
@@ -236,19 +237,15 @@ impl App {
                 hit,
                 query,
             } => {
-                // The timer thread already generation-checked; re-check
-                // here — another request may have landed while the
-                // event queued.
-                if timer_gen
-                    != self
-                        .context_debounce_gen
-                        .load(std::sync::atomic::Ordering::SeqCst)
+                if !self
+                    .requests
+                    .debounce
+                    .accept(timer_gen, rootle_kernel::request::Reply::Complete)
                 {
                     diagnostics::record_job_rejected("hit_context", "debounce_superseded", || {
                         json!({
                             "timer_gen": timer_gen,
-                            "current": self.context_debounce_gen
-                                .load(std::sync::atomic::Ordering::SeqCst),
+                            "current": self.requests.debounce.current(),
                         })
                     });
                     return None;

@@ -5,3 +5,6 @@ dist/
 e2e/.venv/
 **/__pycache__/
 e2e/.pytest_cache/
+.ci-output/
+proofs/.lake/
+proofs/.tools/

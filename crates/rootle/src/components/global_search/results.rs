@@ -129,7 +129,9 @@ impl GlobalSearch {
                 self.clamp_facet_cursor();
             }
             Action::GlobalSearchFailed { error } => {
-                self.load.finish(Some(error));
+                if !self.load.finish(Some(error)) {
+                    return;
+                }
                 let error = self.load.error.as_ref().expect("failed outcome");
                 let mut preview = Preview::focused();
                 let partial = if self.hits.is_empty() {

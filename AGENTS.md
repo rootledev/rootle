@@ -16,7 +16,8 @@ leaves a `target/` tree that fights the container's own cache.
 docker compose run --build --rm test      # fmt + clippy -D warnings + cargo test
 docker compose run --build --rm e2e       # PTY e2e suite (pyte screen reconstruction)
 docker compose run --build --rm model     # protocol safety/progress + kept mutants
-docker compose run --build --rm release   # static musl binary → ./dist/
+docker compose run --build --rm proofs    # extracted Rust → Lean + axiom audit + mutants
+sh .github/scripts/release-local.sh qualify VERSION  # Buildbot gates + Linux musl artifacts
 ```
 
 `--build` after every source change or the image runs stale code
@@ -74,9 +75,10 @@ docker or `sudo`.
   all it takes to update the site; this repo keeps only contributor
   contracts in `doc/` (house-style, provider-protocol, development).
   User-facing docs get edited on the site, never mirrored back here.
-- Releases: tag `vX.Y.Z` matching `Cargo.toml`'s version, push the tag;
-  the release workflow verifies the binary, publishes to crates.io,
-  cuts the GitHub release, bumps the formula in
-  `rootledev/homebrew-tap` (needs the `HOMEBREW_TAP_TOKEN` secret),
-  and pings the site repo to redeploy (fresh version stamp; uses
-  `SITE_REPO_TOKEN`).
+- Releases: update the workspace/profile version, commit, then run
+  `.github/scripts/release-local.sh qualify VERSION` on the local Buildbot.
+  Merge the PR, tag the qualified commit `vVERSION` and push the tag.
+  Run `draft`, `crates`, `publish`, `verify` with the same version; each step
+  admits retained evidence and checks source/tag identity. Linux x86_64 and
+  arm64 only; no hosted release workflow, macOS or Homebrew distribution.
+  Refresh `rootledev/rootledev.github.io` and its release stamp.

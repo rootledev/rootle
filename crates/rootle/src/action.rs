@@ -272,7 +272,7 @@ pub enum Action {
     /// Cursor-rest debounce fired (plans/0008 §3): dispatch the lazy
     /// context fetch for the hit the cursor finally rested on.
     HitContextDebounceFired {
-        timer_gen: u64,
+        timer_gen: crate::request::DebounceGeneration,
         hit: crate::components::global_search::SearchHit,
         query: String,
     },

@@ -40,7 +40,7 @@ pub struct SearchOutcome {
 fn code_query(kind: SearchKind, query: &str, scope_label: &str, extension: &str) -> String {
     let mut q = match kind {
         SearchKind::Grep => query.to_string(),
-        SearchKind::FileFind => format!("path:{query}"),
+        SearchKind::FileFind => grammar::file_query(query),
     };
     if scope_label != "global" {
         q.push(' ');

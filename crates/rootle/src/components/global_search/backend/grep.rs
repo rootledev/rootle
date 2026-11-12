@@ -17,12 +17,11 @@ pub(super) fn code_search(
     on_hits: &(dyn Fn(Vec<RawHit>) + Send + Sync),
 ) -> rootle_provider::ProviderResult<SearchOutcome> {
     let q = code_query(kind, query, scope_label, extension);
-    // plans/0012 M1: the raw query goes out verbatim (GitHub's grammar
-    // is a superset natively; adapters translate what they can) — and
-    // the client-side subtraction filter is the no-op-safe net for
-    // backends that can't express negation or language:. What rootle
-    // can't express anywhere lands on the title's unfiltered chip.
+    // Qualifiers and quoted terms retain their raw provider spelling.
+    // The same parsed predicates also guard local fallback and streamed hits.
     let g = grammar::parse(query);
+    g.validate()?;
+    let extension = extension.trim_start_matches('.').to_ascii_lowercase();
     let unfiltered = grammar::unexpressible(&g);
     let client_filtered = std::sync::atomic::AtomicUsize::new(0);
     let preview_budget = std::sync::atomic::AtomicUsize::new(PREVIEW_CAP);
@@ -31,6 +30,10 @@ pub(super) fn code_search(
         provider.search_code_progressive(&q, &|items: &[rootle_provider::CodeMatch]| {
             let mut batch: Vec<RawHit> = Vec::with_capacity(items.len());
             for item in items {
+                if !extension.is_empty() && grammar::path_ext(&item.path) != extension {
+                    client_filtered.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    continue;
+                }
                 let needles = item.matches.clone();
                 let mut hit = RawHit {
                     repo: item.repo.clone(),
@@ -75,7 +78,7 @@ pub(super) fn code_search(
     if kind == SearchKind::Grep
         && delivered.load(std::sync::atomic::Ordering::Relaxed) == 0
         && let Some(repo) = scope_label.strip_prefix("repo:")
-        && let Some(hits) = tarball_grep(provider, repo, &g)
+        && let Some(hits) = tarball_grep(provider, repo, &g, &extension)
     {
         on_hits(hits);
     }
@@ -99,6 +102,7 @@ pub(super) fn tarball_grep(
     provider: &dyn Provider,
     repo_full: &str,
     g: &grammar::Grammar,
+    extension: &str,
 ) -> Option<Vec<RawHit>> {
     const FILE_CAP: usize = 1 << 20; // matches the preview pane's blob cap
     let tarball = provider
@@ -109,9 +113,6 @@ pub(super) fn tarball_grep(
         .map(|t| t.branch)
         .unwrap_or_default();
     let needles: Vec<String> = g.terms.iter().map(|t| t.to_lowercase()).collect();
-    if needles.is_empty() {
-        return None;
-    }
     let mut hits: Vec<RawHit> = Vec::new();
     let decoder = flate2::read::GzDecoder::new(&tarball[..]);
     let mut archive = tar::Archive::new(decoder);
@@ -135,16 +136,10 @@ pub(super) fn tarball_grep(
         if path.is_empty() {
             continue;
         }
-        let path_lower = path.to_lowercase();
-        if let Some(inline) = &g.extension
-            && !path_lower.ends_with(&format!(".{}", inline.to_lowercase()))
+        if !g.allows_path(path)
+            || !g.allows_repo(repo_full)
+            || (!extension.is_empty() && grammar::path_ext(path) != extension)
         {
-            continue;
-        }
-        if let Some(false) = grammar::lang_matches(&g.language, &path_lower) {
-            continue;
-        }
-        if let Some(true) = grammar::lang_matches(&g.negated_language, &path_lower) {
             continue;
         }
         let mut bytes = Vec::with_capacity(entry.size() as usize);
@@ -160,10 +155,25 @@ pub(super) fn tarball_grep(
         if !needles.iter().all(|n| text_lower.contains(n)) {
             continue;
         }
-        if g.negated.iter().any(|n| text_lower.contains(n)) {
+        if g.negated
+            .iter()
+            .any(|n| text_lower.contains(n) || path.to_lowercase().contains(n))
+        {
             continue;
         }
-        let Some((line, preview, count)) = locate_in_blob(&bytes, &needles) else {
+        let (line, preview, count) = if needles.is_empty() {
+            // A qualifier-only query is a legal path-only hit, not a failed
+            // content match; show the same three-line head as file find.
+            let preview = text
+                .lines()
+                .take(3)
+                .enumerate()
+                .map(|(i, line)| ((i + 1) as u32, line.to_string()))
+                .collect();
+            (1, preview, 0)
+        } else if let Some(located) = locate_in_blob(&bytes, &needles) {
+            located
+        } else {
             continue;
         };
         let sha = {

@@ -1,75 +1,44 @@
-# rootle build/test/release services (PLAN.md §13).
-#   docker compose run --rm test      # fmt + clippy + tests
-#   docker compose run --rm build     # debug build (warm cache check)
-#   docker compose run --rm -e VERSION=x.y.z release   # tarball → ./dist/
-
+# Always run gates with --build. Release platforms are native musl images;
+# an amd64 host needs registered arm64 binfmt/QEMU or an arm64 Docker worker.
 services:
   test:
     build:
       context: .
-      dockerfile: Dockerfile
       target: test
-    # The gate runs at image-build time (RUN steps); if the image
-    # exists, the gate passed. The command is just a confirmation.
-    command: 'echo "gate passed: fmt + clippy -D warnings + cargo test"'
-
-  # TLC model check of the provider protocol (plans/0027): base spec
-  # clean AND the kept mutant killed, both at image-build time.
+    command: 'echo "gate passed: fmt + clippy + tests"'
+  audit:
+    build:
+      context: .
+      target: audit
+    command: 'echo "gate passed: pinned RustSec audit"'
   model:
     build:
       context: .
-      dockerfile: Dockerfile
       target: model
-    # TLC runs at image-build time; the image existing IS the gate.
-    command: 'echo "gate passed: provider protocol model checks clean, kept mutant killed (TLC)"'
-
+    command: 'echo "gate passed: provider protocol model"'
+  proofs:
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: proofs/Dockerfile
+      target: gate
   build:
     build:
       context: .
-      dockerfile: Dockerfile
-      target: builder
-    command: cargo build --locked
-
-  # Exports a versioned tarball + checksum to ./dist/ (VERSION required,
-  # e.g. `docker compose run --build --rm -e VERSION=0.3.0 release`).
-  # The tarball layout is the install.sh contract:
-  #   rootle-<VERSION>-<TARGET>.tar.gz containing <dir>/rootle
-  release:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: builder
-    command:
-      - sh
-      - -c
-      - |
-        set -e
-        VERSION="$${VERSION:?set VERSION to the release version, e.g. -e VERSION=0.3.0}"
-        # Package triple — the release matrix overrides it per runner;
-        # the build itself is native to the container (rust:alpine is
-        # multi-arch, so an arm runner natively emits aarch64 musl).
-        TARGET="$${TARGET:-x86_64-unknown-linux-musl}"
-        PKG="rootle-$$VERSION-$$TARGET"
-        cargo build --release --locked \
-        && strip target/release/rootle \
-        && readelf -d target/release/rootle > /tmp/rootle-dynamic \
-        && ! grep -q '(NEEDED)' /tmp/rootle-dynamic \
-        && file target/release/rootle | grep -qE "static-pie linked|statically linked" \
-        && staging="$$(mktemp -d)" \
-        && mkdir -p "$$staging/$$PKG" \
-        && install -m755 target/release/rootle "$$staging/$$PKG/rootle" \
-        && tar -czf "/dist/$$PKG.tar.gz" -C "$$staging" "$$PKG" \
-        && cd /dist \
-        && sha256sum "$$PKG.tar.gz" > "$$PKG.tar.gz.sha256" \
-        && echo "released: /dist/$$PKG.tar.gz"
-    volumes:
-      - ./dist:/dist
-
+      target: test
+    command: /app/target/debug/rootle --version
   e2e:
     build:
       context: .
-      dockerfile: Dockerfile
       target: e2e
-    # PTY suite runs at container start (CMD in the Dockerfile); the
-    # `test`-stage gate + compile are reused from the image cache —
-    # `docker compose run --build --rm e2e` after source changes.
+  release:
+    platform: ${ROOTLE_PLATFORM:-linux/amd64}
+    build:
+      context: .
+      target: release
+    environment:
+      - VERSION
+      - TARGET
+      - SOURCE_DATE_EPOCH
+    volumes:
+      - ${ROOTLE_DIST:-./dist}:/dist

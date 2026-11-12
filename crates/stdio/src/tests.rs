@@ -12,6 +12,52 @@ use std::sync::Arc;
 use std::time::Duration;
 
 #[test]
+fn history_stream_and_legacy_reply_enforce_the_same_total_budget() {
+    for mode in ["history-stream", "history-single"] {
+        let provider = fake(mode, Duration::from_secs(5));
+        let mut entries = Vec::new();
+        let truncated = provider
+            .log(&"o/r".into(), None, None, Some(500), &mut |batch| {
+                entries.extend(batch)
+            })
+            .unwrap();
+        assert!(
+            truncated,
+            "local clipping must survive false provider metadata"
+        );
+        assert_eq!(
+            entries
+                .into_iter()
+                .map(|entry| entry.sha)
+                .collect::<Vec<_>>(),
+            (0..500)
+                .map(|index| format!("revision-{index}"))
+                .collect::<Vec<_>>(),
+        );
+    }
+}
+
+#[test]
+fn history_failure_keeps_received_commits_and_rejects_malformed_batches() {
+    for mode in ["history-die", "history-malformed"] {
+        let provider = fake(mode, Duration::from_secs(5));
+        let mut entries = Vec::new();
+        let result = provider.log(&"o/r".into(), None, None, Some(500), &mut |batch| {
+            entries.extend(batch)
+        });
+        assert!(result.is_err());
+        assert_eq!(
+            entries
+                .into_iter()
+                .map(|entry| entry.sha)
+                .collect::<Vec<_>>(),
+            (0..100)
+                .map(|index| format!("revision-{index}"))
+                .collect::<Vec<_>>(),
+        );
+    }
+}
+#[test]
 fn timeout_fails_request_and_transport_recovers() {
     let provider = fake("hang-on-2", Duration::from_millis(300));
     let start = std::time::Instant::now();

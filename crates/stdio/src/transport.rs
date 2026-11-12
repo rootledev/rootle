@@ -31,7 +31,7 @@ impl StdioProvider {
         &self,
         method: &str,
         params: Value,
-        on_partial: &(dyn Fn(&Value) + Send + Sync),
+        on_partial: &mut dyn FnMut(Value) -> ProviderResult<()>,
     ) -> ProviderResult<Value> {
         self.ensure_alive()?;
         let pending = self.send_request(method, params, true, true)?;
@@ -80,7 +80,7 @@ impl StdioProvider {
     fn await_reply(
         &self,
         pending: PendingReply,
-        on_partial: Option<&(dyn Fn(&Value) + Send + Sync)>,
+        mut on_partial: Option<&mut dyn FnMut(Value) -> ProviderResult<()>>,
     ) -> ProviderResult<Value> {
         let PendingReply {
             id,
@@ -94,8 +94,11 @@ impl StdioProvider {
                     // Only opted-in slots can receive this variant. A
                     // non-streaming call's deadline cannot be extended by
                     // unsolicited partial notifications.
-                    if let Some(on_partial) = on_partial {
-                        on_partial(&params);
+                    if let Some(on_partial) = on_partial.as_mut()
+                        && let Err(error) = on_partial(params)
+                    {
+                        self.shared.routing.lock().expire(id);
+                        return Err(error);
                     }
                 }
                 Ok(Delivery::Response(mut message)) => {

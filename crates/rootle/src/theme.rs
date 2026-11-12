@@ -1,12 +1,12 @@
-//! Themes: Catppuccin Mocha is the embedded default; the other famous
-//! dark palettes (Dracula, One Dark, Gruvbox Dark, Nord, Tokyo Night,
-//! Solarized Dark) plus four light ones (Catppuccin Latte, GitHub
-//! Light, One Light, Solarized Light) ship embedded too.
+//! Hone is the default, alongside all six original Strop palettes and
+//! the existing Catppuccin, Dracula, One, Gruvbox, Nord, Tokyo Night,
+//! Solarized and GitHub palettes.
 //! `~/.config/rootle/themes/<name>.toml` overrides merge on top of the
 //! embedded base — fork a builtin by writing a file with its name.
 
 mod diff;
 mod palettes;
+mod strop;
 
 use ratatui::style::Color;
 use ratatui::widgets::BorderType;
@@ -82,10 +82,10 @@ pub struct Semantic {
     pub mode_leader: Color,
     pub mode_visual: Color,
 
-    /// Background of the modeline's forge chip (active provider
-    /// identity); fg is `crust` like every chip. Defaults to each
-    /// palette's overlay/muted tone — quiet next to the mode chip.
+    /// Background of the modeline's provider identity chip.
     pub forge: Color,
+    /// Provider identity ink, separate from the mode chip's on-accent ink.
+    pub forge_fg: Color,
 
     pub badge_repo: Color,
     pub badge_org: Color,
@@ -121,6 +121,17 @@ pub struct Syntax {
     pub tag: Color,
     pub namespace: Color,
     pub invalid: Color,
+    /// Optional finer-grained inks; absent values follow the original
+    /// role mapping, including custom overrides of those parent roles.
+    pub number: Option<Color>,
+    pub attribute: Option<Color>,
+    pub operator: Option<Color>,
+    pub punctuation: Option<Color>,
+    pub variable: Option<Color>,
+    pub property: Option<Color>,
+    pub heading: Option<Color>,
+    pub link: Option<Color>,
+    pub code: Option<Color>,
 }
 
 /// Corner style for pane/popup borders; `[ui] border` in the config
@@ -164,6 +175,11 @@ impl BorderShape {
 /// inherit from here — every embedded theme is complete anyway, the
 /// inheritance exists for future partial palettes.
 impl Theme {
+    /// Fresh profiles use Hone; named legacy palettes remain unchanged.
+    pub fn hone() -> Self {
+        Self::embedded("hone").expect("Hone is an embedded palette")
+    }
+
     pub fn catppuccin_mocha() -> Self {
         Theme {
             semantic: Semantic {
@@ -194,6 +210,7 @@ impl Theme {
                 mode_visual: Color::from_u32(0xf5c2e7), // pink
 
                 forge: Color::from_u32(0x6c7086), // overlay0
+                forge_fg: Color::from_u32(0x11111b),
 
                 badge_repo: Color::from_u32(0x89b4fa), // blue
                 badge_org: Color::from_u32(0xfab387),  // peach
@@ -220,6 +237,15 @@ impl Theme {
                 tag: Color::from_u32(0xf38ba8),       // red
                 namespace: Color::from_u32(0x94e2d5), // teal
                 invalid: Color::from_u32(0xf38ba8),   // red
+                number: None,
+                attribute: None,
+                operator: None,
+                punctuation: None,
+                variable: None,
+                property: None,
+                heading: None,
+                link: None,
+                code: None,
             },
         }
     }
@@ -233,6 +259,9 @@ impl Theme {
                 let mut theme = Self::catppuccin_mocha();
                 for &(role, hex) in *roles {
                     set_role(&mut theme.semantic, role, Color::from_u32(hex));
+                }
+                if !roles.iter().any(|(role, _)| *role == "forge_fg") {
+                    theme.semantic.forge_fg = theme.semantic.crust;
                 }
                 for &(role, hex) in *syntax {
                     set_syntax_role(&mut theme.syntax, role, Color::from_u32(hex));
@@ -294,12 +323,12 @@ impl Theme {
         names
     }
 
-    /// Load the named theme: the embedded palette when known (Mocha
+    /// Load the named theme: the embedded palette when known (Hone
     /// otherwise), merged with `~/.config/rootle/themes/<name>.toml`
     /// overrides (missing file, malformed TOML, unknown roles, bad hex
     /// → silently keep defaults; theming must never crash the app).
     pub fn load(name: &str) -> Self {
-        let mut theme = Self::embedded(name).unwrap_or_else(Self::catppuccin_mocha);
+        let mut theme = Self::embedded(name).unwrap_or_else(Self::hone);
         let Some(dir) = rootle_provider::paths::config_dir() else {
             return theme;
         };
@@ -346,6 +375,15 @@ fn set_syntax_role(syn: &mut Syntax, role: &str, color: Color) {
         "tag" => syn.tag = color,
         "namespace" => syn.namespace = color,
         "invalid" => syn.invalid = color,
+        "number" => syn.number = Some(color),
+        "attribute" => syn.attribute = Some(color),
+        "operator" => syn.operator = Some(color),
+        "punctuation" => syn.punctuation = Some(color),
+        "variable" => syn.variable = Some(color),
+        "property" => syn.property = Some(color),
+        "heading" => syn.heading = Some(color),
+        "link" => syn.link = Some(color),
+        "code" => syn.code = Some(color),
         _ => {} // unknown role: ignored, not an error
     }
 }
@@ -377,6 +415,7 @@ fn set_role(sem: &mut Semantic, role: &str, color: Color) {
         "mode_leader" => sem.mode_leader = color,
         "mode_visual" => sem.mode_visual = color,
         "forge" => sem.forge = color,
+        "forge_fg" => sem.forge_fg = color,
         "badge_repo" => sem.badge_repo = color,
         "badge_org" => sem.badge_org = color,
         "search_match" => sem.search_match = color,
@@ -393,16 +432,23 @@ fn set_role(sem: &mut Semantic, role: &str, color: Color) {
 
 impl ThemeOverrides {
     fn apply(self, theme: &mut Theme) {
+        let forge_follows_crust = theme.semantic.forge_fg == theme.semantic.crust;
+        let diff_follows_browse = theme.semantic.diff_add_fg == theme.semantic.mode_browse;
         for (role, hex) in &self.semantic {
             if let Some(color) = parse_hex(hex) {
                 set_role(&mut theme.semantic, role, color);
             }
         }
+        if forge_follows_crust && !self.semantic.contains_key("forge_fg") {
+            theme.semantic.forge_fg = theme.semantic.crust;
+        }
         if ["base", "surface0", "mode_browse", "error"]
             .iter()
             .any(|role| self.semantic.contains_key(*role))
         {
-            diff::apply(&mut theme.semantic, |role| self.semantic.contains_key(role));
+            diff::apply(&mut theme.semantic, |role| {
+                self.semantic.contains_key(role) || (role == "diff_add_fg" && !diff_follows_browse)
+            });
         }
         for (role, hex) in self.syntax {
             if let Some(color) = parse_hex(&hex) {

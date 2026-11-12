@@ -5,16 +5,16 @@ use super::{ManagerError, Result};
 use serde::Deserialize;
 use std::time::Duration;
 
-/// The GitHub release this rootle downloads for (the 4-target matrix).
+#[cfg(not(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+)))]
+compile_error!("rootle supports Linux x86_64 and aarch64 only");
+
+/// The native Linux release target; GNU hosts use the static musl artifact.
 pub fn platform_target() -> &'static str {
-    if cfg!(target_os = "linux") && cfg!(target_arch = "aarch64") {
+    if cfg!(target_arch = "aarch64") {
         "aarch64-unknown-linux-musl"
-    } else if cfg!(target_os = "linux") {
-        "x86_64-unknown-linux-musl"
-    } else if cfg!(target_os = "macos") && cfg!(target_arch = "aarch64") {
-        "aarch64-apple-darwin"
-    } else if cfg!(target_os = "macos") {
-        "x86_64-apple-darwin"
     } else {
         "x86_64-unknown-linux-musl"
     }
@@ -275,21 +275,13 @@ mod tests {
                     name: "rootle-gitlab-0.1.0-aarch64-unknown-linux-musl.tar.gz".into(),
                     browser_download_url: "u2".into(),
                 },
-                Asset {
-                    name: "rootle-gitlab-0.1.0-x86_64-apple-darwin.tar.gz".into(),
-                    browser_download_url: "u3".into(),
-                },
-                Asset {
-                    name: "rootle-gitlab-0.1.0-aarch64-apple-darwin.tar.gz".into(),
-                    browser_download_url: "u4".into(),
-                },
             ],
         };
         assert_eq!(
-            pick_asset(&release, "aarch64-apple-darwin")
+            pick_asset(&release, "aarch64-unknown-linux-musl")
                 .unwrap()
                 .browser_download_url,
-            "u4"
+            "u2"
         );
         assert!(pick_asset(&release, "i686-unknown-linux-gnu").is_err());
     }

@@ -33,7 +33,7 @@ fn degraded_notice_is_sticky_and_tints_the_chip() {
     terminal.draw(|f| app.render(f, f.area())).unwrap();
     let buf = terminal.backend().buffer();
     let modeline_y = buf.area.height - 1;
-    let sem = rootle::theme::Theme::catppuccin_mocha().semantic;
+    let sem = rootle::theme::Theme::hone().semantic;
     let tinted = (0..buf.area.width).any(|x| buf[(x, modeline_y)].bg == sem.warning);
     assert!(tinted, "forge chip carries the warning tint while degraded");
 }

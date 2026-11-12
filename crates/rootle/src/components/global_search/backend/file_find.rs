@@ -10,11 +10,10 @@ pub(super) fn tree_file_find(
     extension: &str,
     on_hits: &(dyn Fn(Vec<RawHit>) + Send + Sync),
 ) -> rootle_provider::ProviderResult<SearchOutcome> {
+    let g = grammar::parse(query);
+    g.validate()?;
     let tree = provider.fetch_tree(&rootle_provider::RepoId::from(repo_full), None)?;
     let branch = tree.branch;
-    // v1.2 grammar (plans/0012 M1): quoted literals are one needle,
-    // negation subtracts, language:/extension: filter by extension.
-    let g = grammar::parse(query);
     let needles: Vec<String> = g.terms.iter().map(|t| t.to_lowercase()).collect();
     let ext = extension.trim_start_matches('.').to_lowercase();
     let mut scored: Vec<(i32, RawHit)> = Vec::new();
@@ -23,18 +22,10 @@ pub(super) fn tree_file_find(
             continue;
         }
         let path_lower = entry.path.to_lowercase();
-        if !ext.is_empty() && !path_lower.ends_with(&format!(".{ext}")) {
+        if !ext.is_empty() && grammar::path_ext(&entry.path) != ext {
             continue;
         }
-        if let Some(inline) = &g.extension
-            && !path_lower.ends_with(&format!(".{}", inline.to_lowercase()))
-        {
-            continue;
-        }
-        if let Some(false) = grammar::lang_matches(&g.language, &path_lower) {
-            continue;
-        }
-        if let Some(true) = grammar::lang_matches(&g.negated_language, &path_lower) {
+        if !g.allows_path(&entry.path) || !g.allows_repo(repo_full) {
             continue;
         }
         if g.negated.iter().any(|n| path_lower.contains(n)) {
