@@ -60,14 +60,30 @@ def infra():
     return records, configuration, client, state
 
 
-def admitted(version, dist):
+def admitted(version, dist, candidate=None):
     head, profile = source(version)
     records, configuration, client, state = infra()
     settings = configuration(state)
-    # freeze independently computes the source/profile/runtime candidate identity.
-    candidate = records.freeze(ROOT, state / 'inbox', settings['image'], settings['adapter_sha256'])
-    if candidate['inputs']['commit'] != head or candidate['inputs']['profile'] != profile:
-        raise ValueError('candidate source mismatch')
+    # A Git bundle is a serialization, not source identity: adding a tag or
+    # repacking can change its bytes without changing HEAD. Reuse the snapshot
+    # whose gates actually ran, then bind it independently to this checkout.
+    if candidate is None:
+        candidate = records.load_candidate(dist / 'candidate.json')
+    frozen = state / 'inbox' / candidate['candidate_id']
+    candidate = records.load_candidate(frozen / 'candidate.json')
+    inputs = candidate['inputs']
+    origins = text('git', 'config', '--get-all', 'remote.origin.url').splitlines()
+    if (inputs['commit'] != head
+            or inputs['tree'] != text('git', 'rev-parse', 'HEAD^{tree}')
+            or inputs['profile'] != profile
+            or inputs['repository'] != f'https://github.com/{REPO}.git'
+            or len(origins) != 1
+            or origins[0].removesuffix('.git') != inputs['repository'].removesuffix('.git')
+            or inputs['worker_image'] != settings['image']
+            or inputs['adapter_sha256'] != settings['adapter_sha256']):
+        raise ValueError('candidate source or runtime mismatch')
+    if records.sha256_file(frozen / 'source.bundle') != inputs['bundle_sha256']:
+        raise ValueError('frozen source bundle changed')
     evidence = state / 'archive' / candidate['candidate_id'] / 'evidence'
     qualification = records.admit(candidate, evidence)
     dist.mkdir(parents=True, exist_ok=True)
@@ -118,7 +134,7 @@ def main():
         print(json.dumps(client.submit(state, candidate['candidate_id']), indent=2), flush=True)
         env = dict(os.environ, PYTHONPATH=str(Path(os.environ.get('CI_INFRA_ROOT', '/home/tarek/workspace/ci-infra'))))
         run(sys.executable, '-m', 'ci_infra', '--state', str(state), 'watch', candidate['candidate_id'], env=env)
-        admitted(version, dist)
+        admitted(version, dist, candidate)
         return
     if command == 'package':
         dist.mkdir(parents=True, exist_ok=True)
