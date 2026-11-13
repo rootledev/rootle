@@ -9,4 +9,4 @@ description = "rootle's backend seam: the Provider trait and wire vocabulary sha
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
-dirs = "6"
+dirs = "7"
